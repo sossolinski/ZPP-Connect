@@ -261,7 +261,7 @@ postgresDescribe("Foundation Stage 3 PostgreSQL Passenger persistence and source
     const perRecordAudit = await prisma!.$queryRaw<Array<{ count: bigint }>>`
       SELECT count(*)::bigint AS count
       FROM "AuditLog" audit
-      JOIN "PassengerRecord" passenger ON passenger."id" = audit."entityId"
+      JOIN "PassengerRecord" passenger ON passenger."id"::text = audit."entityId"
       WHERE passenger."sourceBatchId" = ${validated.body.id}::uuid
         AND audit."action" = 'create_passenger_record'
     `;
