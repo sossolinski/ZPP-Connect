@@ -2299,6 +2299,13 @@ export function createDemoRouter(options: {
     void (async () => {
       const incidentContext = await incidentAccessService.authorize(accessActor, incidentId);
       if (requireWritable && !incidentContext.writable) throw new HttpError(409, "The selected incident is read-only");
+      if (incidentService.kind === "postgres") {
+        syncIncident(await incidentService.get(incidentId, {
+          ...accessActor,
+          displayName: req.user!.displayName,
+          requestId: req.requestId
+        }));
+      }
       if (hydrateEnquiryCompatibility && enquiryService.kind === "postgres" && can(req, "enquiry:read")) {
         let offset = 0;
         let total = 0;
