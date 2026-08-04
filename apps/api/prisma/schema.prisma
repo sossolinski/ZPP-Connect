@@ -1,0 +1,492 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id             String      @id @default(uuid()) @db.Uuid
+  email          String      @unique
+  displayName    String
+  department     String?
+  organizationId String?     @db.Uuid
+  status         String      @default("active")
+  createdAt      DateTime    @default(now())
+  updatedAt      DateTime    @updatedAt
+  organization   Organization? @relation(fields: [organizationId], references: [id], onDelete: SetNull)
+  roles          UserRole[]
+  createdSessions Session[]  @relation("SessionCreatedBy")
+  closedSessions  Session[]  @relation("SessionClosedBy")
+  approvedMatches MatchingRecord[] @relation("MatchApprovedBy")
+  authorizedReleases ReunificationReleaseRecord[] @relation("ReleaseAuthorizedBy")
+  completedReleases  ReunificationReleaseRecord[] @relation("ReleaseCompletedBy")
+  assignedAssignments AssignmentTask[] @relation("AssignmentAssignedTo")
+  incidentAssignments IncidentAssignment[] @relation("IncidentAssignedUser")
+  createdIncidentAssignments IncidentAssignment[] @relation("IncidentAssignmentCreator")
+  revokedIncidentAssignments IncidentAssignment[] @relation("IncidentAssignmentRevoker")
+  auditLogs      AuditLog[]  @relation("ActorAudit")
+
+  @@index([organizationId])
+}
+
+model Organization {
+  id           String   @id @default(uuid()) @db.Uuid
+  key          String   @unique
+  name         String
+  type         String?
+  status       String   @default("active")
+  contactEmail String?
+  description  String?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+  users        User[]
+
+  @@index([status, name])
+}
+
+model Role {
+  id          String     @id @default(uuid()) @db.Uuid
+  name        String     @unique
+  displayName String
+  description String?
+  permissions Json
+  createdAt   DateTime   @default(now())
+  updatedAt   DateTime   @updatedAt
+  users       UserRole[]
+}
+
+model UserRole {
+  userId     String   @db.Uuid
+  roleId     String   @db.Uuid
+  assignedAt DateTime @default(now())
+  assignedBy String?
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  role       Role     @relation(fields: [roleId], references: [id], onDelete: Cascade)
+
+  @@id([userId, roleId])
+}
+
+model Session {
+  id                   String    @id @default(uuid()) @db.Uuid
+  operationalId         String    @unique
+  mode                 String
+  status               String    @default("Draft")
+  eventType            String
+  flightNumber         String?
+  route                String?
+  aircraftRegistration String?
+  airportLocation      String?
+  description          String?
+  startAt              DateTime?
+  endAt                DateTime?
+  createdById          String?   @db.Uuid
+  closedById           String?   @db.Uuid
+  notes                String?
+  createdAt            DateTime  @default(now())
+  updatedAt            DateTime  @updatedAt
+  createdBy            User?     @relation("SessionCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
+  closedBy             User?     @relation("SessionClosedBy", fields: [closedById], references: [id], onDelete: SetNull)
+  enquiries            Enquiry[]
+  familyRecords        FamilyRecord[]
+  passengerRecords     PassengerRecord[]
+  matchingRecords      MatchingRecord[]
+  releases             ReunificationReleaseRecord[]
+  requests             WelfareRequest[]
+  assignments          AssignmentTask[]
+  timelineEvents       CaseTimelineEvent[]
+  importBatches        ImportBatch[]
+  files                StoredFile[]
+  exerciseInjects      ExerciseInject[]
+  exerciseObservations ExerciseObservation[]
+  incidentAssignments IncidentAssignment[]
+  auditLogs            AuditLog[]
+
+  @@index([mode, status])
+}
+
+model Enquiry {
+  id                  String   @id @default(uuid()) @db.Uuid
+  operationalId       String   @unique
+  sessionId           String   @db.Uuid
+  caseId              String?
+  contactChannel      String
+  callerName          String
+  callerPhone         String?
+  callerEmail         String?
+  callerLocation      String?
+  preferredLanguage   String?
+  claimedRelationship String?
+  passengerRecordId    String?  @db.Uuid
+  passengerFirstName  String?
+  passengerLastName   String?
+  passengerFlight     String?
+  passengerRoute      String?
+  lastKnownContact    String?
+  enquiryType         String
+  urgency             String  @default("Normal")
+  notes               String?
+  status              String  @default("New")
+  version             Int     @default(1)
+  createdById         String? @db.Uuid
+  updatedById         String? @db.Uuid
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+  session             Session @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  passengerRecord     PassengerRecord? @relation(fields: [passengerRecordId], references: [id], onDelete: SetNull)
+  matches             MatchingRecord[]
+  requests            WelfareRequest[]
+
+  @@index([sessionId, status, updatedAt])
+  @@index([caseId])
+  @@index([passengerRecordId])
+}
+
+model IncidentAssignment {
+  id          String    @id @default(uuid()) @db.Uuid
+  incidentId  String    @db.Uuid
+  userId      String    @db.Uuid
+  function    String?
+  scope       String    @default("OPERATIONAL")
+  active      Boolean   @default(true)
+  createdAt   DateTime  @default(now())
+  createdById String?   @db.Uuid
+  revokedAt   DateTime?
+  revokedById String?   @db.Uuid
+  revokeReason String?
+  updatedAt   DateTime  @updatedAt
+  incident    Session   @relation(fields: [incidentId], references: [id], onDelete: Cascade)
+  user        User      @relation("IncidentAssignedUser", fields: [userId], references: [id], onDelete: Cascade)
+  createdBy   User?     @relation("IncidentAssignmentCreator", fields: [createdById], references: [id], onDelete: SetNull)
+  revokedBy   User?     @relation("IncidentAssignmentRevoker", fields: [revokedById], references: [id], onDelete: SetNull)
+
+  @@unique([incidentId, userId])
+  @@index([userId, active])
+  @@index([incidentId, active])
+}
+
+model FamilyRecord {
+  id                      String   @id @default(uuid()) @db.Uuid
+  operationalId           String   @unique
+  sessionId               String   @db.Uuid
+  caseId                  String?
+  firstName               String
+  lastName                String
+  phone                   String?
+  email                   String?
+  preferredContactChannel String?
+  preferredLanguage       String?
+  location                String?
+  claimedRelationship     String?
+  passengerFirstName      String?
+  passengerLastName       String?
+  passengerFlight         String?
+  verificationStatus      String   @default("Unverified")
+  verificationNotes       String?
+  immediateNeeds          String?
+  questionsAsked          String?
+  commitmentsMade         String?
+  nextContactDue          DateTime?
+  assignedOfficer         String?
+  notes                   String?
+  createdById             String?  @db.Uuid
+  updatedById             String?  @db.Uuid
+  createdAt               DateTime @default(now())
+  updatedAt               DateTime @updatedAt
+  session                 Session  @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  matches                 MatchingRecord[]
+  requests                WelfareRequest[]
+  releases                ReunificationReleaseRecord[]
+
+  @@index([sessionId, verificationStatus])
+  @@index([caseId])
+}
+
+model PassengerRecord {
+  id                   String   @id @default(uuid()) @db.Uuid
+  operationalId         String   @unique
+  sessionId             String   @db.Uuid
+  caseId                String?
+  personType            String
+  firstName             String
+  lastName              String
+  dateOfBirth           DateTime?
+  age                   Int?
+  gender                String?
+  nationality           String?
+  flightNumber          String?
+  route                 String?
+  seat                  String?
+  pnr                   String?
+  ticketNumber          String?
+  manifestVersion       String?
+  source                String
+  travellingCompanions  String?
+  conditionStatus       String   @default("Unknown")
+  holdStatus            String   @default("No hold")
+  srcConfirmed          Boolean  @default(false)
+  notes                 String?
+  createdById           String?  @db.Uuid
+  updatedById           String?  @db.Uuid
+  createdAt             DateTime @default(now())
+  updatedAt             DateTime @updatedAt
+  session               Session  @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  enquiries             Enquiry[]
+  matches               MatchingRecord[]
+  requests              WelfareRequest[]
+  releases              ReunificationReleaseRecord[]
+
+  @@index([sessionId, conditionStatus])
+  @@index([caseId])
+}
+
+model MatchingRecord {
+  id                    String   @id @default(uuid()) @db.Uuid
+  operationalId          String   @unique
+  sessionId              String   @db.Uuid
+  caseId                 String?
+  enquiryId              String?  @db.Uuid
+  familyRecordId         String?  @db.Uuid
+  passengerRecordId      String?  @db.Uuid
+  status                 String   @default("Potential match")
+  matchScore             Float?
+  matchBasis             String?
+  verificationChecklist  Json?
+  holdCheck              String   @default("No hold")
+  decisionNotes          String?
+  coordinatorOverride    Boolean  @default(false)
+  overrideReason         String?
+  approvedById           String?  @db.Uuid
+  approvedAt             DateTime?
+  createdById            String?  @db.Uuid
+  updatedById            String?  @db.Uuid
+  createdAt              DateTime @default(now())
+  updatedAt              DateTime @updatedAt
+  session                Session  @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  enquiry                Enquiry? @relation(fields: [enquiryId], references: [id], onDelete: SetNull)
+  familyRecord           FamilyRecord? @relation(fields: [familyRecordId], references: [id], onDelete: SetNull)
+  passengerRecord        PassengerRecord? @relation(fields: [passengerRecordId], references: [id], onDelete: SetNull)
+  approvedBy             User? @relation("MatchApprovedBy", fields: [approvedById], references: [id], onDelete: SetNull)
+  releases               ReunificationReleaseRecord[]
+
+  @@index([sessionId, status])
+  @@index([caseId])
+}
+
+model ReunificationReleaseRecord {
+  id                  String   @id @default(uuid()) @db.Uuid
+  operationalId        String   @unique
+  sessionId            String   @db.Uuid
+  matchId              String?  @db.Uuid
+  passengerRecordId    String?  @db.Uuid
+  familyRecordId       String?  @db.Uuid
+  actionType           String   @default("Reunification")
+  status               String   @default("Prepared")
+  releaseDestination   String?
+  receivingParty       String?
+  identityChecked      Boolean  @default(false)
+  holdCleared          Boolean  @default(false)
+  transportMode        String?
+  authorizedById       String?  @db.Uuid
+  completedById        String?  @db.Uuid
+  completedAt          DateTime?
+  notes                String?
+  createdAt            DateTime @default(now())
+  updatedAt            DateTime @updatedAt
+  session              Session  @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  match                MatchingRecord? @relation(fields: [matchId], references: [id], onDelete: SetNull)
+  passengerRecord      PassengerRecord? @relation(fields: [passengerRecordId], references: [id], onDelete: SetNull)
+  familyRecord         FamilyRecord? @relation(fields: [familyRecordId], references: [id], onDelete: SetNull)
+  authorizedBy         User? @relation("ReleaseAuthorizedBy", fields: [authorizedById], references: [id], onDelete: SetNull)
+  completedBy          User? @relation("ReleaseCompletedBy", fields: [completedById], references: [id], onDelete: SetNull)
+
+  @@index([sessionId, status])
+}
+
+model WelfareRequest {
+  id                  String   @id @default(uuid()) @db.Uuid
+  operationalId        String   @unique
+  sessionId            String   @db.Uuid
+  caseId               String?
+  relatedEnquiryId     String?  @db.Uuid
+  relatedFamilyRecordId String? @db.Uuid
+  relatedPassengerRecordId String? @db.Uuid
+  category             String
+  priority             String   @default("Normal")
+  requester            String?
+  ownerAssignedTo      String?
+  details              String
+  approvalStatus       String   @default("Not required")
+  status               String   @default("Open")
+  closureNote          String?
+  notes                String?
+  createdById          String?  @db.Uuid
+  updatedById          String?  @db.Uuid
+  createdAt            DateTime @default(now())
+  updatedAt            DateTime @updatedAt
+  session              Session  @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  relatedEnquiry       Enquiry? @relation(fields: [relatedEnquiryId], references: [id], onDelete: SetNull)
+  relatedFamilyRecord  FamilyRecord? @relation(fields: [relatedFamilyRecordId], references: [id], onDelete: SetNull)
+  relatedPassengerRecord PassengerRecord? @relation(fields: [relatedPassengerRecordId], references: [id], onDelete: SetNull)
+
+  @@index([sessionId, status])
+  @@index([caseId])
+}
+
+model AssignmentTask {
+  id              String   @id @default(uuid()) @db.Uuid
+  operationalId   String   @unique
+  sessionId       String   @db.Uuid
+  caseId          String?
+  title           String
+  details         String?
+  status          String   @default("Open")
+  priority        String   @default("Normal")
+  ownerAssignedTo String?
+  assignedUserId  String?  @db.Uuid
+  assignedUserDisplayName String?
+  relatedFunction String?
+  linkedRecord    String?
+  dueAt           DateTime?
+  createdById     String?  @db.Uuid
+  updatedById     String?  @db.Uuid
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+  session         Session  @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  assignedUser    User?    @relation("AssignmentAssignedTo", fields: [assignedUserId], references: [id], onDelete: SetNull)
+
+  @@index([sessionId, status])
+  @@index([caseId])
+  @@index([ownerAssignedTo])
+  @@index([assignedUserId])
+}
+
+model CaseTimelineEvent {
+  id          String   @id @default(uuid()) @db.Uuid
+  sessionId   String   @db.Uuid
+  caseId      String?
+  eventType   String
+  entityType  String?
+  entityId    String?
+  title       String
+  body        String?
+  metadata    Json?
+  occurredAt  DateTime @default(now())
+  createdById String?  @db.Uuid
+  createdAt   DateTime @default(now())
+  session     Session  @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+
+  @@index([sessionId, caseId, occurredAt])
+}
+
+model ImportBatch {
+  id             String   @id @default(uuid()) @db.Uuid
+  operationalId  String   @unique
+  sessionId      String?  @db.Uuid
+  importType     String
+  sourceFilename String?
+  status         String   @default("Validated")
+  totalRecords   Int      @default(0)
+  validRecords   Int      @default(0)
+  invalidRecords Int      @default(0)
+  errors         Json?
+  createdById    String?  @db.Uuid
+  createdAt      DateTime @default(now())
+  session        Session? @relation(fields: [sessionId], references: [id], onDelete: SetNull)
+}
+
+model StoredFile {
+  id              String   @id @default(uuid()) @db.Uuid
+  operationalId   String   @unique
+  sessionId       String?  @db.Uuid
+  importBatchId   String?  @db.Uuid
+  fileName        String
+  mimeType        String?
+  sizeBytes       BigInt   @default(0)
+  storageProvider String   @default("local")
+  storageKey      String
+  entityType      String?
+  entityId        String?
+  createdById     String?  @db.Uuid
+  createdAt       DateTime @default(now())
+  session         Session? @relation(fields: [sessionId], references: [id], onDelete: SetNull)
+}
+
+model ExerciseInject {
+  id             String   @id @default(uuid()) @db.Uuid
+  operationalId  String   @unique
+  sessionId      String   @db.Uuid
+  injectNumber   Int
+  scenarioTime   DateTime?
+  targetRole     String
+  text           String
+  expectedAction String?
+  status         String   @default("Planned")
+  releasedById   String?  @db.Uuid
+  releasedAt     DateTime?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+  session        Session  @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+
+  @@unique([sessionId, injectNumber])
+  @@index([sessionId, status])
+}
+
+model ExerciseObservation {
+  id              String   @id @default(uuid()) @db.Uuid
+  operationalId   String   @unique
+  sessionId       String   @db.Uuid
+  area            String
+  observation     String
+  severity        String   @default("Low")
+  recommendation  String?
+  owner           String?
+  includeInAar    Boolean  @default(true)
+  status          String   @default("Open")
+  createdById     String?  @db.Uuid
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+  session         Session  @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+
+  @@index([sessionId, severity])
+}
+
+model Dictionary {
+  id          String   @id @default(uuid()) @db.Uuid
+  profile     String   @default("lot-zpp")
+  category    String
+  key         String
+  label       String
+  description String?
+  sortOrder   Int      @default(0)
+  isActive    Boolean  @default(true)
+  metadata    Json?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@unique([profile, category, key])
+  @@index([profile, category, isActive])
+}
+
+model AuditLog {
+  id          String   @id @default(uuid()) @db.Uuid
+  action      String
+  entityType  String?
+  entityId    String?
+  sessionId   String?  @db.Uuid
+  actorId     String?  @db.Uuid
+  actorEmail  String?
+  summary     String
+  metadata    Json?
+  ipAddress   String?
+  userAgent   String?
+  createdAt   DateTime @default(now())
+  session     Session? @relation(fields: [sessionId], references: [id], onDelete: SetNull)
+  actor       User?    @relation("ActorAudit", fields: [actorId], references: [id], onDelete: SetNull)
+
+  @@index([sessionId, createdAt])
+  @@index([action, createdAt])
+  @@index([entityType, entityId])
+}

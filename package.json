@@ -1,0 +1,31 @@
+{
+  "name": "zpp-connect",
+  "version": "0.1.0",
+  "private": true,
+  "description": "ZPP Connect - Family Assistance, Next-of-Kin Matching and Reunification Platform",
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "dev": "npm run build -w @zpp/shared && concurrently -n api,web -c cyan,magenta \"npm run dev -w @zpp/api\" \"npm run dev -w @zpp/web\"",
+    "check": "npm run typecheck && npm test && npm run build && npm audit --omit=dev && npm run test:smoke",
+    "build": "npm run build -w @zpp/shared && npm run build -w @zpp/api && npm run build -w @zpp/web",
+    "lint": "npm run lint -w @zpp/api && npm run lint -w @zpp/web",
+    "typecheck": "npm run build -w @zpp/shared && npm run typecheck -w @zpp/api && npm run typecheck -w @zpp/web",
+    "test:smoke": "playwright test",
+    "test:smoke:install": "playwright install chromium",
+    "db:generate": "npm run prisma:generate -w @zpp/api",
+    "db:migrate": "npm run prisma:migrate -w @zpp/api",
+    "db:seed": "npm run prisma:seed -w @zpp/api",
+    "test:postgres": "npm run test:postgres -w @zpp/api",
+    "test": "npm run test -w @zpp/api"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.61.1",
+    "concurrently": "^9.1.2"
+  }
+}

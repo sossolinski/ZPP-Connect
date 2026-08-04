@@ -1,0 +1,166 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+
+jobs:
+  foundation-postgres:
+    name: Foundation PostgreSQL Gate
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: zpp
+          POSTGRES_PASSWORD: zpp
+          POSTGRES_DB: zpp_connect_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U zpp -d zpp_connect_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    env:
+      NODE_ENV: test
+      AUTH_MODE: dev
+      PERSISTENCE_MODE: postgres
+      DATABASE_URL: postgresql://zpp:zpp@127.0.0.1:5432/zpp_connect_test?schema=public
+      TEST_DATABASE_URL: postgresql://zpp:zpp@127.0.0.1:5432/zpp_connect_test?schema=public
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Fresh database migration
+        run: npm run prisma:deploy -w @zpp/api
+
+      - name: Seed database
+        run: npm run prisma:seed -w @zpp/api
+
+      - name: Build API for startup gate
+        run: |
+          npm run build -w @zpp/shared
+          npm run build -w @zpp/api
+
+      - name: Start API against PostgreSQL
+        run: |
+          npm start -w @zpp/api > api-startup.log 2>&1 &
+          api_pid=$!
+          trap 'kill "$api_pid" 2>/dev/null || true' EXIT
+          ready=false
+          for attempt in $(seq 1 30); do
+            if curl --fail --silent http://127.0.0.1:4000/api/health > /dev/null; then
+              ready=true
+              break
+            fi
+            sleep 1
+          done
+          if [ "$ready" != "true" ]; then
+            sed -n '1,240p' api-startup.log
+            exit 1
+          fi
+          curl --fail --silent http://127.0.0.1:4000/api/health
+          kill "$api_pid"
+          wait "$api_pid" || true
+
+      - name: PostgreSQL Foundation Stage 1, 2 and 2.5 integration tests
+        run: npm run test:postgres
+
+      - name: Rehearse IncidentAssignment backfill from pre-Stage-2 data
+        env:
+          PGPASSWORD: zpp
+          BACKFILL_DATABASE_URL: postgresql://zpp:zpp@127.0.0.1:5432/zpp_backfill_test?schema=public
+          BACKFILL_PSQL_URL: postgresql://zpp:zpp@127.0.0.1:5432/zpp_backfill_test
+        run: |
+          createdb --host=127.0.0.1 --username=zpp zpp_backfill_test
+          migration_workspace=$(mktemp -d)
+          trap 'dropdb --if-exists --host=127.0.0.1 --username=zpp zpp_backfill_test; rm -rf "$migration_workspace"' EXIT
+          cp apps/api/prisma/schema.prisma "$migration_workspace/schema.prisma"
+          mkdir -p "$migration_workspace/migrations"
+          cp apps/api/prisma/migrations/migration_lock.toml "$migration_workspace/migrations/migration_lock.toml"
+          cp -R apps/api/prisma/migrations/20260701000000_baseline "$migration_workspace/migrations/"
+          cp -R apps/api/prisma/migrations/20260712090000_assignment_identity "$migration_workspace/migrations/"
+          DATABASE_URL="$BACKFILL_DATABASE_URL" npx prisma migrate deploy --schema "$migration_workspace/schema.prisma"
+          psql "$BACKFILL_PSQL_URL" --set=ON_ERROR_STOP=1 <<'SQL'
+          INSERT INTO "User" ("id", "email", "displayName", "status", "updatedAt")
+          VALUES ('10000000-0000-4000-8000-000000000001', 'backfill@example.test', 'Backfill Test', 'active', CURRENT_TIMESTAMP);
+          INSERT INTO "Session" ("id", "operationalId", "mode", "status", "eventType", "createdById", "updatedAt")
+          VALUES ('20000000-0000-4000-8000-000000000001', 'BACKFILL-001', 'TRAINING', 'Draft', 'Backfill test', '10000000-0000-4000-8000-000000000001', CURRENT_TIMESTAMP);
+          SQL
+          cp -R apps/api/prisma/migrations/20260804000000_enquiry_incident_isolation "$migration_workspace/migrations/"
+          cp -R apps/api/prisma/migrations/20260804010000_incident_assignment_lifecycle "$migration_workspace/migrations/"
+          DATABASE_URL="$BACKFILL_DATABASE_URL" npx prisma migrate deploy --schema "$migration_workspace/schema.prisma"
+          assignment_count=$(psql "$BACKFILL_PSQL_URL" --tuples-only --no-align --command='SELECT count(*) FROM "IncidentAssignment" WHERE "incidentId" = '\''20000000-0000-4000-8000-000000000001'\'' AND "userId" = '\''10000000-0000-4000-8000-000000000001'\'' AND active = true;')
+          test "$assignment_count" = "1"
+
+  quality:
+    name: Typecheck, Unit, Build and Browser
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      NODE_ENV: test
+      AUTH_MODE: dev
+      PERSISTENCE_MODE: memory
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Install Playwright browsers
+        run: npx playwright install --with-deps chromium
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: API tests
+        run: npm test
+
+      - name: Build
+        run: npm run build
+
+      - name: Browser smoke tests
+        run: npm run test:smoke
+
+  dependency-security:
+    name: Production Dependency Audit
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Production dependency audit
+        run: npm audit --omit=dev
