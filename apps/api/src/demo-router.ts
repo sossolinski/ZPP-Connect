@@ -62,6 +62,12 @@ import { createIncidentAssignmentRouter } from "./modules/incident-assignments/i
 import { createIncidentAssignmentService } from "./modules/incident-assignments/incident-assignment-service.js";
 import { createMemoryIncidentAssignmentRepository } from "./modules/incident-assignments/memory-incident-assignment-repository.js";
 import type { IncidentAssignmentRepository } from "./modules/incident-assignments/incident-assignment-repository.js";
+import { createPassengerRouter } from "./modules/passengers/passenger-router.js";
+import { createPassengerService } from "./modules/passengers/passenger-service.js";
+import { createMemoryPassengerRepository } from "./modules/passengers/memory-passenger-repository.js";
+import type { PassengerRepository } from "./modules/passengers/passenger-repository.js";
+import type { PassengerActor, PassengerImportInput } from "./modules/passengers/passenger-types.js";
+import { validatePassengerManifestRows } from "./modules/passengers/passenger-import.js";
 
 type Row = Record<string, any>;
 type AccountStatus = "Pending" | "Active" | "Suspended" | "Archived";
@@ -1001,7 +1007,6 @@ const resources: Record<string, Row[]> = {
   sessions,
   enquiries,
   "family-records": familyRecords,
-  "passenger-records": passengerRecords,
   "matching-records": matchingRecords,
   releases,
   requests,
@@ -1018,7 +1023,6 @@ const idPrefixes: Record<string, string> = {
   sessions: "SES",
   enquiries: "TEC",
   "family-records": "FAM",
-  "passenger-records": "PAX",
   "matching-records": "MAT",
   releases: "REL",
   requests: "REQ",
@@ -1679,7 +1683,7 @@ function createRow(resource: string, body: Row, req?: Request) {
   const user = req ? currentUser(req) : undefined;
   const row: Row = {
     ...body,
-    id: `${prefix.toLowerCase()}-demo-${nextNumber}`,
+    id: body.id ?? `${prefix.toLowerCase()}-demo-${nextNumber}`,
     operationalId: body.operationalId ?? `${prefix}-2026-${String(nextNumber).padStart(prefix === "SES" ? 3 : 6, "0")}`,
     createdById: body.createdById ?? user?.id,
     updatedById: body.updatedById ?? user?.id,
@@ -2016,76 +2020,6 @@ function dashboard(req: Request, sessionId: string) {
   };
 }
 
-function manifestCell(row: Row, ...keys: string[]) {
-  for (const key of keys) {
-    const value = row[key];
-    if (value !== undefined && value !== null && String(value).trim() !== "") return String(value).trim();
-  }
-  return undefined;
-}
-
-function parseDemoManifestRow(rawRow: Row, sessionId: string) {
-  const row = normalizeRow(rawRow) as Row;
-  const firstName = manifestCell(row, "firstName", "first_name");
-  const lastName = manifestCell(row, "lastName", "last_name");
-  if (!firstName) throw new Error("firstName is required");
-  if (!lastName) throw new Error("lastName is required");
-  const personType = manifestCell(row, "personType", "person_type") ?? "Passenger";
-  if (!dictionaries.personTypes.includes(personType as (typeof dictionaries.personTypes)[number])) {
-    throw new Error("personType must be Passenger or Crew");
-  }
-  const ageValue = manifestCell(row, "age");
-  let age: number | undefined;
-  if (ageValue !== undefined) {
-    const parsedAge = Number(ageValue);
-    if (!Number.isInteger(parsedAge) || parsedAge < 0 || parsedAge > 130) {
-      throw new Error("age must be a whole number between 0 and 130");
-    }
-    age = parsedAge;
-  }
-  return {
-    sessionId,
-    caseId: manifestCell(row, "caseId", "case_id"),
-    personType,
-    firstName,
-    lastName,
-    dateOfBirth: manifestCell(row, "dateOfBirth", "date_of_birth"),
-    age,
-    gender: manifestCell(row, "gender"),
-    nationality: manifestCell(row, "nationality"),
-    flightNumber: manifestCell(row, "flightNumber", "flight_number"),
-    route: manifestCell(row, "route"),
-    seat: manifestCell(row, "seat"),
-    pnr: manifestCell(row, "pnr"),
-    ticketNumber: manifestCell(row, "ticketNumber", "ticket_number"),
-    manifestVersion: manifestCell(row, "manifestVersion", "manifest_version"),
-    source: manifestCell(row, "source") ?? "Manifest",
-    conditionStatus: manifestCell(row, "conditionStatus", "condition_status") ?? "Unknown",
-    holdStatus: manifestCell(row, "holdStatus", "hold_status") ?? "No hold",
-    travellingCompanions: manifestCell(row, "travellingCompanions", "travelling_companions"),
-    notes: manifestCell(row, "notes")
-  };
-}
-
-function validateDemoManifestRows(rows: Row[], sessionId: string) {
-  const errors: Array<{ row: number; error: string }> = [];
-  const validRows: Row[] = [];
-  const previewRows: Row[] = [];
-  rows.forEach((row, index) => {
-    const rowNumber = index + 2;
-    try {
-      const parsed = parseDemoManifestRow(row, sessionId);
-      validRows.push(parsed);
-      if (previewRows.length < 10) previewRows.push({ row: rowNumber, status: "valid", values: normalizeRow(row) });
-    } catch (error) {
-      const message = error instanceof Error ? error.message : "Invalid row";
-      errors.push({ row: rowNumber, error: message });
-      if (previewRows.length < 10) previewRows.push({ row: rowNumber, status: "invalid", values: normalizeRow(row), error: message });
-    }
-  });
-  return { validRows, errors, previewRows };
-}
-
 function ensureWritableSession(sessionId: string) {
   const session = sessions.find((item) => item.id === sessionId);
   if (!session) throw new DirectoryError(404, "Session not found");
@@ -2098,6 +2032,7 @@ export function createDemoRouter(options: {
   enquiryRepository?: EnquiryRepository;
   incidentAccessRepository?: IncidentAccessRepository;
   incidentAssignmentRepository?: IncidentAssignmentRepository;
+  passengerRepository?: PassengerRepository;
 } = {}) {
   const router = Router();
   const memoryIncidentAssignments: MemoryIncidentAssignment[] = sessions.flatMap((incident) =>
@@ -2148,7 +2083,16 @@ export function createDemoRouter(options: {
     now
   });
   const enquiryService = createEnquiryService(enquiryRepository, incidentAccessService);
+  const passengerRepository = options.passengerRepository ?? createMemoryPassengerRepository({
+    passengers: passengerRecords,
+    importBatches,
+    auditLogs,
+    timeline,
+    now
+  });
+  const passengerService = createPassengerService(passengerRepository, incidentAccessService);
   if (enquiryRepository.kind === "postgres") enquiries.splice(0, enquiries.length);
+  if (passengerRepository.kind === "postgres") passengerRecords.splice(0, passengerRecords.length);
   const syncIncident = (record: Record<string, unknown>) => {
     const index = sessions.findIndex((item) => item.id === record.id);
     if (index >= 0) sessions[index] = { ...record };
@@ -2158,6 +2102,11 @@ export function createDemoRouter(options: {
     const index = enquiries.findIndex((item) => item.id === record.id);
     if (index >= 0) enquiries[index] = { ...record };
     else enquiries.unshift({ ...record });
+  };
+  const syncPassenger = (record: Record<string, unknown>) => {
+    const index = passengerRecords.findIndex((item) => item.id === record.id);
+    if (index >= 0) passengerRecords[index] = { ...record };
+    else passengerRecords.unshift({ ...record });
   };
   const memberDirectory = createMemberDirectoryRepository(users.map((user) => ({ id: user.id, email: user.email, displayName: user.displayName, roles: user.roles })));
   memberDirectoryForAdmin = memberDirectory;
@@ -2327,7 +2276,20 @@ export function createDemoRouter(options: {
       : undefined,
     onChange: enquiryService.kind === "postgres" ? syncEnquiry : undefined
   }));
-  const requireIncidentAccess = (resolveIncidentId: (req: Request) => string, hydrateEnquiryCompatibility = false) => (req: Request, _res: any, next: NextFunction) => {
+  router.use(createPassengerRouter(passengerService, {
+    onList: passengerService.kind === "postgres"
+      ? (records, incidentId, offset) => {
+          if (offset === 0) {
+            for (let index = passengerRecords.length - 1; index >= 0; index -= 1) {
+              if (passengerRecords[index]?.sessionId === incidentId) passengerRecords.splice(index, 1);
+            }
+          }
+          records.forEach(syncPassenger);
+        }
+      : undefined,
+    onChange: passengerService.kind === "postgres" ? syncPassenger : undefined
+  }));
+  const requireIncidentAccess = (resolveIncidentId: (req: Request) => string, hydrateEnquiryCompatibility = false, requireWritable = false) => (req: Request, _res: any, next: NextFunction) => {
     const incidentId = resolveIncidentId(req);
     if (!req.user || !incidentId) {
       next(new HttpError(400, "Incident is required."));
@@ -2335,7 +2297,8 @@ export function createDemoRouter(options: {
     }
     const accessActor = { id: req.user.id, email: req.user.email, roles: req.user.roles };
     void (async () => {
-      await incidentAccessService.authorize(accessActor, incidentId);
+      const incidentContext = await incidentAccessService.authorize(accessActor, incidentId);
+      if (requireWritable && !incidentContext.writable) throw new HttpError(409, "The selected incident is read-only");
       if (hydrateEnquiryCompatibility && enquiryService.kind === "postgres" && can(req, "enquiry:read")) {
         let offset = 0;
         let total = 0;
@@ -2351,6 +2314,27 @@ export function createDemoRouter(options: {
           if (enquiries[index]?.sessionId === incidentId) enquiries.splice(index, 1);
         }
         records.forEach(syncEnquiry);
+      }
+      if (hydrateEnquiryCompatibility && passengerService.kind === "postgres" && can(req, "passenger:read")) {
+        let offset = 0;
+        let total = 0;
+        const records: Row[] = [];
+        do {
+          const page = await passengerService.list(accessActor, incidentId, {
+            limit: 200,
+            offset,
+            sortBy: "updatedAt",
+            sortDirection: "desc"
+          });
+          total = page.total;
+          records.push(...page.data);
+          if (page.data.length === 0) break;
+          offset += page.data.length;
+        } while (offset < total);
+        for (let index = passengerRecords.length - 1; index >= 0; index -= 1) {
+          if (passengerRecords[index]?.sessionId === incidentId) passengerRecords.splice(index, 1);
+        }
+        records.forEach(syncPassenger);
       }
       next();
     })().catch(next);
@@ -2802,7 +2786,6 @@ export function createDemoRouter(options: {
 
   const demoResourceRoutes = [
     { resource: "family-records", read: "family:read", create: "family:create", update: "family:update" },
-    { resource: "passenger-records", read: "passenger:read", create: "passenger:create", update: "passenger:update" },
     { resource: "requests", read: "request:read", create: "request:create", update: "request:update" },
     { resource: "files", read: "import:create", create: "import:create", update: "import:create" },
     { resource: "exercise/injects", read: "exercise:manage", create: "exercise:manage", update: "exercise:manage" },
@@ -2849,8 +2832,8 @@ export function createDemoRouter(options: {
   });
   router.get("/audit-logs", requirePermission("audit:read"), (req, res) => res.json(listRows("audit-logs", req)));
 
-  router.get("/matching-records", requirePermission("matching:read"), (req, res) => res.json(listRows("matching-records", req)));
-  router.post("/matching-records", requirePermission("matching:create"), (req, res) => {
+  router.get("/matching-records", requirePermission("matching:read"), requireIncidentAccess((req) => String(req.query.sessionId ?? ""), true), (req, res) => res.json(listRows("matching-records", req)));
+  router.post("/matching-records", requirePermission("matching:create"), requireIncidentAccess((req) => String(req.body?.sessionId ?? ""), true), (req, res) => {
     const body = { ...req.body, status: "Potential match", holdCheck: "No hold", decisionNotes: undefined };
     const issue = demoMatchingLinkError(body);
     if (issue) {
@@ -2864,7 +2847,7 @@ export function createDemoRouter(options: {
     addTimeline(req, { sessionId: row.sessionId, caseId: row.caseId, eventType: "matching", entityType: "matchingRecord", entityId: row.id, title: `Potential match ${row.operationalId} created`, body: row.matchBasis });
     res.status(201).json(row);
   });
-  router.patch("/matching-records/:id", requirePermission("matching:create"), (req, res) => {
+  router.patch("/matching-records/:id", requirePermission("matching:create"), requireIncidentAccess((req) => String(matchingRecords.find((item) => item.id === req.params.id)?.sessionId ?? req.body?.sessionId ?? ""), true), (req, res) => {
     const existing = matchingRecords.find((item) => item.id === req.params.id);
     if (!existing) {
       res.status(404).json({ error: "Matching record not found" });
@@ -2882,8 +2865,8 @@ export function createDemoRouter(options: {
     res.json(row);
   });
 
-  router.get("/releases", requirePermission("release:read"), (req, res) => res.json(listRows("releases", req)));
-  router.post("/releases", requirePermission("release:create"), (req, res) => {
+  router.get("/releases", requirePermission("release:read"), requireIncidentAccess((req) => String(req.query.sessionId ?? ""), true), (req, res) => res.json(listRows("releases", req)));
+  router.post("/releases", requirePermission("release:create"), requireIncidentAccess((req) => String(req.body?.sessionId ?? ""), true), (req, res) => {
     const issue = demoReleaseMatchError(req.body ?? {});
     if (issue) {
       res.status(issue.status).json({ error: issue.error });
@@ -2904,7 +2887,7 @@ export function createDemoRouter(options: {
     addAudit(req, "prepare_release", `${row.actionType} ${row.operationalId} prepared`, row.sessionId, undefined, "reunificationReleaseRecord", row.id);
     res.status(201).json(row);
   });
-  router.patch("/releases/:id", requirePermission("release:create"), (req, res) => {
+  router.patch("/releases/:id", requirePermission("release:create"), requireIncidentAccess((req) => String(releases.find((item) => item.id === req.params.id)?.sessionId ?? req.body?.sessionId ?? ""), true), (req, res) => {
     const existing = releases.find((item) => item.id === req.params.id);
     if (!existing) {
       res.status(404).json({ error: "Release/reunification record not found" });
@@ -2925,7 +2908,7 @@ export function createDemoRouter(options: {
     res.json(row);
   });
 
-  router.get("/matching-records/suggestions", requirePermission("matching:read"), (_req, res) => {
+  router.get("/matching-records/suggestions", requirePermission("matching:read"), requireIncidentAccess((req) => String(req.query.sessionId ?? ""), true), (_req, res) => {
     res.json({ data: [] });
   });
 
@@ -2953,9 +2936,9 @@ export function createDemoRouter(options: {
     res.json(row);
   });
   router.post("/family-records/:id/mark-disputed", requirePermission("family:update"), (req, res) => res.json(updateRow("family-records", String(req.params.id), { verificationStatus: "Disputed", verificationNotes: req.body?.verificationNotes }, req)));
-  router.post("/passenger-records/:id/mark-src-confirmed", requirePermission("passenger:srcConfirm"), (req, res) => res.json(updateRow("passenger-records", String(req.params.id), { srcConfirmed: true }, req)));
-
-  router.post("/matching-records/:id/:action", (req, res) => {
+  router.post("/matching-records/:id/:action", requireIncidentAccess((req) => String(matchingRecords.find((item) => item.id === req.params.id)?.sessionId ?? req.body?.sessionId ?? ""), true), (req, res) => {
+    const action = String(req.params.action);
+    const matchingId = String(req.params.id);
     const permissionByAction: Record<string, string> = {
       verify: "matching:verify",
       reject: "matching:reject",
@@ -2964,7 +2947,7 @@ export function createDemoRouter(options: {
       "mark-reunited": "matching:reunite",
       "mark-released": "matching:release"
     };
-    const requiredPermission = permissionByAction[req.params.action];
+    const requiredPermission = permissionByAction[action];
     if (!requiredPermission || !can(req, requiredPermission)) {
       res.status(403).json({ error: "Forbidden" });
       return;
@@ -2978,17 +2961,17 @@ export function createDemoRouter(options: {
       "mark-released": "Released"
     };
     const patch: Row = {
-      status: statusByAction[req.params.action] ?? "Potential match",
+      status: statusByAction[action] ?? "Potential match",
       decisionNotes: req.body?.decisionNotes
     };
-    if (req.params.action === "hold") patch.holdCheck = req.body?.holdCheck ?? "Identity verification hold";
-    if (req.params.action === "clear-hold") patch.holdCheck = "No hold";
-    const row = updateRow("matching-records", req.params.id, patch, req);
-    addAudit(req, req.params.action, `Matching action ${req.params.action}`, row?.sessionId ?? "ses-demo-1", undefined, "matchingRecord", row?.id ?? req.params.id);
+    if (action === "hold") patch.holdCheck = req.body?.holdCheck ?? "Identity verification hold";
+    if (action === "clear-hold") patch.holdCheck = "No hold";
+    const row = updateRow("matching-records", matchingId, patch, req);
+    addAudit(req, action, `Matching action ${action}`, row?.sessionId ?? "ses-demo-1", undefined, "matchingRecord", row?.id ?? matchingId);
     res.json(row ?? { error: "Not found" });
   });
 
-  router.post("/releases/:id/complete", requirePermission("release:complete"), (req, res) => {
+  router.post("/releases/:id/complete", requirePermission("release:complete"), requireIncidentAccess((req) => String(releases.find((item) => item.id === req.params.id)?.sessionId ?? req.body?.sessionId ?? ""), true), (req, res) => {
     const note = demoDecisionNote(req.body?.notes);
     if (!note) {
       res.status(400).json({ error: "Decision note must contain at least 3 characters" });
@@ -3036,7 +3019,7 @@ export function createDemoRouter(options: {
     });
     res.json(row);
   });
-  router.post("/releases/:id/cancel", requirePermission("release:cancel"), (req, res) => {
+  router.post("/releases/:id/cancel", requirePermission("release:cancel"), requireIncidentAccess((req) => String(releases.find((item) => item.id === req.params.id)?.sessionId ?? req.body?.sessionId ?? ""), true), (req, res) => {
     const note = demoDecisionNote(req.body?.notes);
     if (!note) {
       res.status(400).json({ error: "Decision note must contain at least 3 characters" });
@@ -3338,7 +3321,7 @@ export function createDemoRouter(options: {
   router.post("/exercise/injects/:id/release", requirePermission("exercise:manage"), (req, res) => res.json(updateRow("exercise/injects", String(req.params.id), { status: "Released", releasedAt: now() }, req)));
   router.post("/exercise/injects/:id/complete", requirePermission("exercise:manage"), (req, res) => res.json(updateRow("exercise/injects", String(req.params.id), { status: "Completed" }, req)));
 
-  router.post("/imports/:type", requirePermission("import:create"), upload.single("file"), (req, res) => {
+  router.post("/imports/:type", requirePermission("import:create"), upload.single("file"), requireIncidentAccess((req) => String(req.body?.sessionId ?? ""), false, true), (req, res) => {
     try {
       if (String(req.params.type) !== "manifest") {
         res.status(400).json({ error: "Only manifest CSV imports are supported" });
@@ -3363,10 +3346,10 @@ export function createDemoRouter(options: {
         res.status(400).json({ error: "sessionId is required" });
         return;
       }
-      ensureWritableSession(sessionId);
       const rows = parseWorkbook(readFileSync(req.file.path), req.file.originalname) as Row[];
-      const result = validateDemoManifestRows(rows, sessionId);
+      const result = validatePassengerManifestRows(rows, sessionId);
       const batch = createRow("import-batches", {
+        id: randomUUID(),
         sessionId,
         importType: "manifest",
         sourceFilename: req.file.originalname,
@@ -3397,7 +3380,7 @@ export function createDemoRouter(options: {
     }
   });
 
-  router.post("/imports/:id/confirm", requirePermission("import:create"), (req, res) => {
+  router.post("/imports/:id/confirm", requirePermission("import:create"), (req, res, next) => {
     const batch = importBatches.find((item) => item.id === req.params.id);
     if (!batch) {
       res.status(404).json({ error: "Import batch not found" });
@@ -3411,27 +3394,32 @@ export function createDemoRouter(options: {
       res.status(403).json({ error: "Forbidden" });
       return;
     }
-    try {
-      ensureWritableSession(String(batch.sessionId));
-    } catch (error) {
-      const status = error instanceof DirectoryError ? error.status : 409;
-      res.status(status).json({ error: error instanceof Error ? error.message : "Import cannot be confirmed" });
-      return;
-    }
     const validRows = importRowsByBatchId.get(String(batch.id));
     if (!validRows) {
       res.status(404).json({ error: "Validated import data not found" });
       return;
     }
-    validRows.forEach((row) => createRow("passenger-records", row, req));
-    Object.assign(batch, { status: Number(batch.invalidRecords) > 0 ? "Imported with errors" : "Imported", updatedAt: now() });
-    addAudit(req, "import", `Imported manifest: ${validRows.length}/${batch.totalRecords} valid`, String(batch.sessionId), {
-      importBatchId: batch.id,
-      totalRecords: batch.totalRecords,
-      validRecords: validRows.length,
-      invalidRecords: batch.invalidRecords
-    }, "importBatch", batch.id);
-    res.json(batch);
+    const actor: PassengerActor = {
+      id: currentUser(req).id,
+      email: currentUser(req).email,
+      displayName: currentUser(req).displayName,
+      roles: currentUser(req).roles,
+      requestId: req.requestId
+    };
+    void (async () => {
+      const records = validRows.map(({ sessionId: _sessionId, ...row }) => row) as PassengerImportInput["records"];
+      const result = await passengerService.importRecords(actor, String(batch.sessionId), {
+        batchId: String(batch.id),
+        sourceFilename: String(batch.sourceFilename ?? "manifest.csv"),
+        totalRecords: Number(batch.totalRecords),
+        invalidRecords: Number(batch.invalidRecords),
+        errors: Array.isArray(batch.errors) ? batch.errors : [],
+        records
+      });
+      Object.assign(batch, { status: result.status, updatedAt: now() });
+      importRowsByBatchId.delete(String(batch.id));
+      res.json(batch);
+    })().catch(next);
   });
 
   router.get("/exports/:type", requirePermission("export:create"), requireIncidentAccess(activeSessionId, true), (req, res) => {

@@ -46,9 +46,6 @@ const controlledOptionsByKind: Record<string, Record<string, Set<string>>> = {
   "family-records": {
     verificationStatus: new Set(["Verified", "Disputed"])
   },
-  "passenger-records": {
-    conditionStatus: new Set(["Released"])
-  },
   requests: {
     approvalStatus: new Set(["Approved", "Rejected"]),
     status: new Set(["Assigned", "In progress", "Waiting", "Done", "Closed", "Cancelled"])
@@ -56,9 +53,10 @@ const controlledOptionsByKind: Record<string, Record<string, Set<string>>> = {
 };
 type SortDirection = "asc" | "desc";
 type PendingDecision = {
-  action: "family-verify" | "request-close";
+  action: "family-verify" | "request-close" | "passenger-src" | "passenger-condition" | "passenger-hold";
   record: AnyRecord;
   note: string;
+  value?: string;
   error: string;
   saving: boolean;
 };
@@ -166,8 +164,7 @@ const configs: Record<string, Config> = {
       { name: "manifestVersion", label: "Manifest version" },
       { name: "source", label: "Source", type: "select", optionsKey: "passengerSources", required: true },
       { name: "travellingCompanions", label: "Travelling companions", type: "textarea" },
-      { name: "conditionStatus", label: "Condition/status", type: "select", optionsKey: "conditionStatuses" },
-      { name: "holdStatus", label: "Hold status", type: "select", optionsKey: "holdTypes" },
+      { name: "sourceExternalId", label: "Source external ID" },
       { name: "notes", label: "Notes", type: "textarea" }
     ]
   },
@@ -397,6 +394,7 @@ export function RecordsPage({ kind }: { kind: keyof typeof configs }) {
   const focusRecordId = searchParams.get("focus") ?? "";
   const handledFocusRef = useRef("");
   const [rows, setRows] = useState<AnyRecord[]>([]);
+  const [serverTotal, setServerTotal] = useState(0);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [query, setQuery] = useState("");
@@ -414,6 +412,12 @@ export function RecordsPage({ kind }: { kind: keyof typeof configs }) {
   const [editorBaseline, setEditorBaseline] = useState("");
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
   const [saving, setSaving] = useState(false);
+  const [sourceCorrectionMode, setSourceCorrectionMode] = useState(false);
+  const [sourceCorrectionReason, setSourceCorrectionReason] = useState("");
+  const [passengerCondition, setPassengerCondition] = useState("");
+  const [passengerHold, setPassengerHold] = useState("");
+
+  const isPassengerPage = kind === "passenger-records";
 
   const canCreate = activeSessionWritable && can(config.createPermission);
   const canUpdate = activeSessionWritable && can(config.updatePermission);
@@ -455,11 +459,13 @@ export function RecordsPage({ kind }: { kind: keyof typeof configs }) {
   );
 
   const statusOptions = useMemo(() => {
+    if (isPassengerPage) return (dictionaries.conditionStatuses ?? []).map((option) => option.label);
     if (!filterColumn) return [];
     return Array.from(new Set(rows.map((row) => row[filterColumn.key]).filter(Boolean).map(String))).sort(collator.compare);
-  }, [filterColumn, rows]);
+  }, [dictionaries.conditionStatuses, filterColumn, isPassengerPage, rows]);
 
   const filteredRows = useMemo(() => {
+    if (isPassengerPage) return rows;
     const needle = query.trim().toLowerCase();
     return rows.filter((row) => {
       if (statusFilter && filterColumn && String(row[filterColumn.key] ?? "") !== statusFilter) return false;
@@ -480,19 +486,21 @@ export function RecordsPage({ kind }: { kind: keyof typeof configs }) {
         .filter(Boolean)
         .some((value) => String(value).toLowerCase().includes(needle));
     });
-  }, [filterColumn, query, rows, statusFilter]);
+  }, [filterColumn, isPassengerPage, query, rows, statusFilter]);
 
   const sortedRows = useMemo(() => {
+    if (isPassengerPage) return filteredRows;
     const direction = sortDirection === "asc" ? 1 : -1;
     return [...filteredRows].sort((left, right) => compareRecordValues(left[sortKey], right[sortKey]) * direction);
-  }, [filteredRows, sortDirection, sortKey]);
+  }, [filteredRows, isPassengerPage, sortDirection, sortKey]);
 
-  const totalPages = Math.max(1, Math.ceil(sortedRows.length / pageSize));
+  const resultTotal = isPassengerPage ? serverTotal : sortedRows.length;
+  const totalPages = Math.max(1, Math.ceil(resultTotal / pageSize));
   const currentPage = Math.min(page, totalPages);
-  const pageStartIndex = sortedRows.length ? (currentPage - 1) * pageSize : 0;
-  const pageEndIndex = Math.min(pageStartIndex + pageSize, sortedRows.length);
-  const pageRangeStart = sortedRows.length ? pageStartIndex + 1 : 0;
-  const pagedRows = sortedRows.slice(pageStartIndex, pageEndIndex);
+  const pageStartIndex = resultTotal ? (currentPage - 1) * pageSize : 0;
+  const pageEndIndex = Math.min(pageStartIndex + pageSize, resultTotal);
+  const pageRangeStart = resultTotal ? pageStartIndex + 1 : 0;
+  const pagedRows = isPassengerPage ? sortedRows : sortedRows.slice(pageStartIndex, pageEndIndex);
 
   async function load() {
     if (!activeSession) {
@@ -505,11 +513,21 @@ export function RecordsPage({ kind }: { kind: keyof typeof configs }) {
     setError("");
     try {
       const canLoadPassengerContext = kind === "enquiries" && can("passenger:read");
+      const passengerQuery = isPassengerPage ? {
+        sessionId: activeSession.id,
+        search: query.trim() || undefined,
+        conditionStatus: statusFilter || undefined,
+        sortBy: ["updatedAt", "operationalId", "lastName", "flightNumber", "conditionStatus", "holdStatus"].includes(sortKey) ? sortKey : "updatedAt",
+        sortDirection,
+        limit: pageSize,
+        offset: (page - 1) * pageSize
+      } : undefined;
       const [result, passengers] = await Promise.all([
-        api.listAll(config.resource, { sessionId: activeSession.id }),
+        isPassengerPage ? api.list(config.resource, passengerQuery) : api.listAll(config.resource, { sessionId: activeSession.id }),
         canLoadPassengerContext ? api.listAll("passenger-records", { sessionId: activeSession.id }) : Promise.resolve({ data: [] })
       ]);
       setRows(result.data);
+      setServerTotal(Number(result.total ?? result.data.length));
       setPassengerOptions(passengers.data);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Unable to load records");
@@ -530,7 +548,15 @@ export function RecordsPage({ kind }: { kind: keyof typeof configs }) {
     setPage(1);
     setPendingDecision(null);
     setWriteError("");
+    setSourceCorrectionMode(false);
+    setSourceCorrectionReason("");
   }, [activeSession?.id, kind]);
+
+  useEffect(() => {
+    if (!isPassengerPage || !activeSession) return;
+    const timeout = window.setTimeout(() => void load(), 250);
+    return () => window.clearTimeout(timeout);
+  }, [activeSession?.id, isPassengerPage, page, pageSize, query, sortDirection, sortKey, statusFilter]);
 
   function handleSort(key: string) {
     setPage(1);
@@ -559,10 +585,33 @@ export function RecordsPage({ kind }: { kind: keyof typeof configs }) {
       return;
     }
     const payload = normalizePayload({ ...editing, sessionId: activeSession.id }, config.fields);
+    let sourceChanges: Record<string, unknown> = {};
+    if (isPassengerPage && editing.id && sourceCorrectionMode) {
+      const baseline = editorBaseline ? JSON.parse(editorBaseline) as AnyRecord : {};
+      sourceChanges = Object.fromEntries(
+        config.fields
+          .filter((field) => field.name !== "notes")
+          .filter((field) => JSON.stringify(payload[field.name] ?? null) !== JSON.stringify(baseline[field.name] ?? null))
+          .map((field) => [field.name, payload[field.name]])
+      );
+      if (Object.keys(sourceChanges).length === 0) {
+        setWriteError("Change at least one source field before applying a correction.");
+        return;
+      }
+    }
     setSaving(true);
     setWriteError("");
     try {
-      if (editing.id) await api.update(config.resource, editing.id, payload);
+      if (isPassengerPage && editing.id && sourceCorrectionMode) {
+        await api.action(config.resource, editing.id, "correct-source", {
+          ...sourceChanges,
+          sessionId: activeSession.id,
+          version: editing.version,
+          reason: sourceCorrectionReason
+        });
+      } else if (isPassengerPage && editing.id) {
+        await api.update(config.resource, editing.id, { sessionId: activeSession.id, version: editing.version, caseId: editing.caseId ?? null, notes: editing.notes ?? null });
+      } else if (editing.id) await api.update(config.resource, editing.id, payload);
       else await api.create(config.resource, payload);
       setEditorBaseline("");
       setEditing(buildDefaults(config.fields, dictionaries, activeSession.id));
@@ -613,6 +662,10 @@ export function RecordsPage({ kind }: { kind: keyof typeof configs }) {
     setWriteError("");
     setFieldErrors({});
     setSelectedPassengerId(kind === "enquiries" ? (findPassengerForRecord(row)?.id ?? "") : "");
+    setSourceCorrectionMode(false);
+    setSourceCorrectionReason("");
+    setPassengerCondition(String(row.conditionStatus ?? "Unknown"));
+    setPassengerHold(String(row.holdStatus ?? "No hold"));
     setEditorOpen(true);
   }
 
@@ -708,6 +761,11 @@ export function RecordsPage({ kind }: { kind: keyof typeof configs }) {
     });
   }
 
+  function openPassengerDecision(action: "passenger-src" | "passenger-condition" | "passenger-hold", value?: string) {
+    if (!editing.id) return;
+    setPendingDecision({ action, record: editing, value, note: "", error: "", saving: false });
+  }
+
   async function confirmDecision() {
     if (!pendingDecision) return;
     if (!isSessionWriteContextCurrent(activeSession, pendingDecision.record.sessionId) || !(await verifyActiveSessionWrite(pendingDecision.record.sessionId))) {
@@ -715,8 +773,8 @@ export function RecordsPage({ kind }: { kind: keyof typeof configs }) {
       return;
     }
     const note = pendingDecision.note.trim();
-    const noteLabel = pendingDecision.action === "family-verify" ? "verification basis" : "closure note";
-    if (note.length < 3) {
+    const noteLabel = pendingDecision.action === "family-verify" ? "verification basis" : pendingDecision.action === "request-close" ? "closure note" : pendingDecision.action === "passenger-hold" ? "hold reason" : "decision basis";
+    if (pendingDecision.action !== "passenger-src" && note.length < 3) {
       setPendingDecision((current) => (current ? { ...current, error: `Enter a ${noteLabel} with at least 3 characters.` } : current));
       return;
     }
@@ -724,8 +782,14 @@ export function RecordsPage({ kind }: { kind: keyof typeof configs }) {
     try {
       if (pendingDecision.action === "family-verify") {
         await api.action(config.resource, pendingDecision.record.id, "verify", { verificationNotes: note });
-      } else {
+      } else if (pendingDecision.action === "request-close") {
         await api.action(config.resource, pendingDecision.record.id, "status", { status: "Closed", closureNote: note });
+      } else if (pendingDecision.action === "passenger-src") {
+        await api.action(config.resource, pendingDecision.record.id, "mark-src-confirmed", { sessionId: pendingDecision.record.sessionId, version: pendingDecision.record.version, basis: note || undefined });
+      } else if (pendingDecision.action === "passenger-condition") {
+        await api.action(config.resource, pendingDecision.record.id, "change-condition", { sessionId: pendingDecision.record.sessionId, version: pendingDecision.record.version, conditionStatus: pendingDecision.value, basis: note });
+      } else {
+        await api.action(config.resource, pendingDecision.record.id, "change-hold", { sessionId: pendingDecision.record.sessionId, version: pendingDecision.record.version, holdStatus: pendingDecision.value, reason: note });
       }
       await Promise.all([load(), reload()]);
       setPendingDecision(null);
@@ -789,8 +853,21 @@ export function RecordsPage({ kind }: { kind: keyof typeof configs }) {
     }
     if (kind === "passenger-records") {
       return (
-        <div className="grid gap-2">
-          {activeSessionWritable && can("passenger:srcConfirm") ? <Button icon={Check} variant="success" onClick={() => runEditorAction("mark-src-confirmed")}>Mark SRC confirmed</Button> : null}
+        <div className="grid gap-3">
+          {activeSessionWritable && can("passenger:srcConfirm") && !editing.srcConfirmed ? <Button icon={Check} variant="success" onClick={() => openPassengerDecision("passenger-src")}>Mark SRC confirmed</Button> : null}
+          {activeSessionWritable && can("passenger:control") ? (
+            <div className="grid gap-2 sm:grid-cols-[1fr_auto]">
+              <Select value={passengerCondition} onChange={(event) => setPassengerCondition(event.target.value)} aria-label="New passenger condition">
+                {(dictionaries.conditionStatuses ?? []).map((option) => <option key={option.key} value={option.label}>{option.label}</option>)}
+              </Select>
+              <Button variant="secondary" onClick={() => openPassengerDecision("passenger-condition", passengerCondition)}>Change condition</Button>
+              <Select value={passengerHold} onChange={(event) => setPassengerHold(event.target.value)} aria-label="New passenger hold">
+                {(dictionaries.holdTypes ?? []).map((option) => <option key={option.key} value={option.label}>{option.label}</option>)}
+              </Select>
+              <Button variant="secondary" onClick={() => openPassengerDecision("passenger-hold", passengerHold)}>Change hold</Button>
+            </div>
+          ) : null}
+          {canUpdate ? <Button variant="ghost" onClick={() => setSourceCorrectionMode((current) => !current)}>{sourceCorrectionMode ? "Cancel source correction" : "Correct source facts"}</Button> : null}
         </div>
       );
     }
@@ -888,7 +965,7 @@ export function RecordsPage({ kind }: { kind: keyof typeof configs }) {
             <div className="flex h-9 w-full items-center justify-between gap-1 rounded-md border border-border bg-card px-1 text-sm text-foreground sm:w-auto sm:min-w-52">
               <Button icon={ChevronLeft} size="icon" variant="ghost" aria-label="Previous page" disabled={currentPage <= 1} onClick={() => setPage((current) => Math.max(1, current - 1))} />
               <p className="whitespace-nowrap px-2 text-sm font-semibold text-foreground">
-                {pageRangeStart} - {pageEndIndex} of {sortedRows.length}
+                {pageRangeStart} - {pageEndIndex} of {resultTotal}
               </p>
               <Button icon={ChevronRight} size="icon" variant="ghost" aria-label="Next page" disabled={currentPage >= totalPages} onClick={() => setPage((current) => Math.min(totalPages, current + 1))} />
             </div>
@@ -922,7 +999,7 @@ export function RecordsPage({ kind }: { kind: keyof typeof configs }) {
               {totalPages > 1 ? (
                 <div className="flex flex-col gap-2 rounded-md border border-border bg-card px-3 py-2 sm:flex-row sm:items-center sm:justify-between">
                   <p className="text-sm font-semibold text-muted-foreground">
-                    Showing {pageRangeStart}-{pageEndIndex} of {sortedRows.length}
+                    Showing {pageRangeStart}-{pageEndIndex} of {resultTotal}
                   </p>
                   <div className="flex items-center gap-2">
                     <Button icon={ChevronLeft} size="sm" variant="secondary" disabled={currentPage <= 1} onClick={() => setPage((current) => Math.max(1, current - 1))}>
@@ -1016,10 +1093,15 @@ export function RecordsPage({ kind }: { kind: keyof typeof configs }) {
 
               {showRecordFields ? (
                 <div className="grid gap-5">
+                  {isPassengerPage && editing.id && sourceCorrectionMode ? (
+                    <Field label="Source correction reason" error={sourceCorrectionReason.trim().length >= 3 ? undefined : "Enter at least 3 characters."}>
+                      <Textarea value={sourceCorrectionReason} onChange={(event) => setSourceCorrectionReason(event.target.value)} placeholder="Why the source facts are being corrected" />
+                    </Field>
+                  ) : null}
                   <div className="grid gap-3">
                     <p className="text-xs font-bold uppercase tracking-wide text-muted-foreground">Case</p>
                     <Field label="Case ID">
-                      <Input readOnly={!canSaveCurrent} value={editing.caseId ?? ""} onChange={(event) => setEditing((current) => ({ ...current, caseId: event.target.value }))} placeholder="CASE-2026-0001" />
+                      <Input readOnly={!canSaveCurrent || (isPassengerPage && sourceCorrectionMode)} value={editing.caseId ?? ""} onChange={(event) => setEditing((current) => ({ ...current, caseId: event.target.value }))} placeholder="CASE-2026-0001" />
                     </Field>
                   </div>
                   {fieldGroups.map((group) => (
@@ -1031,7 +1113,7 @@ export function RecordsPage({ kind }: { kind: keyof typeof configs }) {
                           <RecordField
                             field={field}
                             value={editing[field.name]}
-                            readOnly={!canSaveCurrent}
+                            readOnly={!canSaveCurrent || (isPassengerPage && Boolean(editing.id) && field.name !== "notes" && !sourceCorrectionMode) || (isPassengerPage && Boolean(editing.id) && field.name === "notes" && sourceCorrectionMode)}
                             controlledOptions={controlledOptionsByKind[kind]?.[field.name]}
                             error={fieldErrors[field.name]}
                             onChange={(value) => updateEditingField(field.name, value)}
@@ -1046,8 +1128,8 @@ export function RecordsPage({ kind }: { kind: keyof typeof configs }) {
 
             {canSaveCurrent ? (
               <div className="border-t border-border bg-card p-4">
-                <Button className="w-full" icon={Save} variant="primary" disabled={saving} aria-busy={saving} onClick={save}>
-                  {saving ? "Saving record" : editing.id ? "Save changes" : recordCopy.saveNew}
+                <Button className="w-full" icon={Save} variant="primary" disabled={saving || (isPassengerPage && sourceCorrectionMode && sourceCorrectionReason.trim().length < 3)} aria-busy={saving} onClick={save}>
+                  {saving ? "Saving record" : isPassengerPage && sourceCorrectionMode ? "Apply source correction" : editing.id ? "Save changes" : recordCopy.saveNew}
                 </Button>
               </div>
             ) : null}
@@ -1058,24 +1140,24 @@ export function RecordsPage({ kind }: { kind: keyof typeof configs }) {
 
       {pendingDecision ? (
         <DecisionDialog
-          title={pendingDecision.action === "family-verify" ? "Verify Family/NOK" : "Close Request"}
+          title={pendingDecision.action === "family-verify" ? "Verify Family/NOK" : pendingDecision.action === "request-close" ? "Close Request" : pendingDecision.action === "passenger-src" ? "Confirm SRC" : pendingDecision.action === "passenger-condition" ? "Change passenger condition" : "Change passenger hold"}
           description={
             pendingDecision.action === "family-verify"
               ? `${pendingDecision.record.operationalId ?? "This family record"} will be marked verified using the recorded identity and relationship basis. The decision is added to operational history.`
-              : `${pendingDecision.record.operationalId ?? "This request"} will be closed and become a terminal workflow record. The closure is recorded in operational history.`
+              : pendingDecision.action === "request-close" ? `${pendingDecision.record.operationalId ?? "This request"} will be closed and become a terminal workflow record. The closure is recorded in operational history.` : `${pendingDecision.record.operationalId ?? "This passenger record"} will be updated to ${pendingDecision.value ?? "SRC confirmed"}. The decision is versioned and added to operational history.`
           }
-          label={pendingDecision.action === "family-verify" ? "Verification basis" : "Closure note"}
+          label={pendingDecision.action === "family-verify" ? "Verification basis" : pendingDecision.action === "request-close" ? "Closure note" : pendingDecision.action === "passenger-hold" ? "Hold reason" : "Decision basis"}
           value={pendingDecision.note}
           onChange={(value) => setPendingDecision((current) => (current ? { ...current, note: value, error: "" } : current))}
           onCancel={() => setPendingDecision(null)}
           onConfirm={confirmDecision}
-          confirmLabel={pendingDecision.action === "family-verify" ? "Verify" : "Close request"}
+          confirmLabel={pendingDecision.action === "family-verify" ? "Verify" : pendingDecision.action === "request-close" ? "Close request" : "Apply decision"}
           confirmIcon={pendingDecision.action === "family-verify" ? UserCheck : CheckCircle2}
           confirmVariant="success"
           error={pendingDecision.error}
           busy={pendingDecision.saving}
-          required
-          placeholder={pendingDecision.action === "family-verify" ? "Identity and relationship evidence reviewed" : "Reason for closing this request"}
+          required={pendingDecision.action !== "passenger-src"}
+          placeholder={pendingDecision.action === "family-verify" ? "Identity and relationship evidence reviewed" : pendingDecision.action === "request-close" ? "Reason for closing this request" : "Evidence or operational reason"}
         />
       ) : null}
     </div>

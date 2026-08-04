@@ -13,12 +13,14 @@ import type { IncidentRepository } from "./modules/incidents/incident-repository
 import type { EnquiryRepository } from "./modules/enquiries/enquiry-repository.js";
 import type { IncidentAccessRepository } from "./modules/incident-access/incident-access-repository.js";
 import type { IncidentAssignmentRepository } from "./modules/incident-assignments/incident-assignment-repository.js";
+import type { PassengerRepository } from "./modules/passengers/passenger-repository.js";
 
 export function createApp(options: {
   incidentRepository?: IncidentRepository;
   enquiryRepository?: EnquiryRepository;
   incidentAccessRepository?: IncidentAccessRepository;
   incidentAssignmentRepository?: IncidentAssignmentRepository;
+  passengerRepository?: PassengerRepository;
   skipRuntimeValidation?: boolean;
 } = {}) {
   if (!options.skipRuntimeValidation) validateRuntimeConfig(config);
@@ -53,7 +55,8 @@ export function createApp(options: {
     incidentRepository: options.incidentRepository,
     enquiryRepository: options.enquiryRepository,
     incidentAccessRepository: options.incidentAccessRepository,
-    incidentAssignmentRepository: options.incidentAssignmentRepository
+    incidentAssignmentRepository: options.incidentAssignmentRepository,
+    passengerRepository: options.passengerRepository
   });
 
   app.use(notFound);

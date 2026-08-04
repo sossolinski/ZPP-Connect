@@ -55,7 +55,7 @@ function apiDelete(app: ReturnType<typeof createApp>, path: string, email = "coo
 async function createVerifiedLinkedMatch(app: ReturnType<typeof createApp>, token: string) {
   const caseId = `CASE-${token}`;
   const family = await apiPost(app, "/api/family-records").send({ sessionId: "ses-demo-1", caseId, firstName: "Family", lastName: token });
-  const passenger = await apiPost(app, "/api/passenger-records").send({ sessionId: "ses-demo-1", caseId, firstName: "Passenger", lastName: token });
+  const passenger = await apiPost(app, "/api/passenger-records").send({ sessionId: "ses-demo-1", caseId, personType: "Passenger", firstName: "Passenger", lastName: token, source: "Manual" });
   const match = await apiPost(app, "/api/matching-records").send({
     sessionId: "ses-demo-1",
     caseId,
@@ -899,15 +899,16 @@ describe("ZPP Connect API", () => {
     expect(incomplete.status).toBe(400);
 
     const family = await apiPost(app, "/api/family-records").send({ sessionId: "ses-demo-1", caseId: token, firstName: "Family", lastName: token });
-    const otherPassenger = await apiPost(app, "/api/passenger-records").send({ sessionId: "another-session", caseId: token, firstName: "Passenger", lastName: token });
+    const otherFamily = await apiPost(app, "/api/family-records").send({ sessionId: "ses-demo-2", caseId: token, firstName: "Other", lastName: token });
+    const otherPassenger = await apiPost(app, "/api/passenger-records").send({ sessionId: "ses-demo-1", caseId: token, personType: "Passenger", firstName: "Passenger", lastName: token, source: "Manual" });
     const crossSession = await apiPost(app, "/api/matching-records").send({
-      sessionId: "ses-demo-1",
-      familyRecordId: family.body.id,
+      sessionId: "ses-demo-2",
+      familyRecordId: otherFamily.body.id,
       passengerRecordId: otherPassenger.body.id
     });
     expect(crossSession.status).toBe(409);
 
-    const passenger = await apiPost(app, "/api/passenger-records").send({ sessionId: "ses-demo-1", caseId: token, firstName: "Passenger", lastName: token });
+    const passenger = await apiPost(app, "/api/passenger-records").send({ sessionId: "ses-demo-1", caseId: token, personType: "Passenger", firstName: "Passenger", lastName: token, source: "Manual" });
     const created = await apiPost(app, "/api/matching-records").send({
       sessionId: "ses-demo-1",
       familyRecordId: family.body.id,

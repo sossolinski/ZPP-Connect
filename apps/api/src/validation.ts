@@ -124,30 +124,6 @@ export const familySchema = z.object({
   notes: z.string().optional().nullable()
 });
 
-export const passengerSchema = z.object({
-  sessionId: z.string().uuid(),
-  caseId: z.string().optional().nullable(),
-  personType: z.enum(dictionaries.personTypes),
-  firstName: z.string().min(1),
-  lastName: z.string().min(1),
-  dateOfBirth: z.coerce.date().optional().nullable(),
-  age: z.coerce.number().int().optional().nullable(),
-  gender: z.string().optional().nullable(),
-  nationality: z.string().optional().nullable(),
-  flightNumber: z.string().optional().nullable(),
-  route: z.string().optional().nullable(),
-  seat: z.string().optional().nullable(),
-  pnr: z.string().optional().nullable(),
-  ticketNumber: z.string().optional().nullable(),
-  manifestVersion: z.string().optional().nullable(),
-  source: z.enum(dictionaries.passengerSources),
-  travellingCompanions: z.string().optional().nullable(),
-  conditionStatus: z.enum(dictionaries.conditionStatuses).default("Unknown"),
-  holdStatus: z.enum(dictionaries.holdTypes).default("No hold"),
-  srcConfirmed: z.boolean().default(false),
-  notes: z.string().optional().nullable()
-});
-
 export const matchingSchema = z.object({
   sessionId: z.string().uuid(),
   caseId: z.string().optional().nullable(),

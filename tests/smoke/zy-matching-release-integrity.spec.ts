@@ -43,12 +43,11 @@ async function createPassenger(page: Page, sessionId: string, token: string, cas
   const { response, body } = await apiPost(page, "/passenger-records", {
     sessionId,
     caseId,
+    personType: "Passenger",
     firstName: "Passenger",
     lastName: token,
     flightNumber: token,
-    source: "Manifest",
-    conditionStatus: "Unknown",
-    holdStatus: "No hold"
+    source: "Manifest"
   });
   expect(response.status()).toBe(201);
   return body;

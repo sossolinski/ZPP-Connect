@@ -364,11 +364,29 @@ async function seedOperationalData() {
       conditionStatus: "Unknown",
       holdStatus: "No hold",
       srcConfirmed: true,
+      srcConfirmedAt: new Date("2026-06-21T08:30:00.000Z"),
+      srcConfirmedById: zpp.id,
+      srcConfirmationBasis: "Seeded SRC confirmation for the exercise scenario.",
       notes: "Exercise manifest record.",
       createdById: coordinator.id,
       updatedById: zpp.id
     }
   });
+
+  await prisma.$queryRaw`
+    SELECT setval(
+      '"PassengerRecord_operational_seq"',
+      GREATEST(
+        COALESCE((
+          SELECT MAX(substring("operationalId" FROM '([0-9]+)$')::BIGINT)
+          FROM "PassengerRecord"
+          WHERE "operationalId" ~ '^PAX-[0-9]{4}-[0-9]+$'
+        ), 0) + 1,
+        1
+      ),
+      false
+    )
+  `;
 
   await prisma.enquiry.update({
     where: { id: enquiry1.id },

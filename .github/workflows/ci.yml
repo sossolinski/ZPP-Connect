@@ -82,7 +82,7 @@ jobs:
           kill "$api_pid"
           wait "$api_pid" || true
 
-      - name: PostgreSQL Foundation Stage 1, 2 and 2.5 integration tests
+      - name: PostgreSQL Foundation Stage 1, 2, 2.5 and 3 integration tests
         run: npm run test:postgres
 
       - name: Rehearse IncidentAssignment backfill from pre-Stage-2 data
@@ -105,12 +105,24 @@ jobs:
           VALUES ('10000000-0000-4000-8000-000000000001', 'backfill@example.test', 'Backfill Test', 'active', CURRENT_TIMESTAMP);
           INSERT INTO "Session" ("id", "operationalId", "mode", "status", "eventType", "createdById", "updatedAt")
           VALUES ('20000000-0000-4000-8000-000000000001', 'BACKFILL-001', 'TRAINING', 'Draft', 'Backfill test', '10000000-0000-4000-8000-000000000001', CURRENT_TIMESTAMP);
+          INSERT INTO "PassengerRecord" (
+            "id", "operationalId", "sessionId", "personType", "firstName", "lastName", "source",
+            "conditionStatus", "holdStatus", "srcConfirmed", "createdById", "updatedById", "updatedAt"
+          ) VALUES (
+            '30000000-0000-4000-8000-000000000001', 'PAX-BACKFILL-001',
+            '20000000-0000-4000-8000-000000000001', 'Passenger', 'Historical', 'Passenger', 'Manifest',
+            'Unknown', 'No hold', true, '10000000-0000-4000-8000-000000000001',
+            '10000000-0000-4000-8000-000000000001', CURRENT_TIMESTAMP
+          );
           SQL
           cp -R apps/api/prisma/migrations/20260804000000_enquiry_incident_isolation "$migration_workspace/migrations/"
           cp -R apps/api/prisma/migrations/20260804010000_incident_assignment_lifecycle "$migration_workspace/migrations/"
+          cp -R apps/api/prisma/migrations/20260804020000_passenger_persistence_source_integrity "$migration_workspace/migrations/"
           DATABASE_URL="$BACKFILL_DATABASE_URL" npx prisma migrate deploy --schema "$migration_workspace/schema.prisma"
           assignment_count=$(psql "$BACKFILL_PSQL_URL" --tuples-only --no-align --command='SELECT count(*) FROM "IncidentAssignment" WHERE "incidentId" = '\''20000000-0000-4000-8000-000000000001'\'' AND "userId" = '\''10000000-0000-4000-8000-000000000001'\'' AND active = true;')
           test "$assignment_count" = "1"
+          passenger_backfill=$(psql "$BACKFILL_PSQL_URL" --tuples-only --no-align --command='SELECT count(*) FROM "PassengerRecord" WHERE "id" = '\''30000000-0000-4000-8000-000000000001'\'' AND "version" = 1 AND "sourceImportedAt" IS NOT NULL AND "srcConfirmedAt" IS NOT NULL;')
+          test "$passenger_backfill" = "1"
 
   quality:
     name: Typecheck, Unit, Build and Browser
