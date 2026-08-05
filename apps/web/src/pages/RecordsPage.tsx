@@ -30,6 +30,8 @@ type Config = {
 
 const ageOptions = Array.from({ length: 121 }, (_, age) => String(age));
 const enquiryPassengerFields = new Set(["passengerFirstName", "passengerLastName", "passengerFlight", "passengerRoute"]);
+const familyClaimFields = new Set(["firstName", "lastName", "phone", "email", "preferredContactChannel", "preferredLanguage", "location", "claimedRelationship", "passengerRecordId", "passengerFirstName", "passengerLastName", "passengerFlight"]);
+const familyOperatorFields = ["caseId", "immediateNeeds", "questionsAsked", "commitmentsMade", "nextContactDue", "assignedOfficer", "notes"];
 const pageSizeOptions = [10, 25, 50, 100];
 const collator = new Intl.Collator(undefined, { numeric: true, sensitivity: "base" });
 const dateTimeFormatter = new Intl.DateTimeFormat("en-GB", {
@@ -43,9 +45,6 @@ const controlledOptionsByKind: Record<string, Record<string, Set<string>>> = {
   enquiries: {
     status: new Set(["Sent to family assistance", "Duplicate suspected", "Urgent welfare", "Closed"])
   },
-  "family-records": {
-    verificationStatus: new Set(["Verified", "Disputed"])
-  },
   requests: {
     approvalStatus: new Set(["Approved", "Rejected"]),
     status: new Set(["Assigned", "In progress", "Waiting", "Done", "Closed", "Cancelled"])
@@ -53,7 +52,7 @@ const controlledOptionsByKind: Record<string, Record<string, Set<string>>> = {
 };
 type SortDirection = "asc" | "desc";
 type PendingDecision = {
-  action: "family-verify" | "request-close" | "passenger-src" | "passenger-condition" | "passenger-hold";
+  action: "family-verify" | "family-reject" | "family-reopen" | "request-close" | "passenger-src" | "passenger-condition" | "passenger-hold";
   record: AnyRecord;
   note: string;
   value?: string;
@@ -112,25 +111,23 @@ const configs: Record<string, Config> = {
       { key: "verificationStatus", label: "Verification", status: true, className: "w-[148px]" }
     ],
     fields: [
-      { name: "firstName", label: "First name", required: true },
-      { name: "lastName", label: "Last name", required: true },
-      { name: "phone", label: "Phone" },
-      { name: "email", label: "Email", type: "email" },
-      { name: "preferredContactChannel", label: "Preferred contact channel", type: "select", optionsKey: "channels" },
-      { name: "preferredLanguage", label: "Preferred language", type: "select", optionsKey: "communicationLanguages" },
-      { name: "location", label: "Location" },
-      { name: "claimedRelationship", label: "Claimed relationship", type: "select", optionsKey: "relationships" },
-      { name: "passengerFirstName", label: "Passenger first name" },
-      { name: "passengerLastName", label: "Passenger last name" },
-      { name: "passengerFlight", label: "Passenger flight" },
-      { name: "verificationStatus", label: "Verification status", type: "select", optionsKey: "verificationStatuses" },
-      { name: "verificationNotes", label: "Verification notes", type: "textarea" },
-      { name: "immediateNeeds", label: "Immediate needs", type: "textarea" },
-      { name: "questionsAsked", label: "Questions asked", type: "textarea" },
-      { name: "commitmentsMade", label: "Commitments made", type: "textarea" },
-      { name: "nextContactDue", label: "Next contact due", type: "date" },
-      { name: "assignedOfficer", label: "Assigned officer" },
-      { name: "notes", label: "Notes", type: "textarea" }
+      { name: "firstName", label: "First name", section: "Claimant", required: true },
+      { name: "lastName", label: "Last name", section: "Claimant", required: true },
+      { name: "phone", label: "Phone", section: "Claimant" },
+      { name: "email", label: "Email", section: "Claimant", type: "email" },
+      { name: "preferredContactChannel", label: "Preferred contact channel", section: "Claimant", type: "select", optionsKey: "channels" },
+      { name: "preferredLanguage", label: "Preferred language", section: "Claimant", type: "select", optionsKey: "communicationLanguages" },
+      { name: "location", label: "Location", section: "Claimant" },
+      { name: "claimedRelationship", label: "Claimed relationship", section: "Passenger / context", type: "select", optionsKey: "relationships" },
+      { name: "passengerFirstName", label: "Passenger first name", section: "Passenger / context" },
+      { name: "passengerLastName", label: "Passenger last name", section: "Passenger / context" },
+      { name: "passengerFlight", label: "Passenger flight", section: "Passenger / context" },
+      { name: "immediateNeeds", label: "Immediate needs", section: "Operational follow-up", type: "textarea" },
+      { name: "questionsAsked", label: "Questions asked", section: "Operational follow-up", type: "textarea" },
+      { name: "commitmentsMade", label: "Commitments made", section: "Operational follow-up", type: "textarea" },
+      { name: "nextContactDue", label: "Next contact due", section: "Operational follow-up", type: "date" },
+      { name: "assignedOfficer", label: "Assigned officer", section: "Operational follow-up" },
+      { name: "notes", label: "Notes", section: "Operational follow-up", type: "textarea" }
     ]
   },
   "passenger-records": {
@@ -220,8 +217,8 @@ function recordUxCopy(kind: keyof typeof configs) {
       helper: "Record family contact details and verification basis separately from passenger status.",
       nextSteps: [
         "Record the contact details and claimed relationship.",
-        "Add verification notes before changing verification status.",
-        "Save the record, then verify only when the relationship basis is clear."
+        "Link a known Passenger only when the claimant identified that person.",
+        "Use Verify or Reject only after reviewing and documenting the basis."
       ],
       saveNew: "Save family record"
     };
@@ -418,6 +415,8 @@ export function RecordsPage({ kind }: { kind: keyof typeof configs }) {
   const [passengerHold, setPassengerHold] = useState("");
 
   const isPassengerPage = kind === "passenger-records";
+  const isFamilyPage = kind === "family-records";
+  const isServerPage = isPassengerPage || isFamilyPage;
 
   const canCreate = activeSessionWritable && can(config.createPermission);
   const canUpdate = activeSessionWritable && can(config.updatePermission);
@@ -460,12 +459,13 @@ export function RecordsPage({ kind }: { kind: keyof typeof configs }) {
 
   const statusOptions = useMemo(() => {
     if (isPassengerPage) return (dictionaries.conditionStatuses ?? []).map((option) => option.label);
+    if (isFamilyPage) return (dictionaries.verificationStatuses ?? []).map((option) => option.label);
     if (!filterColumn) return [];
     return Array.from(new Set(rows.map((row) => row[filterColumn.key]).filter(Boolean).map(String))).sort(collator.compare);
-  }, [dictionaries.conditionStatuses, filterColumn, isPassengerPage, rows]);
+  }, [dictionaries.conditionStatuses, dictionaries.verificationStatuses, filterColumn, isFamilyPage, isPassengerPage, rows]);
 
   const filteredRows = useMemo(() => {
-    if (isPassengerPage) return rows;
+    if (isServerPage) return rows;
     const needle = query.trim().toLowerCase();
     return rows.filter((row) => {
       if (statusFilter && filterColumn && String(row[filterColumn.key] ?? "") !== statusFilter) return false;
@@ -486,21 +486,21 @@ export function RecordsPage({ kind }: { kind: keyof typeof configs }) {
         .filter(Boolean)
         .some((value) => String(value).toLowerCase().includes(needle));
     });
-  }, [filterColumn, isPassengerPage, query, rows, statusFilter]);
+  }, [filterColumn, isServerPage, query, rows, statusFilter]);
 
   const sortedRows = useMemo(() => {
-    if (isPassengerPage) return filteredRows;
+    if (isServerPage) return filteredRows;
     const direction = sortDirection === "asc" ? 1 : -1;
     return [...filteredRows].sort((left, right) => compareRecordValues(left[sortKey], right[sortKey]) * direction);
-  }, [filteredRows, isPassengerPage, sortDirection, sortKey]);
+  }, [filteredRows, isServerPage, sortDirection, sortKey]);
 
-  const resultTotal = isPassengerPage ? serverTotal : sortedRows.length;
+  const resultTotal = isServerPage ? serverTotal : sortedRows.length;
   const totalPages = Math.max(1, Math.ceil(resultTotal / pageSize));
   const currentPage = Math.min(page, totalPages);
   const pageStartIndex = resultTotal ? (currentPage - 1) * pageSize : 0;
   const pageEndIndex = Math.min(pageStartIndex + pageSize, resultTotal);
   const pageRangeStart = resultTotal ? pageStartIndex + 1 : 0;
-  const pagedRows = isPassengerPage ? sortedRows : sortedRows.slice(pageStartIndex, pageEndIndex);
+  const pagedRows = isServerPage ? sortedRows : sortedRows.slice(pageStartIndex, pageEndIndex);
 
   async function load() {
     if (!activeSession) {
@@ -512,18 +512,21 @@ export function RecordsPage({ kind }: { kind: keyof typeof configs }) {
     setLoading(true);
     setError("");
     try {
-      const canLoadPassengerContext = kind === "enquiries" && can("passenger:read");
-      const passengerQuery = isPassengerPage ? {
+      const canLoadPassengerContext = (kind === "enquiries" || isFamilyPage) && can("passenger:read");
+      const serverQuery = isServerPage ? {
         sessionId: activeSession.id,
         search: query.trim() || undefined,
-        conditionStatus: statusFilter || undefined,
-        sortBy: ["updatedAt", "operationalId", "lastName", "flightNumber", "conditionStatus", "holdStatus"].includes(sortKey) ? sortKey : "updatedAt",
+        ...(isPassengerPage ? { conditionStatus: statusFilter || undefined } : { verificationStatus: statusFilter || undefined }),
+        sortBy: (isPassengerPage
+          ? ["updatedAt", "operationalId", "lastName", "flightNumber", "conditionStatus", "holdStatus"]
+          : ["updatedAt", "operationalId", "lastName", "verificationStatus", "nextContactDue"]
+        ).includes(sortKey) ? sortKey : "updatedAt",
         sortDirection,
         limit: pageSize,
         offset: (page - 1) * pageSize
       } : undefined;
       const [result, passengers] = await Promise.all([
-        isPassengerPage ? api.list(config.resource, passengerQuery) : api.listAll(config.resource, { sessionId: activeSession.id }),
+        isServerPage ? api.list(config.resource, serverQuery) : api.listAll(config.resource, { sessionId: activeSession.id }),
         canLoadPassengerContext ? api.listAll("passenger-records", { sessionId: activeSession.id }) : Promise.resolve({ data: [] })
       ]);
       setRows(result.data);
@@ -553,10 +556,10 @@ export function RecordsPage({ kind }: { kind: keyof typeof configs }) {
   }, [activeSession?.id, kind]);
 
   useEffect(() => {
-    if (!isPassengerPage || !activeSession) return;
+    if (!isServerPage || !activeSession) return;
     const timeout = window.setTimeout(() => void load(), 250);
     return () => window.clearTimeout(timeout);
-  }, [activeSession?.id, isPassengerPage, page, pageSize, query, sortDirection, sortKey, statusFilter]);
+  }, [activeSession?.id, isServerPage, page, pageSize, query, sortDirection, sortKey, statusFilter]);
 
   function handleSort(key: string) {
     setPage(1);
@@ -585,15 +588,19 @@ export function RecordsPage({ kind }: { kind: keyof typeof configs }) {
       return;
     }
     const payload = normalizePayload({ ...editing, sessionId: activeSession.id }, config.fields);
+    if (isFamilyPage) payload.passengerRecordId = editing.passengerRecordId ?? null;
     let sourceChanges: Record<string, unknown> = {};
-    if (isPassengerPage && editing.id && sourceCorrectionMode) {
+    if ((isPassengerPage || isFamilyPage) && editing.id && sourceCorrectionMode) {
       const baseline = editorBaseline ? JSON.parse(editorBaseline) as AnyRecord : {};
       sourceChanges = Object.fromEntries(
         config.fields
-          .filter((field) => field.name !== "notes")
+          .filter((field) => isPassengerPage ? field.name !== "notes" : familyClaimFields.has(field.name))
           .filter((field) => JSON.stringify(payload[field.name] ?? null) !== JSON.stringify(baseline[field.name] ?? null))
           .map((field) => [field.name, payload[field.name]])
       );
+      if (isFamilyPage && JSON.stringify(editing.passengerRecordId ?? null) !== JSON.stringify(baseline.passengerRecordId ?? null)) {
+        sourceChanges.passengerRecordId = editing.passengerRecordId ?? null;
+      }
       if (Object.keys(sourceChanges).length === 0) {
         setWriteError("Change at least one source field before applying a correction.");
         return;
@@ -609,8 +616,22 @@ export function RecordsPage({ kind }: { kind: keyof typeof configs }) {
           version: editing.version,
           reason: sourceCorrectionReason
         });
+      } else if (isFamilyPage && editing.id && sourceCorrectionMode) {
+        await api.action(config.resource, editing.id, "correct-claim", {
+          ...sourceChanges,
+          sessionId: activeSession.id,
+          version: editing.version,
+          claimVersion: editing.currentClaim?.version,
+          reason: sourceCorrectionReason
+        });
       } else if (isPassengerPage && editing.id) {
         await api.update(config.resource, editing.id, { sessionId: activeSession.id, version: editing.version, caseId: editing.caseId ?? null, notes: editing.notes ?? null });
+      } else if (isFamilyPage && editing.id) {
+        await api.update(config.resource, editing.id, {
+          sessionId: activeSession.id,
+          version: editing.version,
+          ...Object.fromEntries(familyOperatorFields.map((field) => [field, payload[field] ?? null]))
+        });
       } else if (editing.id) await api.update(config.resource, editing.id, payload);
       else await api.create(config.resource, payload);
       setEditorBaseline("");
@@ -657,16 +678,25 @@ export function RecordsPage({ kind }: { kind: keyof typeof configs }) {
   }
 
   function openRecord(row: AnyRecord) {
-    setEditing(row);
-    setEditorBaseline(JSON.stringify(row));
+    const opened = isFamilyPage ? { ...row, passengerRecordId: row.currentClaim?.passengerRecordId ?? null } : row;
+    setEditing(opened);
+    setEditorBaseline(JSON.stringify(opened));
     setWriteError("");
     setFieldErrors({});
-    setSelectedPassengerId(kind === "enquiries" ? (findPassengerForRecord(row)?.id ?? "") : "");
+    setSelectedPassengerId(kind === "enquiries" ? (findPassengerForRecord(row)?.id ?? "") : isFamilyPage ? String(row.currentClaim?.passengerRecordId ?? "") : "");
     setSourceCorrectionMode(false);
     setSourceCorrectionReason("");
     setPassengerCondition(String(row.conditionStatus ?? "Unknown"));
     setPassengerHold(String(row.holdStatus ?? "No hold"));
     setEditorOpen(true);
+    if (isFamilyPage && activeSession) {
+      void api.record(config.resource, row.id, { sessionId: activeSession.id }).then((full) => {
+        const refreshed = { ...full, passengerRecordId: full.currentClaim?.passengerRecordId ?? null };
+        setEditing(refreshed);
+        setEditorBaseline(JSON.stringify(refreshed));
+        setSelectedPassengerId(String(full.currentClaim?.passengerRecordId ?? ""));
+      }).catch((err) => setWriteError(err instanceof Error ? err.message : "Unable to load relationship decision history"));
+    }
   }
 
   useEffect(() => {
@@ -712,7 +742,7 @@ export function RecordsPage({ kind }: { kind: keyof typeof configs }) {
       delete next[fieldName];
       return next;
     });
-    if (kind === "enquiries" && enquiryPassengerFields.has(fieldName)) {
+    if ((kind === "enquiries" || isFamilyPage) && enquiryPassengerFields.has(fieldName)) {
       setSelectedPassengerId("");
       setEditing((current) => ({ ...current, passengerRecordId: null, [fieldName]: value }));
       return;
@@ -739,12 +769,12 @@ export function RecordsPage({ kind }: { kind: keyof typeof configs }) {
     if (await runAction(editing, action, body)) setEditorOpen(false);
   }
 
-  function openFamilyVerificationDecision() {
+  function openFamilyDecision(action: "family-verify" | "family-reject" | "family-reopen") {
     if (!editing.id) return;
     setPendingDecision({
-      action: "family-verify",
+      action,
       record: editing,
-      note: String(editing.verificationNotes ?? ""),
+      note: "",
       error: "",
       saving: false
     });
@@ -773,15 +803,23 @@ export function RecordsPage({ kind }: { kind: keyof typeof configs }) {
       return;
     }
     const note = pendingDecision.note.trim();
-    const noteLabel = pendingDecision.action === "family-verify" ? "verification basis" : pendingDecision.action === "request-close" ? "closure note" : pendingDecision.action === "passenger-hold" ? "hold reason" : "decision basis";
+    const isFamilyDecision = pendingDecision.action.startsWith("family-");
+    const noteLabel = isFamilyDecision ? "decision basis" : pendingDecision.action === "request-close" ? "closure note" : pendingDecision.action === "passenger-hold" ? "hold reason" : "decision basis";
     if (pendingDecision.action !== "passenger-src" && note.length < 3) {
       setPendingDecision((current) => (current ? { ...current, error: `Enter a ${noteLabel} with at least 3 characters.` } : current));
       return;
     }
     setPendingDecision((current) => (current ? { ...current, saving: true, error: "" } : current));
     try {
-      if (pendingDecision.action === "family-verify") {
-        await api.action(config.resource, pendingDecision.record.id, "verify", { verificationNotes: note });
+      if (isFamilyDecision) {
+        const action = pendingDecision.action === "family-verify" ? "verify" : pendingDecision.action === "family-reject" ? "reject" : "reopen";
+        await api.action(config.resource, pendingDecision.record.id, action, {
+          sessionId: pendingDecision.record.sessionId,
+          version: pendingDecision.record.version,
+          claimVersion: pendingDecision.record.currentClaim?.version,
+          basis: note,
+          verifiedRelationshipType: pendingDecision.action === "family-verify" ? pendingDecision.record.claimedRelationship : undefined
+        });
       } else if (pendingDecision.action === "request-close") {
         await api.action(config.resource, pendingDecision.record.id, "status", { status: "Closed", closureNote: note });
       } else if (pendingDecision.action === "passenger-src") {
@@ -795,7 +833,7 @@ export function RecordsPage({ kind }: { kind: keyof typeof configs }) {
       setPendingDecision(null);
       setEditorOpen(false);
     } catch (err) {
-      const fallback = pendingDecision.action === "family-verify" ? "Unable to verify family record" : "Unable to close request";
+      const fallback = isFamilyDecision ? "Unable to record the relationship decision" : "Unable to close request";
       setPendingDecision((current) =>
         current
           ? {
@@ -836,18 +874,21 @@ export function RecordsPage({ kind }: { kind: keyof typeof configs }) {
       );
     }
     if (kind === "family-records") {
+      const claimStatus = String(editing.currentClaim?.status ?? "PENDING");
       return (
         <div className="grid gap-2 sm:grid-cols-2">
-          {activeSessionWritable && can("family:verify") ? (
+          {activeSessionWritable && can("family:verify") && claimStatus === "PENDING" ? (
             <Button
               icon={UserCheck}
               variant="success"
-              onClick={openFamilyVerificationDecision}
+              onClick={() => openFamilyDecision("family-verify")}
             >
-              Verify
+              Verify relationship
             </Button>
           ) : null}
-          {canUpdate ? <Button icon={ShieldCheck} variant="warning" onClick={() => runEditorAction("mark-disputed", { verificationNotes: "Marked disputed by officer." })}>Dispute</Button> : null}
+          {activeSessionWritable && can("family:verify") && claimStatus === "PENDING" ? <Button icon={ShieldCheck} variant="danger" onClick={() => openFamilyDecision("family-reject")}>Reject claim</Button> : null}
+          {activeSessionWritable && can("family:verify") && ["VERIFIED", "REJECTED"].includes(claimStatus) ? <Button icon={ShieldCheck} variant="warning" onClick={() => openFamilyDecision("family-reopen")}>Reopen for review</Button> : null}
+          {canUpdate ? <Button variant="ghost" onClick={() => setSourceCorrectionMode((current) => !current)}>{sourceCorrectionMode ? "Cancel claim correction" : "Correct claimed facts"}</Button> : null}
         </div>
       );
     }
@@ -886,19 +927,19 @@ export function RecordsPage({ kind }: { kind: keyof typeof configs }) {
   }
 
   function passengerPicker() {
-    if (kind !== "enquiries") return null;
+    if (kind !== "enquiries" && !isFamilyPage) return null;
     const selectedPassenger = passengerOptions.find((passenger) => passenger.id === selectedPassengerId);
     return (
       <div className="grid gap-3 rounded-md border border-border bg-muted p-3 text-foreground">
         <div className="flex min-w-0 flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
           <div className="min-w-0">
             <p className="text-sm font-bold text-foreground">Passenger from manifest / SRC</p>
-            <p className="mt-0.5 text-xs font-semibold text-muted-foreground">Choose a known passenger to prefill this enquiry, or keep manual entry.</p>
+            <p className="mt-0.5 text-xs font-semibold text-muted-foreground">{isFamilyPage ? "Link only the Passenger identified by the claimant. This does not verify the relationship." : "Choose a known passenger to prefill this enquiry, or keep manual entry."}</p>
           </div>
           <Badge tone={selectedPassenger ? "info" : "neutral"}>{selectedPassenger ? "Prefilled" : "Manual"}</Badge>
         </div>
         <Field label="Known passenger">
-          <Select value={selectedPassengerId} readOnly={!canSaveCurrent} onChange={(event) => selectPassengerContext(event.target.value)}>
+          <Select value={selectedPassengerId} readOnly={!canSaveCurrent || (isFamilyPage && Boolean(editing.id) && !sourceCorrectionMode)} onChange={(event) => selectPassengerContext(event.target.value)}>
             <option value="">Manual entry</option>
             {passengerOptions.map((passenger) => (
               <option key={passenger.id} value={passenger.id}>
@@ -1078,6 +1119,28 @@ export function RecordsPage({ kind }: { kind: keyof typeof configs }) {
                 </div>
               ) : null}
 
+              {isFamilyPage && editing.id ? (
+                <div className="mb-4 grid gap-3 rounded-md border border-[#145C63]/25 bg-[#145C63]/5 p-3">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <div>
+                      <p className="text-xs font-bold uppercase tracking-wide text-muted-foreground">Relationship claim</p>
+                      <p className="mt-1 text-sm font-black text-foreground">Claimed: {editing.currentClaim?.claimedRelationshipType ?? editing.claimedRelationship ?? "Not specified"}</p>
+                    </div>
+                    <StatusBadge value={editing.verificationStatus ?? "Unverified"} />
+                  </div>
+                  {editing.verificationStatus === "Verified" ? (
+                    <div className="grid gap-1 text-xs font-semibold text-muted-foreground">
+                      <p><span className="font-black text-foreground">Verified relationship:</span> {editing.verifiedRelationship ?? "Not specified"}</p>
+                      <p><span className="font-black text-foreground">Decision by:</span> {editing.verificationDecisionByDisplayName ?? "Historical actor unavailable"}</p>
+                      <p><span className="font-black text-foreground">Decision at:</span> {formatDateTime(editing.verificationDecisionAt)}</p>
+                    </div>
+                  ) : null}
+                  {editing.verificationNotes ? <p className="rounded-md border border-border bg-card p-2 text-xs font-semibold leading-5 text-muted-foreground"><span className="font-black text-foreground">Current basis:</span> {editing.verificationNotes}</p> : null}
+                  {editing.potentialDuplicateIds?.length ? <AlertBox>{editing.potentialDuplicateIds.length} potential duplicate contact(s) share a normalized phone or email. Review manually; no records were merged.</AlertBox> : null}
+                  <p className="text-xs font-semibold text-muted-foreground">Decision history: {editing.decisionHistory?.length ?? editing.currentClaim?.decisions?.length ?? 0} event(s) across {editing.claimHistoryCount ?? 1} claim version(s). A Passenger link or Matching suggestion does not verify this claim.</p>
+                </div>
+              ) : null}
+
               {editing.id && editorActions() ? (
                 <div className="mb-4 rounded-md border border-border bg-card p-3">
                   {editorActions()}
@@ -1093,15 +1156,15 @@ export function RecordsPage({ kind }: { kind: keyof typeof configs }) {
 
               {showRecordFields ? (
                 <div className="grid gap-5">
-                  {isPassengerPage && editing.id && sourceCorrectionMode ? (
-                    <Field label="Source correction reason" error={sourceCorrectionReason.trim().length >= 3 ? undefined : "Enter at least 3 characters."}>
-                      <Textarea value={sourceCorrectionReason} onChange={(event) => setSourceCorrectionReason(event.target.value)} placeholder="Why the source facts are being corrected" />
+                  {(isPassengerPage || isFamilyPage) && editing.id && sourceCorrectionMode ? (
+                    <Field label={isFamilyPage ? "Claim correction reason" : "Source correction reason"} error={sourceCorrectionReason.trim().length >= 3 ? undefined : "Enter at least 3 characters."}>
+                      <Textarea value={sourceCorrectionReason} onChange={(event) => setSourceCorrectionReason(event.target.value)} placeholder={isFamilyPage ? "Why the claimed facts or Passenger link are being corrected" : "Why the source facts are being corrected"} />
                     </Field>
                   ) : null}
                   <div className="grid gap-3">
                     <p className="text-xs font-bold uppercase tracking-wide text-muted-foreground">Case</p>
                     <Field label="Case ID">
-                      <Input readOnly={!canSaveCurrent || (isPassengerPage && sourceCorrectionMode)} value={editing.caseId ?? ""} onChange={(event) => setEditing((current) => ({ ...current, caseId: event.target.value }))} placeholder="CASE-2026-0001" />
+                      <Input readOnly={!canSaveCurrent || ((isPassengerPage || isFamilyPage) && sourceCorrectionMode)} value={editing.caseId ?? ""} onChange={(event) => setEditing((current) => ({ ...current, caseId: event.target.value }))} placeholder="CASE-2026-0001" />
                     </Field>
                   </div>
                   {fieldGroups.map((group) => (
@@ -1113,7 +1176,11 @@ export function RecordsPage({ kind }: { kind: keyof typeof configs }) {
                           <RecordField
                             field={field}
                             value={editing[field.name]}
-                            readOnly={!canSaveCurrent || (isPassengerPage && Boolean(editing.id) && field.name !== "notes" && !sourceCorrectionMode) || (isPassengerPage && Boolean(editing.id) && field.name === "notes" && sourceCorrectionMode)}
+                            readOnly={!canSaveCurrent
+                              || (isPassengerPage && Boolean(editing.id) && field.name !== "notes" && !sourceCorrectionMode)
+                              || (isPassengerPage && Boolean(editing.id) && field.name === "notes" && sourceCorrectionMode)
+                              || (isFamilyPage && Boolean(editing.id) && familyClaimFields.has(field.name) && !sourceCorrectionMode)
+                              || (isFamilyPage && Boolean(editing.id) && !familyClaimFields.has(field.name) && sourceCorrectionMode)}
                             controlledOptions={controlledOptionsByKind[kind]?.[field.name]}
                             error={fieldErrors[field.name]}
                             onChange={(value) => updateEditingField(field.name, value)}
@@ -1128,8 +1195,8 @@ export function RecordsPage({ kind }: { kind: keyof typeof configs }) {
 
             {canSaveCurrent ? (
               <div className="border-t border-border bg-card p-4">
-                <Button className="w-full" icon={Save} variant="primary" disabled={saving || (isPassengerPage && sourceCorrectionMode && sourceCorrectionReason.trim().length < 3)} aria-busy={saving} onClick={save}>
-                  {saving ? "Saving record" : isPassengerPage && sourceCorrectionMode ? "Apply source correction" : editing.id ? "Save changes" : recordCopy.saveNew}
+                <Button className="w-full" icon={Save} variant="primary" disabled={saving || ((isPassengerPage || isFamilyPage) && sourceCorrectionMode && sourceCorrectionReason.trim().length < 3)} aria-busy={saving} onClick={save}>
+                  {saving ? "Saving record" : isPassengerPage && sourceCorrectionMode ? "Apply source correction" : isFamilyPage && sourceCorrectionMode ? "Apply claim correction" : editing.id ? "Save changes" : recordCopy.saveNew}
                 </Button>
               </div>
             ) : null}
@@ -1140,24 +1207,24 @@ export function RecordsPage({ kind }: { kind: keyof typeof configs }) {
 
       {pendingDecision ? (
         <DecisionDialog
-          title={pendingDecision.action === "family-verify" ? "Verify Family/NOK" : pendingDecision.action === "request-close" ? "Close Request" : pendingDecision.action === "passenger-src" ? "Confirm SRC" : pendingDecision.action === "passenger-condition" ? "Change passenger condition" : "Change passenger hold"}
+          title={pendingDecision.action === "family-verify" ? "Verify relationship claim" : pendingDecision.action === "family-reject" ? "Reject relationship claim" : pendingDecision.action === "family-reopen" ? "Reopen relationship claim" : pendingDecision.action === "request-close" ? "Close Request" : pendingDecision.action === "passenger-src" ? "Confirm SRC" : pendingDecision.action === "passenger-condition" ? "Change passenger condition" : "Change passenger hold"}
           description={
-            pendingDecision.action === "family-verify"
-              ? `${pendingDecision.record.operationalId ?? "This family record"} will be marked verified using the recorded identity and relationship basis. The decision is added to operational history.`
+            pendingDecision.action.startsWith("family-")
+              ? `${pendingDecision.record.operationalId ?? "This family record"}: the human relationship decision will be versioned and added to immutable operational history.`
               : pendingDecision.action === "request-close" ? `${pendingDecision.record.operationalId ?? "This request"} will be closed and become a terminal workflow record. The closure is recorded in operational history.` : `${pendingDecision.record.operationalId ?? "This passenger record"} will be updated to ${pendingDecision.value ?? "SRC confirmed"}. The decision is versioned and added to operational history.`
           }
-          label={pendingDecision.action === "family-verify" ? "Verification basis" : pendingDecision.action === "request-close" ? "Closure note" : pendingDecision.action === "passenger-hold" ? "Hold reason" : "Decision basis"}
+          label={pendingDecision.action.startsWith("family-") ? "Decision basis / evidence summary" : pendingDecision.action === "request-close" ? "Closure note" : pendingDecision.action === "passenger-hold" ? "Hold reason" : "Decision basis"}
           value={pendingDecision.note}
           onChange={(value) => setPendingDecision((current) => (current ? { ...current, note: value, error: "" } : current))}
           onCancel={() => setPendingDecision(null)}
           onConfirm={confirmDecision}
-          confirmLabel={pendingDecision.action === "family-verify" ? "Verify" : pendingDecision.action === "request-close" ? "Close request" : "Apply decision"}
+          confirmLabel={pendingDecision.action === "family-verify" ? "Verify relationship" : pendingDecision.action === "family-reject" ? "Reject claim" : pendingDecision.action === "family-reopen" ? "Reopen for review" : pendingDecision.action === "request-close" ? "Close request" : "Apply decision"}
           confirmIcon={pendingDecision.action === "family-verify" ? UserCheck : CheckCircle2}
-          confirmVariant="success"
+          confirmVariant={pendingDecision.action === "family-reject" ? "danger" : pendingDecision.action === "family-reopen" ? "warning" : "success"}
           error={pendingDecision.error}
           busy={pendingDecision.saving}
           required={pendingDecision.action !== "passenger-src"}
-          placeholder={pendingDecision.action === "family-verify" ? "Identity and relationship evidence reviewed" : pendingDecision.action === "request-close" ? "Reason for closing this request" : "Evidence or operational reason"}
+          placeholder={pendingDecision.action.startsWith("family-") ? "Evidence reviewed, discrepancy, or reason for reopening" : pendingDecision.action === "request-close" ? "Reason for closing this request" : "Evidence or operational reason"}
         />
       ) : null}
     </div>

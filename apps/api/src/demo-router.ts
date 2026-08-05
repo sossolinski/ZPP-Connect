@@ -68,6 +68,13 @@ import { createMemoryPassengerRepository } from "./modules/passengers/memory-pas
 import type { PassengerRepository } from "./modules/passengers/passenger-repository.js";
 import type { PassengerActor, PassengerImportInput } from "./modules/passengers/passenger-types.js";
 import { validatePassengerManifestRows } from "./modules/passengers/passenger-import.js";
+import { createFamilyRouter } from "./modules/families/family-router.js";
+import { createFamilyService } from "./modules/families/family-service.js";
+import { createMemoryFamilyRepository } from "./modules/families/memory-family-repository.js";
+import type { FamilyRepository } from "./modules/families/family-repository.js";
+import type { FamilyActor, FamilyImportInput } from "./modules/families/family-types.js";
+import { validateFamilyImportRows } from "./modules/families/family-import.js";
+import { hydrateReadOnlyProjection, mergeProjectionPage, syncProjectionRow } from "./modules/compatibility/read-only-projection.js";
 
 type Row = Record<string, any>;
 type AccountStatus = "Pending" | "Active" | "Suspended" | "Archived";
@@ -739,7 +746,7 @@ const enquiries: Row[] = [
     callerEmail: "anna.kowalska@example.test",
     callerLocation: "Krakow",
     preferredLanguage: "Polish",
-    claimedRelationship: "Sister",
+    claimedRelationship: "Sibling",
     passengerRecordId: "pax-demo-1",
     passengerFirstName: "Piotr",
     passengerLastName: "Kowalski",
@@ -770,7 +777,7 @@ const familyRecords: Row[] = [
     passengerFirstName: "Piotr",
     passengerLastName: "Kowalski",
     passengerFlight: "LO3924",
-    verificationStatus: "Partially verified",
+    verificationStatus: "Review required",
     verificationNotes: "Identity reviewed; relationship verification pending.",
     immediateNeeds: "Psychological First Aid and regular call-back.",
     createdAt: now(),
@@ -1869,6 +1876,9 @@ function operationalExportRows(type: string, rows: Row[]) {
       preferredContactChannel: row.preferredContactChannel,
       preferredLanguage: row.preferredLanguage,
       verificationStatus: row.verificationStatus,
+      verifiedRelationship: row.verifiedRelationship,
+      verificationDecisionBy: row.verificationDecisionByDisplayName,
+      verificationDecisionAt: row.verificationDecisionAt,
       verificationNotes: row.verificationNotes,
       immediateNeeds: row.immediateNeeds,
       createdAt: row.createdAt,
@@ -2033,6 +2043,7 @@ export function createDemoRouter(options: {
   incidentAccessRepository?: IncidentAccessRepository;
   incidentAssignmentRepository?: IncidentAssignmentRepository;
   passengerRepository?: PassengerRepository;
+  familyRepository?: FamilyRepository;
 } = {}) {
   const router = Router();
   const memoryIncidentAssignments: MemoryIncidentAssignment[] = sessions.flatMap((incident) =>
@@ -2091,22 +2102,32 @@ export function createDemoRouter(options: {
     now
   });
   const passengerService = createPassengerService(passengerRepository, incidentAccessService);
+  const familyRepository = options.familyRepository ?? createMemoryFamilyRepository({
+    families: familyRecords,
+    passengers: passengerRecords,
+    importBatches,
+    auditLogs,
+    timeline,
+    users,
+    now
+  });
+  const familyService = createFamilyService(familyRepository, incidentAccessService);
   if (enquiryRepository.kind === "postgres") enquiries.splice(0, enquiries.length);
   if (passengerRepository.kind === "postgres") passengerRecords.splice(0, passengerRecords.length);
+  if (familyRepository.kind === "postgres") familyRecords.splice(0, familyRecords.length);
   const syncIncident = (record: Record<string, unknown>) => {
     const index = sessions.findIndex((item) => item.id === record.id);
     if (index >= 0) sessions[index] = { ...record };
     else sessions.unshift({ ...record });
   };
   const syncEnquiry = (record: Record<string, unknown>) => {
-    const index = enquiries.findIndex((item) => item.id === record.id);
-    if (index >= 0) enquiries[index] = { ...record };
-    else enquiries.unshift({ ...record });
+    syncProjectionRow(enquiries, record);
   };
   const syncPassenger = (record: Record<string, unknown>) => {
-    const index = passengerRecords.findIndex((item) => item.id === record.id);
-    if (index >= 0) passengerRecords[index] = { ...record };
-    else passengerRecords.unshift({ ...record });
+    syncProjectionRow(passengerRecords, record);
+  };
+  const syncFamily = (record: Record<string, unknown>) => {
+    syncProjectionRow(familyRecords, record);
   };
   const memberDirectory = createMemberDirectoryRepository(users.map((user) => ({ id: user.id, email: user.email, displayName: user.displayName, roles: user.roles })));
   memberDirectoryForAdmin = memberDirectory;
@@ -2265,29 +2286,21 @@ export function createDemoRouter(options: {
   router.use(createIncidentAssignmentRouter(incidentAssignmentService));
   router.use(createEnquiryRouter(enquiryService, {
     onList: enquiryService.kind === "postgres"
-      ? (records, incidentId, offset) => {
-          if (offset === 0) {
-            for (let index = enquiries.length - 1; index >= 0; index -= 1) {
-              if (enquiries[index]?.sessionId === incidentId) enquiries.splice(index, 1);
-            }
-          }
-          records.forEach(syncEnquiry);
-        }
+      ? (records, incidentId, offset) => mergeProjectionPage(enquiries, incidentId, records, offset)
       : undefined,
     onChange: enquiryService.kind === "postgres" ? syncEnquiry : undefined
   }));
   router.use(createPassengerRouter(passengerService, {
     onList: passengerService.kind === "postgres"
-      ? (records, incidentId, offset) => {
-          if (offset === 0) {
-            for (let index = passengerRecords.length - 1; index >= 0; index -= 1) {
-              if (passengerRecords[index]?.sessionId === incidentId) passengerRecords.splice(index, 1);
-            }
-          }
-          records.forEach(syncPassenger);
-        }
+      ? (records, incidentId, offset) => mergeProjectionPage(passengerRecords, incidentId, records, offset)
       : undefined,
     onChange: passengerService.kind === "postgres" ? syncPassenger : undefined
+  }));
+  router.use(createFamilyRouter(familyService, {
+    onList: familyService.kind === "postgres"
+      ? (records, incidentId, offset) => mergeProjectionPage(familyRecords, incidentId, records, offset)
+      : undefined,
+    onChange: familyService.kind === "postgres" ? syncFamily : undefined
   }));
   const requireIncidentAccess = (resolveIncidentId: (req: Request) => string, hydrateEnquiryCompatibility = false, requireWritable = false) => (req: Request, _res: any, next: NextFunction) => {
     const incidentId = resolveIncidentId(req);
@@ -2307,41 +2320,13 @@ export function createDemoRouter(options: {
         }));
       }
       if (hydrateEnquiryCompatibility && enquiryService.kind === "postgres" && can(req, "enquiry:read")) {
-        let offset = 0;
-        let total = 0;
-        const records: Row[] = [];
-        do {
-          const page = await enquiryService.list(accessActor, incidentId, { limit: 200, offset });
-          total = page.total;
-          records.push(...page.data);
-          if (page.data.length === 0) break;
-          offset += page.data.length;
-        } while (offset < total);
-        for (let index = enquiries.length - 1; index >= 0; index -= 1) {
-          if (enquiries[index]?.sessionId === incidentId) enquiries.splice(index, 1);
-        }
-        records.forEach(syncEnquiry);
+        await hydrateReadOnlyProjection(enquiries, incidentId, (offset) => enquiryService.list(accessActor, incidentId, { limit: 200, offset }));
       }
       if (hydrateEnquiryCompatibility && passengerService.kind === "postgres" && can(req, "passenger:read")) {
-        let offset = 0;
-        let total = 0;
-        const records: Row[] = [];
-        do {
-          const page = await passengerService.list(accessActor, incidentId, {
-            limit: 200,
-            offset,
-            sortBy: "updatedAt",
-            sortDirection: "desc"
-          });
-          total = page.total;
-          records.push(...page.data);
-          if (page.data.length === 0) break;
-          offset += page.data.length;
-        } while (offset < total);
-        for (let index = passengerRecords.length - 1; index >= 0; index -= 1) {
-          if (passengerRecords[index]?.sessionId === incidentId) passengerRecords.splice(index, 1);
-        }
-        records.forEach(syncPassenger);
+        await hydrateReadOnlyProjection(passengerRecords, incidentId, (offset) => passengerService.list(accessActor, incidentId, { limit: 200, offset, sortBy: "updatedAt", sortDirection: "desc" }));
+      }
+      if (hydrateEnquiryCompatibility && familyService.kind === "postgres" && can(req, "family:read")) {
+        await hydrateReadOnlyProjection(familyRecords, incidentId, (offset) => familyService.list(accessActor, incidentId, { limit: 200, offset, sortBy: "updatedAt", sortDirection: "desc" }));
       }
       next();
     })().catch(next);
@@ -2792,7 +2777,6 @@ export function createDemoRouter(options: {
   }));
 
   const demoResourceRoutes = [
-    { resource: "family-records", read: "family:read", create: "family:create", update: "family:update" },
     { resource: "requests", read: "request:read", create: "request:create", update: "request:update" },
     { resource: "files", read: "import:create", create: "import:create", update: "import:create" },
     { resource: "exercise/injects", read: "exercise:manage", create: "exercise:manage", update: "exercise:manage" },
@@ -2919,30 +2903,6 @@ export function createDemoRouter(options: {
     res.json({ data: [] });
   });
 
-  router.post("/family-records/:id/verify", requirePermission("family:verify"), (req, res) => {
-    const note = demoDecisionNote(req.body?.verificationNotes);
-    if (!note) {
-      res.status(400).json({ error: "Verification note must contain at least 3 characters" });
-      return;
-    }
-    const row = updateRow("family-records", String(req.params.id), { verificationStatus: "Verified", verificationNotes: note }, req);
-    if (!row) {
-      res.status(404).json({ error: "Not found" });
-      return;
-    }
-    addAudit(req, "verify_family_record", `Family/NOK record ${row.operationalId} verified`, row.sessionId, { basis: note }, "familyRecord", row.id);
-    addTimeline(req, {
-      sessionId: row.sessionId,
-      caseId: row.caseId,
-      eventType: "verification",
-      entityType: "familyRecord",
-      entityId: row.id,
-      title: "Family/NOK verification completed",
-      body: note
-    });
-    res.json(row);
-  });
-  router.post("/family-records/:id/mark-disputed", requirePermission("family:update"), (req, res) => res.json(updateRow("family-records", String(req.params.id), { verificationStatus: "Disputed", verificationNotes: req.body?.verificationNotes }, req)));
   router.post("/matching-records/:id/:action", requireIncidentAccess((req) => String(matchingRecords.find((item) => item.id === req.params.id)?.sessionId ?? req.body?.sessionId ?? ""), true), (req, res) => {
     const action = String(req.params.action);
     const matchingId = String(req.params.id);
@@ -3330,11 +3290,12 @@ export function createDemoRouter(options: {
 
   router.post("/imports/:type", requirePermission("import:create"), upload.single("file"), requireIncidentAccess((req) => String(req.body?.sessionId ?? ""), false, true), (req, res) => {
     try {
-      if (String(req.params.type) !== "manifest") {
-        res.status(400).json({ error: "Only manifest CSV imports are supported" });
+      const importType = String(req.params.type);
+      if (!["manifest", "family"].includes(importType)) {
+        res.status(400).json({ error: "Only manifest and family CSV imports are supported" });
         return;
       }
-      if (!can(req, "passenger:create")) {
+      if ((importType === "manifest" && !can(req, "passenger:create")) || (importType === "family" && !can(req, "family:create"))) {
         res.status(403).json({ error: "Forbidden" });
         return;
       }
@@ -3345,7 +3306,7 @@ export function createDemoRouter(options: {
       const fileName = req.file.originalname.toLowerCase();
       const supportedMimeTypes = new Set(["text/csv", "application/csv", "application/vnd.ms-excel"]);
       if (!fileName.endsWith(".csv") || !supportedMimeTypes.has(req.file.mimetype.toLowerCase())) {
-        res.status(400).json({ error: "Manifest import requires a CSV file" });
+        res.status(400).json({ error: "Import requires a CSV file" });
         return;
       }
       const sessionId = String(req.body?.sessionId ?? "").trim();
@@ -3354,11 +3315,11 @@ export function createDemoRouter(options: {
         return;
       }
       const rows = parseWorkbook(readFileSync(req.file.path), req.file.originalname) as Row[];
-      const result = validatePassengerManifestRows(rows, sessionId);
+      const result = importType === "manifest" ? validatePassengerManifestRows(rows, sessionId) : validateFamilyImportRows(rows, sessionId);
       const batch = createRow("import-batches", {
         id: randomUUID(),
         sessionId,
-        importType: "manifest",
+        importType,
         sourceFilename: req.file.originalname,
         status: result.errors.length ? "Validated with errors" : "Validated",
         totalRecords: rows.length,
@@ -3374,7 +3335,7 @@ export function createDemoRouter(options: {
         mimeType: req.file.mimetype,
         sizeBytes: req.file.size
       }, req);
-      addAudit(req, "validate_import", `Validated manifest: ${result.validRows.length}/${rows.length} valid`, sessionId, {
+      addAudit(req, "validate_import", `Validated ${importType}: ${result.validRows.length}/${rows.length} valid`, sessionId, {
         importBatchId: batch.id,
         totalRecords: rows.length,
         validRecords: result.validRows.length,
@@ -3397,7 +3358,7 @@ export function createDemoRouter(options: {
       res.status(409).json({ error: "Import batch has already been confirmed" });
       return;
     }
-    if (batch.importType !== "manifest" || !can(req, "passenger:create")) {
+    if ((batch.importType === "manifest" && !can(req, "passenger:create")) || (batch.importType === "family" && !can(req, "family:create")) || !["manifest", "family"].includes(String(batch.importType))) {
       res.status(403).json({ error: "Forbidden" });
       return;
     }
@@ -3406,7 +3367,7 @@ export function createDemoRouter(options: {
       res.status(404).json({ error: "Validated import data not found" });
       return;
     }
-    const actor: PassengerActor = {
+    const actor: PassengerActor & FamilyActor = {
       id: currentUser(req).id,
       email: currentUser(req).email,
       displayName: currentUser(req).displayName,
@@ -3414,15 +3375,16 @@ export function createDemoRouter(options: {
       requestId: req.requestId
     };
     void (async () => {
-      const records = validRows.map(({ sessionId: _sessionId, ...row }) => row) as PassengerImportInput["records"];
-      const result = await passengerService.importRecords(actor, String(batch.sessionId), {
+      const common = {
         batchId: String(batch.id),
-        sourceFilename: String(batch.sourceFilename ?? "manifest.csv"),
+        sourceFilename: String(batch.sourceFilename ?? `${batch.importType}.csv`),
         totalRecords: Number(batch.totalRecords),
         invalidRecords: Number(batch.invalidRecords),
-        errors: Array.isArray(batch.errors) ? batch.errors : [],
-        records
-      });
+        errors: Array.isArray(batch.errors) ? batch.errors : []
+      };
+      const result = batch.importType === "manifest"
+        ? await passengerService.importRecords(actor, String(batch.sessionId), { ...common, records: validRows.map(({ sessionId: _sessionId, ...row }) => row) as PassengerImportInput["records"] })
+        : await familyService.importRecords(actor, String(batch.sessionId), { ...common, records: validRows.map(({ sessionId: _sessionId, ...row }) => row) as FamilyImportInput["records"] });
       Object.assign(batch, { status: result.status, updatedAt: now() });
       importRowsByBatchId.delete(String(batch.id));
       res.json(batch);

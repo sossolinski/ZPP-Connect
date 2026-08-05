@@ -8,29 +8,32 @@ datasource db {
 }
 
 model User {
-  id                         String                       @id @default(uuid()) @db.Uuid
-  email                      String                       @unique
-  displayName                String
-  department                 String?
-  organizationId             String?                      @db.Uuid
-  status                     String                       @default("active")
-  createdAt                  DateTime                     @default(now())
-  updatedAt                  DateTime                     @updatedAt
-  organization               Organization?                @relation(fields: [organizationId], references: [id], onDelete: SetNull)
-  roles                      UserRole[]
-  createdSessions            Session[]                    @relation("SessionCreatedBy")
-  closedSessions             Session[]                    @relation("SessionClosedBy")
-  approvedMatches            MatchingRecord[]             @relation("MatchApprovedBy")
-  authorizedReleases         ReunificationReleaseRecord[] @relation("ReleaseAuthorizedBy")
-  completedReleases          ReunificationReleaseRecord[] @relation("ReleaseCompletedBy")
-  assignedAssignments        AssignmentTask[]             @relation("AssignmentAssignedTo")
-  incidentAssignments        IncidentAssignment[]         @relation("IncidentAssignedUser")
-  createdIncidentAssignments IncidentAssignment[]         @relation("IncidentAssignmentCreator")
-  revokedIncidentAssignments IncidentAssignment[]         @relation("IncidentAssignmentRevoker")
-  passengerSrcConfirmations  PassengerRecord[]            @relation("PassengerSrcConfirmedBy")
-  passengerConditionUpdates  PassengerRecord[]            @relation("PassengerConditionUpdatedBy")
-  passengerHoldUpdates       PassengerRecord[]            @relation("PassengerHoldUpdatedBy")
-  auditLogs                  AuditLog[]                   @relation("ActorAudit")
+  id                            String                             @id @default(uuid()) @db.Uuid
+  email                         String                             @unique
+  displayName                   String
+  department                    String?
+  organizationId                String?                            @db.Uuid
+  status                        String                             @default("active")
+  createdAt                     DateTime                           @default(now())
+  updatedAt                     DateTime                           @updatedAt
+  organization                  Organization?                      @relation(fields: [organizationId], references: [id], onDelete: SetNull)
+  roles                         UserRole[]
+  createdSessions               Session[]                          @relation("SessionCreatedBy")
+  closedSessions                Session[]                          @relation("SessionClosedBy")
+  approvedMatches               MatchingRecord[]                   @relation("MatchApprovedBy")
+  authorizedReleases            ReunificationReleaseRecord[]       @relation("ReleaseAuthorizedBy")
+  completedReleases             ReunificationReleaseRecord[]       @relation("ReleaseCompletedBy")
+  assignedAssignments           AssignmentTask[]                   @relation("AssignmentAssignedTo")
+  incidentAssignments           IncidentAssignment[]               @relation("IncidentAssignedUser")
+  createdIncidentAssignments    IncidentAssignment[]               @relation("IncidentAssignmentCreator")
+  revokedIncidentAssignments    IncidentAssignment[]               @relation("IncidentAssignmentRevoker")
+  passengerSrcConfirmations     PassengerRecord[]                  @relation("PassengerSrcConfirmedBy")
+  passengerConditionUpdates     PassengerRecord[]                  @relation("PassengerConditionUpdatedBy")
+  passengerHoldUpdates          PassengerRecord[]                  @relation("PassengerHoldUpdatedBy")
+  familyClaimsCreated           RelationshipClaim[]                @relation("RelationshipClaimCreatedBy")
+  familyVerificationDecisions   RelationshipVerificationDecision[] @relation("RelationshipDecisionBy")
+  familyVerificationProjections FamilyRecord[]                     @relation("FamilyVerificationProjectionBy")
+  auditLogs                     AuditLog[]                         @relation("ActorAudit")
 
   @@index([organizationId])
 }
@@ -73,39 +76,41 @@ model UserRole {
 }
 
 model Session {
-  id                   String                       @id @default(uuid()) @db.Uuid
-  operationalId        String                       @unique
-  mode                 String
-  status               String                       @default("Draft")
-  eventType            String
-  flightNumber         String?
-  route                String?
-  aircraftRegistration String?
-  airportLocation      String?
-  description          String?
-  startAt              DateTime?
-  endAt                DateTime?
-  createdById          String?                      @db.Uuid
-  closedById           String?                      @db.Uuid
-  notes                String?
-  createdAt            DateTime                     @default(now())
-  updatedAt            DateTime                     @updatedAt
-  createdBy            User?                        @relation("SessionCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
-  closedBy             User?                        @relation("SessionClosedBy", fields: [closedById], references: [id], onDelete: SetNull)
-  enquiries            Enquiry[]
-  familyRecords        FamilyRecord[]
-  passengerRecords     PassengerRecord[]
-  matchingRecords      MatchingRecord[]
-  releases             ReunificationReleaseRecord[]
-  requests             WelfareRequest[]
-  assignments          AssignmentTask[]
-  timelineEvents       CaseTimelineEvent[]
-  importBatches        ImportBatch[]
-  files                StoredFile[]
-  exerciseInjects      ExerciseInject[]
-  exerciseObservations ExerciseObservation[]
-  incidentAssignments  IncidentAssignment[]
-  auditLogs            AuditLog[]
+  id                    String                             @id @default(uuid()) @db.Uuid
+  operationalId         String                             @unique
+  mode                  String
+  status                String                             @default("Draft")
+  eventType             String
+  flightNumber          String?
+  route                 String?
+  aircraftRegistration  String?
+  airportLocation       String?
+  description           String?
+  startAt               DateTime?
+  endAt                 DateTime?
+  createdById           String?                            @db.Uuid
+  closedById            String?                            @db.Uuid
+  notes                 String?
+  createdAt             DateTime                           @default(now())
+  updatedAt             DateTime                           @updatedAt
+  createdBy             User?                              @relation("SessionCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
+  closedBy              User?                              @relation("SessionClosedBy", fields: [closedById], references: [id], onDelete: SetNull)
+  enquiries             Enquiry[]
+  familyRecords         FamilyRecord[]
+  relationshipClaims    RelationshipClaim[]
+  relationshipDecisions RelationshipVerificationDecision[]
+  passengerRecords      PassengerRecord[]
+  matchingRecords       MatchingRecord[]
+  releases              ReunificationReleaseRecord[]
+  requests              WelfareRequest[]
+  assignments           AssignmentTask[]
+  timelineEvents        CaseTimelineEvent[]
+  importBatches         ImportBatch[]
+  files                 StoredFile[]
+  exerciseInjects       ExerciseInject[]
+  exerciseObservations  ExerciseObservation[]
+  incidentAssignments   IncidentAssignment[]
+  auditLogs             AuditLog[]
 
   @@index([mode, status])
 }
@@ -171,92 +176,159 @@ model IncidentAssignment {
 }
 
 model FamilyRecord {
-  id                      String                       @id @default(uuid()) @db.Uuid
-  operationalId           String                       @unique
-  sessionId               String                       @db.Uuid
-  caseId                  String?
-  firstName               String
-  lastName                String
-  phone                   String?
-  email                   String?
-  preferredContactChannel String?
-  preferredLanguage       String?
-  location                String?
-  claimedRelationship     String?
-  passengerFirstName      String?
-  passengerLastName       String?
-  passengerFlight         String?
-  verificationStatus      String                       @default("Unverified")
-  verificationNotes       String?
-  immediateNeeds          String?
-  questionsAsked          String?
-  commitmentsMade         String?
-  nextContactDue          DateTime?
-  assignedOfficer         String?
-  notes                   String?
-  createdById             String?                      @db.Uuid
-  updatedById             String?                      @db.Uuid
-  createdAt               DateTime                     @default(now())
-  updatedAt               DateTime                     @updatedAt
-  session                 Session                      @relation(fields: [sessionId], references: [id], onDelete: Cascade)
-  matches                 MatchingRecord[]
-  requests                WelfareRequest[]
-  releases                ReunificationReleaseRecord[]
+  id                       String                       @id @default(uuid()) @db.Uuid
+  operationalId            String                       @unique
+  sessionId                String                       @db.Uuid
+  caseId                   String?
+  sourceBatchId            String?                      @db.Uuid
+  sourceImportedAt         DateTime?
+  firstName                String
+  lastName                 String
+  phone                    String?
+  email                    String?
+  normalizedPhone          String?
+  normalizedEmail          String?
+  preferredContactChannel  String?
+  preferredLanguage        String?
+  location                 String?
+  claimedRelationship      String?
+  passengerFirstName       String?
+  passengerLastName        String?
+  passengerFlight          String?
+  verificationStatus       String                       @default("Unverified")
+  verificationNotes        String?
+  verificationDecisionById String?                      @db.Uuid
+  verificationDecisionAt   DateTime?
+  verifiedRelationship     String?
+  immediateNeeds           String?
+  questionsAsked           String?
+  commitmentsMade          String?
+  nextContactDue           DateTime?
+  assignedOfficer          String?
+  notes                    String?
+  version                  Int                          @default(1)
+  createdById              String?                      @db.Uuid
+  updatedById              String?                      @db.Uuid
+  createdAt                DateTime                     @default(now())
+  updatedAt                DateTime                     @updatedAt
+  session                  Session                      @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  sourceBatch              ImportBatch?                 @relation(fields: [sourceBatchId], references: [id], onDelete: SetNull)
+  verificationDecisionBy   User?                        @relation("FamilyVerificationProjectionBy", fields: [verificationDecisionById], references: [id], onDelete: SetNull)
+  relationshipClaims       RelationshipClaim[]
+  matches                  MatchingRecord[]
+  requests                 WelfareRequest[]
+  releases                 ReunificationReleaseRecord[]
 
-  @@index([sessionId, verificationStatus])
+  @@index([sessionId, verificationStatus, updatedAt])
+  @@index([sessionId, normalizedPhone])
+  @@index([sessionId, normalizedEmail])
+  @@index([sessionId, sourceBatchId])
   @@index([caseId])
 }
 
+model RelationshipClaim {
+  id                        String                             @id @default(uuid()) @db.Uuid
+  incidentId                String                             @db.Uuid
+  familyRecordId            String                             @db.Uuid
+  passengerRecordId         String?                            @db.Uuid
+  claimedRelationshipType   String?
+  claimedPassengerFirstName String?
+  claimedPassengerLastName  String?
+  claimedPassengerFlight    String?
+  source                    String                             @default("OPERATOR")
+  status                    String                             @default("PENDING")
+  isCurrent                 Boolean                            @default(true)
+  version                   Int                                @default(1)
+  claimedById               String?                            @db.Uuid
+  claimedAt                 DateTime                           @default(now())
+  supersededAt              DateTime?
+  createdAt                 DateTime                           @default(now())
+  updatedAt                 DateTime                           @updatedAt
+  incident                  Session                            @relation(fields: [incidentId], references: [id], onDelete: Cascade)
+  familyRecord              FamilyRecord                       @relation(fields: [familyRecordId], references: [id], onDelete: Cascade)
+  passengerRecord           PassengerRecord?                   @relation(fields: [passengerRecordId], references: [id], onDelete: SetNull)
+  claimedBy                 User?                              @relation("RelationshipClaimCreatedBy", fields: [claimedById], references: [id], onDelete: SetNull)
+  decisions                 RelationshipVerificationDecision[]
+
+  @@index([incidentId, status, updatedAt])
+  @@index([incidentId, familyRecordId])
+  @@index([incidentId, passengerRecordId])
+}
+
+model RelationshipVerificationDecision {
+  id                       String            @id @default(uuid()) @db.Uuid
+  incidentId               String            @db.Uuid
+  relationshipClaimId      String            @db.Uuid
+  result                   String
+  basis                    String
+  verifiedRelationshipType String?
+  previousStatus           String
+  nextStatus               String
+  claimVersionBefore       Int
+  claimVersionAfter        Int
+  decisionById             String?           @db.Uuid
+  decisionAt               DateTime          @default(now())
+  requestId                String?
+  createdAt                DateTime          @default(now())
+  incident                 Session           @relation(fields: [incidentId], references: [id], onDelete: Cascade)
+  relationshipClaim        RelationshipClaim @relation(fields: [relationshipClaimId], references: [id], onDelete: Cascade)
+  decisionBy               User?             @relation("RelationshipDecisionBy", fields: [decisionById], references: [id], onDelete: SetNull)
+
+  @@index([incidentId, relationshipClaimId, decisionAt])
+  @@index([incidentId, result, decisionAt])
+}
+
 model PassengerRecord {
-  id                   String                       @id @default(uuid()) @db.Uuid
-  operationalId        String                       @unique
-  sessionId            String                       @db.Uuid
-  caseId               String?
-  personType           String
-  firstName            String
-  lastName             String
-  dateOfBirth          DateTime?
-  age                  Int?
-  gender               String?
-  nationality          String?
-  flightNumber         String?
-  route                String?
-  seat                 String?
-  pnr                  String?
-  ticketNumber         String?
-  manifestVersion      String?
-  source               String
-  sourceBatchId        String?                      @db.Uuid
-  sourceExternalId     String?
-  sourceImportedAt     DateTime?
-  travellingCompanions String?
-  conditionStatus      String                       @default("Unknown")
-  conditionUpdatedAt   DateTime?
-  conditionUpdatedById String?                      @db.Uuid
-  conditionBasis       String?
-  holdStatus           String                       @default("No hold")
-  holdUpdatedAt        DateTime?
-  holdUpdatedById      String?                      @db.Uuid
-  holdReason           String?
-  srcConfirmed         Boolean                      @default(false)
-  srcConfirmedAt       DateTime?
-  srcConfirmedById     String?                      @db.Uuid
-  srcConfirmationBasis String?
-  notes                String?
-  version              Int                          @default(1)
-  createdById          String?                      @db.Uuid
-  updatedById          String?                      @db.Uuid
-  createdAt            DateTime                     @default(now())
-  updatedAt            DateTime                     @updatedAt
-  session              Session                      @relation(fields: [sessionId], references: [id], onDelete: Cascade)
-  sourceBatch          ImportBatch?                 @relation(fields: [sourceBatchId], references: [id], onDelete: SetNull)
-  srcConfirmedBy       User?                        @relation("PassengerSrcConfirmedBy", fields: [srcConfirmedById], references: [id], onDelete: SetNull)
-  conditionUpdatedBy   User?                        @relation("PassengerConditionUpdatedBy", fields: [conditionUpdatedById], references: [id], onDelete: SetNull)
-  holdUpdatedBy        User?                        @relation("PassengerHoldUpdatedBy", fields: [holdUpdatedById], references: [id], onDelete: SetNull)
-  enquiries            Enquiry[]
-  matches              MatchingRecord[]
-  requests             WelfareRequest[]
-  releases             ReunificationReleaseRecord[]
+  id                       String                       @id @default(uuid()) @db.Uuid
+  operationalId            String                       @unique
+  sessionId                String                       @db.Uuid
+  caseId                   String?
+  personType               String
+  firstName                String
+  lastName                 String
+  dateOfBirth              DateTime?
+  age                      Int?
+  gender                   String?
+  nationality              String?
+  flightNumber             String?
+  route                    String?
+  seat                     String?
+  pnr                      String?
+  ticketNumber             String?
+  manifestVersion          String?
+  source                   String
+  sourceBatchId            String?                      @db.Uuid
+  sourceExternalId         String?
+  sourceImportedAt         DateTime?
+  travellingCompanions     String?
+  conditionStatus          String                       @default("Unknown")
+  conditionUpdatedAt       DateTime?
+  conditionUpdatedById     String?                      @db.Uuid
+  conditionBasis           String?
+  holdStatus               String                       @default("No hold")
+  holdUpdatedAt            DateTime?
+  holdUpdatedById          String?                      @db.Uuid
+  holdReason               String?
+  srcConfirmed             Boolean                      @default(false)
+  srcConfirmedAt           DateTime?
+  srcConfirmedById         String?                      @db.Uuid
+  srcConfirmationBasis     String?
+  notes                    String?
+  version                  Int                          @default(1)
+  createdById              String?                      @db.Uuid
+  updatedById              String?                      @db.Uuid
+  createdAt                DateTime                     @default(now())
+  updatedAt                DateTime                     @updatedAt
+  session                  Session                      @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  sourceBatch              ImportBatch?                 @relation(fields: [sourceBatchId], references: [id], onDelete: SetNull)
+  srcConfirmedBy           User?                        @relation("PassengerSrcConfirmedBy", fields: [srcConfirmedById], references: [id], onDelete: SetNull)
+  conditionUpdatedBy       User?                        @relation("PassengerConditionUpdatedBy", fields: [conditionUpdatedById], references: [id], onDelete: SetNull)
+  holdUpdatedBy            User?                        @relation("PassengerHoldUpdatedBy", fields: [holdUpdatedById], references: [id], onDelete: SetNull)
+  enquiries                Enquiry[]
+  matches                  MatchingRecord[]
+  requests                 WelfareRequest[]
+  releases                 ReunificationReleaseRecord[]
+  familyRelationshipClaims RelationshipClaim[]
 
   @@index([sessionId, updatedAt])
   @@index([sessionId, conditionStatus, updatedAt])
@@ -421,6 +493,7 @@ model ImportBatch {
   createdAt        DateTime          @default(now())
   session          Session?          @relation(fields: [sessionId], references: [id], onDelete: SetNull)
   passengerRecords PassengerRecord[]
+  familyRecords    FamilyRecord[]
 }
 
 model StoredFile {

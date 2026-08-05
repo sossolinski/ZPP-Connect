@@ -8,7 +8,8 @@ import { AlertBox, Badge, Button, Card, CardHeader, ConfirmDialog, EmptyState, F
 import { formatDate } from "../lib/format";
 
 const importTypes = [
-  { value: "manifest", label: "Manifest CSV" }
+  { value: "manifest", label: "Manifest CSV" },
+  { value: "family", label: "Family / NOK CSV" }
 ];
 
 export function FilesPage() {

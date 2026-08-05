@@ -21,11 +21,9 @@ import {
   decisionSchema,
   exerciseInjectSchema,
   exerciseObservationSchema,
-  familySchema,
   idParam,
   listQuery,
   matchingSchema,
-  operationalNoteSchema,
   releaseSchema,
   releaseDecisionSchema,
   requestSchema,
@@ -48,6 +46,8 @@ import { createPrismaIncidentAssignmentRepository } from "../modules/incident-as
 import type { IncidentAssignmentRepository } from "../modules/incident-assignments/incident-assignment-repository.js";
 import { createPrismaPassengerRepository } from "../modules/passengers/prisma-passenger-repository.js";
 import type { PassengerRepository } from "../modules/passengers/passenger-repository.js";
+import { createPrismaFamilyRepository } from "../modules/families/prisma-family-repository.js";
+import type { FamilyRepository } from "../modules/families/family-repository.js";
 
 type Delegate = {
   count(args: unknown): Promise<number>;
@@ -871,65 +871,6 @@ api.post(
       metadata: { status: "Closed" },
       createdById: actorId(req)
     });
-    res.json(record);
-  })
-);
-
-api.get(
-  "/family-records",
-  requirePermission("family:read"),
-  asyncHandler((req, res) => listRecords(req, res, prisma.familyRecord, ["operationalId", "firstName", "lastName", "passengerFirstName", "passengerLastName", "passengerFlight"]))
-);
-
-api.post(
-  "/family-records",
-  requirePermission("family:create"),
-  asyncHandler(async (req, res) => {
-    const body = clean(familySchema.parse(req.body));
-    const record = await withOperationalIdRetry(async () => prisma.familyRecord.create({
-      data: { ...body, operationalId: await nextOperationalId("familyRecord", "FAM"), createdById: actorId(req), updatedById: actorId(req) }
-    }));
-    await logAudit(req, { action: "create_family_record", entityType: "familyRecord", entityId: record.id, sessionId: record.sessionId, summary: `Family/NOK record ${record.operationalId} created` });
-    await addTimelineEvent({ sessionId: record.sessionId, caseId: record.caseId, eventType: "family_record", entityType: "familyRecord", entityId: record.id, title: `Family/NOK record ${record.operationalId} created`, createdById: actorId(req) });
-    res.status(201).json(record);
-  })
-);
-
-api.patch(
-  "/family-records/:id",
-  requirePermission("family:update"),
-  asyncHandler(async (req, res) => {
-    const { id } = idParam.parse(req.params);
-    const body = clean(familySchema.partial().parse(req.body));
-    const record = await prisma.familyRecord.update({ where: { id }, data: { ...body, updatedById: actorId(req) } });
-    await logAudit(req, { action: "update_family_record", entityType: "familyRecord", entityId: id, sessionId: record.sessionId, summary: `Family/NOK record ${record.operationalId} updated` });
-    res.json(record);
-  })
-);
-
-api.post(
-  "/family-records/:id/verify",
-  requirePermission("family:verify"),
-  asyncHandler(async (req, res) => {
-    const { id } = idParam.parse(req.params);
-    const verificationNotes = operationalNoteSchema.parse(req.body?.verificationNotes);
-    const record = await prisma.familyRecord.update({
-      where: { id },
-      data: { verificationStatus: "Verified", verificationNotes, updatedById: actorId(req) }
-    });
-    await logAudit(req, { action: "verify_family_record", entityType: "familyRecord", entityId: id, sessionId: record.sessionId, summary: `Family/NOK record ${record.operationalId} verified`, metadata: { basis: verificationNotes } });
-    await addTimelineEvent({ sessionId: record.sessionId, caseId: record.caseId, eventType: "verification", entityType: "familyRecord", entityId: id, title: "Family/NOK verification completed", body: verificationNotes, createdById: actorId(req) });
-    res.json(record);
-  })
-);
-
-api.post(
-  "/family-records/:id/mark-disputed",
-  requirePermission("family:update"),
-  asyncHandler(async (req, res) => {
-    const { id } = idParam.parse(req.params);
-    const record = await prisma.familyRecord.update({ where: { id }, data: { verificationStatus: "Disputed", verificationNotes: req.body?.verificationNotes, updatedById: actorId(req) } });
-    await logAudit(req, { action: "mark_family_disputed", entityType: "familyRecord", entityId: id, sessionId: record.sessionId, summary: `Family/NOK record ${record.operationalId} marked disputed` });
     res.json(record);
   })
 );
@@ -1858,38 +1799,6 @@ function parseImportRow(type: string, sessionId: string | undefined, rawRow: Rec
   if (!sessionId) throw new Error("sessionId is required");
   const row = normalizeRow(rawRow);
 
-  if (type === "family") {
-    return {
-      model: "familyRecord" as const,
-      prefix: "FAM",
-      data: clean(
-        familySchema.parse({
-          sessionId,
-          caseId: cell(row, "caseId", "case_id"),
-          firstName: cell(row, "firstName", "first_name"),
-          lastName: cell(row, "lastName", "last_name"),
-          phone: cell(row, "phone"),
-          email: cell(row, "email") || undefined,
-          preferredContactChannel: cell(row, "preferredContactChannel", "preferred_contact_channel"),
-          preferredLanguage: cell(row, "preferredLanguage", "preferred_language"),
-          location: cell(row, "location"),
-          claimedRelationship: cell(row, "claimedRelationship", "claimed_relationship"),
-          passengerFirstName: cell(row, "passengerFirstName", "passenger_first_name"),
-          passengerLastName: cell(row, "passengerLastName", "passenger_last_name"),
-          passengerFlight: cell(row, "passengerFlight", "passenger_flight"),
-          verificationStatus: cell(row, "verificationStatus", "verification_status") || "Unverified",
-          verificationNotes: cell(row, "verificationNotes", "verification_notes"),
-          immediateNeeds: cell(row, "immediateNeeds", "immediate_needs"),
-          questionsAsked: cell(row, "questionsAsked", "questions_asked"),
-          commitmentsMade: cell(row, "commitmentsMade", "commitments_made"),
-          nextContactDue: cell(row, "nextContactDue", "next_contact_due"),
-          assignedOfficer: cell(row, "assignedOfficer", "assigned_officer"),
-          notes: cell(row, "notes")
-        })
-      )
-    };
-  }
-
   if (type === "request") {
     return {
       model: "welfareRequest" as const,
@@ -1957,11 +1866,7 @@ async function createImportedRecord(req: Request, parsed: ReturnType<typeof pars
     operationalId: await nextOperationalId(parsed.model, parsed.prefix)
   });
 
-  if (parsed.model === "familyRecord") {
-    await withOperationalIdRetry(async () => prisma.familyRecord.create({ data: (await data()) as Prisma.FamilyRecordUncheckedCreateInput }));
-  } else {
-    await withOperationalIdRetry(async () => prisma.welfareRequest.create({ data: (await data()) as Prisma.WelfareRequestUncheckedCreateInput }));
-  }
+  await withOperationalIdRetry(async () => prisma.welfareRequest.create({ data: (await data()) as Prisma.WelfareRequestUncheckedCreateInput }));
 }
 
 async function commitImportRows(req: Request, type: string, sessionId: string | undefined, rows: Array<Record<string, unknown>>) {
@@ -2387,8 +2292,9 @@ export function registerRoutes(app: Express, options: {
   incidentAccessRepository?: IncidentAccessRepository;
   incidentAssignmentRepository?: IncidentAssignmentRepository;
   passengerRepository?: PassengerRepository;
+  familyRepository?: FamilyRepository;
 } = {}) {
-  const usePostgres = config.persistenceMode === "postgres" || options.incidentRepository?.kind === "postgres" || options.enquiryRepository?.kind === "postgres" || options.passengerRepository?.kind === "postgres";
+  const usePostgres = config.persistenceMode === "postgres" || options.incidentRepository?.kind === "postgres" || options.enquiryRepository?.kind === "postgres" || options.passengerRepository?.kind === "postgres" || options.familyRepository?.kind === "postgres";
   const incidentRepository = options.incidentRepository ?? (
     usePostgres ? createPrismaIncidentRepository(prisma) : undefined
   );
@@ -2404,5 +2310,8 @@ export function registerRoutes(app: Express, options: {
   const passengerRepository = options.passengerRepository ?? (
     usePostgres ? createPrismaPassengerRepository(prisma) : undefined
   );
-  app.use("/api", createDemoRouter({ incidentRepository, enquiryRepository, incidentAccessRepository, incidentAssignmentRepository, passengerRepository }));
+  const familyRepository = options.familyRepository ?? (
+    usePostgres ? createPrismaFamilyRepository(prisma) : undefined
+  );
+  app.use("/api", createDemoRouter({ incidentRepository, enquiryRepository, incidentAccessRepository, incidentAssignmentRepository, passengerRepository, familyRepository }));
 }

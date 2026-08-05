@@ -266,14 +266,16 @@ async function seedOperationalData() {
       lastName: "Kowalska",
       phone: "+48 600 100 100",
       email: "anna.kowalska@example.test",
+      normalizedPhone: "+48600100100",
+      normalizedEmail: "anna.kowalska@example.test",
       preferredContactChannel: "Phone",
       preferredLanguage: "Polish",
       location: "Krakow",
-      claimedRelationship: "Sister",
+      claimedRelationship: "Sibling",
       passengerFirstName: "Piotr",
       passengerLastName: "Kowalski",
       passengerFlight: "LO3924",
-      verificationStatus: "Partially verified",
+      verificationStatus: "Review required",
       verificationNotes: "Identity document reviewed by ZPP officer; relationship pending second source.",
       immediateNeeds: "Psychological First Aid, quiet waiting area, regular call-back.",
       questionsAsked: "Asked whether passenger was on board; no passenger status disclosed.",
@@ -296,10 +298,12 @@ async function seedOperationalData() {
       lastName: "Nowak",
       phone: "+48 600 200 200",
       email: "marek.nowak@example.test",
+      normalizedPhone: "+48600200200",
+      normalizedEmail: "marek.nowak@example.test",
       preferredContactChannel: "Email",
       preferredLanguage: "Polish",
       location: "Gdansk",
-      claimedRelationship: "Father",
+      claimedRelationship: "Parent",
       passengerFirstName: "Ewa",
       passengerLastName: "Nowak",
       passengerFlight: "LO3924",
@@ -387,6 +391,44 @@ async function seedOperationalData() {
       false
     )
   `;
+
+  await prisma.$queryRaw`
+    SELECT setval(
+      '"FamilyRecord_operational_seq"',
+      GREATEST(
+        COALESCE((
+          SELECT MAX(substring("operationalId" FROM '([0-9]+)$')::BIGINT)
+          FROM "FamilyRecord"
+          WHERE "operationalId" ~ '^FAM-[0-9]{4}-[0-9]+$'
+        ), 0) + 1,
+        1
+      ),
+      false
+    )
+  `;
+
+  for (const [family, passenger, relationship] of [
+    [family1, passenger1, "Sibling"],
+    [family2, passenger2, "Parent"]
+  ] as const) {
+    const existingClaim = await prisma.relationshipClaim.findFirst({ where: { familyRecordId: family.id, isCurrent: true } });
+    if (!existingClaim) {
+      await prisma.relationshipClaim.create({
+        data: {
+          incidentId: session.id,
+          familyRecordId: family.id,
+          passengerRecordId: passenger.id,
+          claimedRelationshipType: relationship,
+          claimedPassengerFirstName: passenger.firstName,
+          claimedPassengerLastName: passenger.lastName,
+          claimedPassengerFlight: passenger.flightNumber,
+          source: "SEED",
+          status: "PENDING",
+          claimedById: zpp.id
+        }
+      });
+    }
+  }
 
   await prisma.enquiry.update({
     where: { id: enquiry1.id },
