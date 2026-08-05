@@ -2256,7 +2256,7 @@ export function createDemoRouter(options: {
   });
 
   router.use((req, res, next) => {
-    if (config.authMode === "entra") {
+    if (config.authMode === "entra" || releaseRepository.kind === "postgres") {
       void authenticate(req, res, next);
       return;
     }
