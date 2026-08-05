@@ -23,7 +23,6 @@ import {
   exerciseObservationSchema,
   idParam,
   listQuery,
-  matchingSchema,
   releaseSchema,
   releaseDecisionSchema,
   requestSchema,
@@ -48,6 +47,8 @@ import { createPrismaPassengerRepository } from "../modules/passengers/prisma-pa
 import type { PassengerRepository } from "../modules/passengers/passenger-repository.js";
 import { createPrismaFamilyRepository } from "../modules/families/prisma-family-repository.js";
 import type { FamilyRepository } from "../modules/families/family-repository.js";
+import { createPrismaMatchingRepository } from "../modules/matching/prisma-matching-repository.js";
+import type { MatchingRepository } from "../modules/matching/matching-repository.js";
 
 type Delegate = {
   count(args: unknown): Promise<number>;
@@ -416,11 +417,26 @@ async function ensureVerifiedMatchForRelease(req: Request, matchId?: string | nu
     throw new HttpError(400, "Release requires a verified match or Coordinator-approved exception");
   }
 
-  const match = await prisma.matchingRecord.findUnique({ where: { id: matchId } });
+  const match = await prisma.matchingRecord.findUnique({
+    where: { id: matchId },
+    include: {
+      relationshipClaim: true,
+      passengerRecord: true,
+      decisions: { where: { decision: "CONFIRMED", isCurrent: true, validity: "CURRENT" }, take: 1 }
+    }
+  });
   if (!match) throw new HttpError(404, "Matching record not found");
   if (expectedSessionId && match.sessionId !== expectedSessionId) throw new HttpError(409, "Matching record belongs to a different session");
 
-  if (match.status !== "Verified match" && match.status !== "Reunited" && match.status !== "Released") {
+  const accepted = match.decisions[0];
+  const isCurrent = Boolean(
+    accepted &&
+    match.relationshipClaim?.isCurrent &&
+    match.relationshipClaim.status === "VERIFIED" &&
+    accepted.claimVersion === match.relationshipClaim.version &&
+    accepted.passengerVersion === match.passengerRecord?.version
+  );
+  if (!isCurrent) {
     if (!canOverrideRelease) {
       throw new HttpError(409, "Reunification/release requires a verified match or Coordinator-approved exception");
     }
@@ -433,44 +449,6 @@ async function ensureVerifiedMatchForRelease(req: Request, matchId?: string | nu
   }
 
   return match;
-}
-
-type MatchingLinkInput = {
-  sessionId: string;
-  enquiryId?: string | null;
-  familyRecordId?: string | null;
-  passengerRecordId?: string | null;
-};
-
-async function validateMatchingLinks(input: MatchingLinkInput, excludeMatchId?: string) {
-  if (!input.familyRecordId || !input.passengerRecordId) {
-    throw new HttpError(400, "A Family/NOK record and Passenger/SRC record are required");
-  }
-  const [family, passenger, enquiry] = await Promise.all([
-    prisma.familyRecord.findUnique({ where: { id: input.familyRecordId } }),
-    prisma.passengerRecord.findUnique({ where: { id: input.passengerRecordId } }),
-    input.enquiryId ? prisma.enquiry.findUnique({ where: { id: input.enquiryId } }) : Promise.resolve(null)
-  ]);
-  if (!family) throw new HttpError(404, "Family/NOK record not found");
-  if (!passenger) throw new HttpError(404, "Passenger/SRC record not found");
-  if (input.enquiryId && !enquiry) throw new HttpError(404, "TEC enquiry not found");
-  if (family.sessionId !== input.sessionId || passenger.sessionId !== input.sessionId || (enquiry && enquiry.sessionId !== input.sessionId)) {
-    throw new HttpError(409, "Matching links must belong to the active session");
-  }
-  if (family.caseId && passenger.caseId && family.caseId !== passenger.caseId) {
-    throw new HttpError(409, "Family/NOK and Passenger/SRC records belong to different cases");
-  }
-  const duplicate = await prisma.matchingRecord.findFirst({
-    where: {
-      id: excludeMatchId ? { not: excludeMatchId } : undefined,
-      sessionId: input.sessionId,
-      familyRecordId: input.familyRecordId,
-      passengerRecordId: input.passengerRecordId,
-      status: { not: "Rejected" }
-    }
-  });
-  if (duplicate) throw new HttpError(409, `An open matching record already links these records (${duplicate.operationalId})`);
-  return { family, passenger, enquiry };
 }
 
 function responseFile(res: Response, filename: string, mime: string, buffer: Buffer) {
@@ -875,308 +853,6 @@ api.post(
   })
 );
 
-api.get(
-  "/matching-records",
-  requirePermission("matching:read"),
-  asyncHandler(async (req, res) => {
-    const query = listQuery.parse(req.query);
-    const where: Record<string, unknown> = {};
-    if (query.sessionId) where.sessionId = query.sessionId;
-    if (query.status) where.status = query.status;
-    if (query.search) where.OR = [{ operationalId: { contains: query.search, mode: "insensitive" } }, { caseId: { contains: query.search, mode: "insensitive" } }];
-    const [total, data] = await Promise.all([
-      prisma.matchingRecord.count({ where }),
-      prisma.matchingRecord.findMany({
-        where,
-        take: query.limit,
-        skip: query.offset,
-        orderBy: { updatedAt: "desc" },
-        include: { enquiry: true, familyRecord: true, passengerRecord: true }
-      })
-    ]);
-    sendRedacted(req, res, { total, data });
-  })
-);
-
-api.get(
-  "/matching-records/suggestions",
-  requirePermission("matching:read"),
-  asyncHandler(async (req, res) => {
-    const sessionId = String(req.query.sessionId ?? (await activeSessionId()) ?? "");
-    const [enquiries, families, passengers] = await Promise.all([
-      prisma.enquiry.findMany({ where: { sessionId, matches: { none: {} }, status: { not: "Closed" } }, take: 1000, orderBy: { updatedAt: "desc" } }),
-      prisma.familyRecord.findMany({ where: { sessionId }, take: 1000, orderBy: { updatedAt: "desc" } }),
-      prisma.passengerRecord.findMany({ where: { sessionId }, take: 1000, orderBy: { updatedAt: "desc" } })
-    ]);
-    const normalized = (value?: string | null) => String(value ?? "").trim().toLowerCase();
-    const passengerByLastName = new Map<string, typeof passengers>();
-    const passengerByFlight = new Map<string, typeof passengers>();
-    const passengerByLastFlight = new Map<string, typeof passengers>();
-    const addIndexed = (index: Map<string, typeof passengers>, key: string, passenger: (typeof passengers)[number]) => {
-      if (!key) return;
-      const list = index.get(key) ?? [];
-      list.push(passenger);
-      index.set(key, list);
-    };
-    for (const passenger of passengers) {
-      addIndexed(passengerByLastName, normalized(passenger.lastName), passenger);
-      addIndexed(passengerByFlight, normalized(passenger.flightNumber), passenger);
-      addIndexed(passengerByLastFlight, `${normalized(passenger.lastName)}|${normalized(passenger.flightNumber)}`, passenger);
-    }
-    const familyByCaseId = new Map(families.filter((item) => item.caseId).map((item) => [item.caseId!, item]));
-    const familyByPassengerFlight = new Map(
-      families
-        .filter((item) => item.passengerLastName || item.passengerFlight)
-        .map((item) => [`${normalized(item.passengerLastName)}|${normalized(item.passengerFlight)}`, item])
-    );
-    const suggestions = [];
-    enquiryLoop:
-    for (const enquiry of enquiries) {
-      const candidateMap = new Map<string, (typeof passengers)[number]>();
-      for (const passenger of passengerByLastName.get(normalized(enquiry.passengerLastName)) ?? []) candidateMap.set(passenger.id, passenger);
-      for (const passenger of passengerByFlight.get(normalized(enquiry.passengerFlight)) ?? []) candidateMap.set(passenger.id, passenger);
-      for (const passenger of candidateMap.values()) {
-        const lastName = Boolean(enquiry.passengerLastName && normalized(passenger.lastName) === normalized(enquiry.passengerLastName));
-        const firstName = Boolean(enquiry.passengerFirstName && normalized(passenger.firstName) === normalized(enquiry.passengerFirstName));
-        const flight = Boolean(enquiry.passengerFlight && normalized(passenger.flightNumber) === normalized(enquiry.passengerFlight));
-        const route = Boolean(enquiry.passengerRoute && normalized(passenger.route) === normalized(enquiry.passengerRoute));
-        const sameLastFlight = passengerByLastFlight.get(`${normalized(enquiry.passengerLastName)}|${normalized(enquiry.passengerFlight)}`) ?? [];
-        const hasIdentitySignal = lastName && firstName;
-        const hasUniqueTravelSignal = lastName && flight && sameLastFlight.length === 1;
-        if (!hasIdentitySignal && !hasUniqueTravelSignal) continue;
-        const score = [lastName, firstName, flight, route].filter(Boolean).length / 4;
-        if (score >= 0.5) {
-          const family =
-            (enquiry.caseId ? familyByCaseId.get(enquiry.caseId) : undefined) ??
-            familyByPassengerFlight.get(`${normalized(passenger.lastName)}|${normalized(passenger.flightNumber)}`);
-          suggestions.push({
-            enquiry,
-            familyRecord: family,
-            passengerRecord: passenger,
-            matchScore: Number(score.toFixed(2)),
-            matchBasis: "Suggested by aligned passenger name, flight and route fields. Requires ZPP verification."
-          });
-          if (suggestions.length >= 100) break enquiryLoop;
-        }
-      }
-    }
-    sendRedacted(req, res, { data: suggestions });
-  })
-);
-
-api.post(
-  "/matching-records",
-  requirePermission("matching:create"),
-  asyncHandler(async (req, res) => {
-    const body = clean(matchingSchema.parse(req.body));
-    const links = await validateMatchingLinks(body);
-    const data = {
-      ...body,
-      caseId: body.caseId ?? links.family.caseId ?? links.passenger.caseId,
-      status: "Potential match",
-      holdCheck: "No hold",
-      decisionNotes: undefined,
-      verificationChecklist:
-        body.verificationChecklist === undefined || body.verificationChecklist === null
-          ? undefined
-          : (body.verificationChecklist as Prisma.InputJsonValue),
-      createdById: actorId(req),
-      updatedById: actorId(req)
-    };
-    const record = await withOperationalIdRetry(async () => prisma.matchingRecord.create({
-      data: {
-        ...data,
-        operationalId: await nextOperationalId("matchingRecord", "MAT")
-      }
-    }));
-    await logAudit(req, { action: "create_potential_match", entityType: "matchingRecord", entityId: record.id, sessionId: record.sessionId, summary: `Potential match ${record.operationalId} created` });
-    await addTimelineEvent({ sessionId: record.sessionId, caseId: record.caseId, eventType: "matching", entityType: "matchingRecord", entityId: record.id, title: `Potential match ${record.operationalId} created`, body: record.matchBasis ?? undefined, createdById: actorId(req) });
-    res.status(201).json(record);
-  })
-);
-
-api.patch(
-  "/matching-records/:id",
-  requirePermission("matching:create"),
-  asyncHandler(async (req, res) => {
-    const { id } = idParam.parse(req.params);
-    const existing = await prisma.matchingRecord.findUnique({ where: { id } });
-    if (!existing) throw new HttpError(404, "Matching record not found");
-    const body = clean(matchingSchema.partial().parse(req.body));
-    const links = {
-      sessionId: existing.sessionId,
-      enquiryId: body.enquiryId === undefined ? existing.enquiryId : body.enquiryId,
-      familyRecordId: body.familyRecordId === undefined ? existing.familyRecordId : body.familyRecordId,
-      passengerRecordId: body.passengerRecordId === undefined ? existing.passengerRecordId : body.passengerRecordId
-    };
-    await validateMatchingLinks(links, id);
-    const {
-      sessionId: _sessionId,
-      status: _status,
-      holdCheck: _holdCheck,
-      decisionNotes: _decisionNotes,
-      verificationChecklist,
-      ...updates
-    } = body;
-    const record = await prisma.matchingRecord.update({
-      where: { id },
-      data: {
-        ...updates,
-        verificationChecklist:
-          verificationChecklist === undefined || verificationChecklist === null ? undefined : (verificationChecklist as Prisma.InputJsonValue),
-        updatedById: actorId(req)
-      }
-    });
-    await logAudit(req, { action: "update_matching_record", entityType: "matchingRecord", entityId: id, sessionId: record.sessionId, summary: `Matching record ${record.operationalId} updated` });
-    res.json(record);
-  })
-);
-
-api.post(
-  "/matching-records/:id/verify",
-  requirePermission("matching:verify"),
-  asyncHandler(async (req, res) => {
-    const { id } = idParam.parse(req.params);
-    const decision = requireDecisionBasis(req.body);
-    const existing = await prisma.matchingRecord.findUnique({ where: { id } });
-    if (!existing) throw new HttpError(404, "Matching record not found");
-    const record = await prisma.matchingRecord.update({
-      where: { id },
-      data: {
-        status: "Verified match",
-        matchBasis: decision.matchBasis ?? existing.matchBasis,
-        decisionNotes: decision.decisionNotes,
-        approvedById: actorId(req),
-        approvedAt: new Date(),
-        updatedById: actorId(req)
-      }
-    });
-    await logAudit(req, { action: "verify_match", entityType: "matchingRecord", entityId: id, sessionId: record.sessionId, summary: `Match ${record.operationalId} verified`, metadata: decision });
-    await addTimelineEvent({ sessionId: record.sessionId, caseId: record.caseId, eventType: "matching", entityType: "matchingRecord", entityId: id, title: "Match verified", body: decision.decisionNotes, createdById: actorId(req) });
-    res.json(record);
-  })
-);
-
-api.post(
-  "/matching-records/:id/reject",
-  requirePermission("matching:reject"),
-  asyncHandler(async (req, res) => {
-    const { id } = idParam.parse(req.params);
-    const decision = requireDecisionBasis(req.body);
-    const record = await prisma.matchingRecord.update({ where: { id }, data: { status: "Rejected", decisionNotes: decision.decisionNotes, approvedById: actorId(req), approvedAt: new Date(), updatedById: actorId(req) } });
-    await logAudit(req, { action: "reject_match", entityType: "matchingRecord", entityId: id, sessionId: record.sessionId, summary: `Match ${record.operationalId} rejected`, metadata: decision });
-    await addTimelineEvent({ sessionId: record.sessionId, caseId: record.caseId, eventType: "matching", entityType: "matchingRecord", entityId: id, title: "Match rejected", body: decision.decisionNotes, createdById: actorId(req) });
-    res.json(record);
-  })
-);
-
-api.post(
-  "/matching-records/:id/hold",
-  requirePermission("matching:hold"),
-  asyncHandler(async (req, res) => {
-    const { id } = idParam.parse(req.params);
-    const decision = requireDecisionBasis(req.body);
-    if (!decision.holdCheck || decision.holdCheck === "No hold") throw new HttpError(400, "A blocking hold type is required");
-    const record = await prisma.matchingRecord.update({ where: { id }, data: { status: "Hold / escalate", holdCheck: decision.holdCheck, decisionNotes: decision.decisionNotes, updatedById: actorId(req) } });
-    await logAudit(req, { action: "hold_escalate", entityType: "matchingRecord", entityId: id, sessionId: record.sessionId, summary: `Match ${record.operationalId} placed on hold`, metadata: decision });
-    await addTimelineEvent({ sessionId: record.sessionId, caseId: record.caseId, eventType: "hold", entityType: "matchingRecord", entityId: id, title: `${decision.holdCheck} applied`, body: decision.decisionNotes, createdById: actorId(req) });
-    res.json(record);
-  })
-);
-
-api.post(
-  "/matching-records/:id/clear-hold",
-  requirePermission("matching:clearHold"),
-  asyncHandler(async (req, res) => {
-    const { id } = idParam.parse(req.params);
-    const decision = requireDecisionBasis(req.body);
-    const existing = await prisma.matchingRecord.findUnique({ where: { id } });
-    if (!existing) throw new HttpError(404, "Matching record not found");
-    const record = await prisma.matchingRecord.update({ where: { id }, data: { status: existing.status === "Hold / escalate" ? "Potential match" : existing.status, holdCheck: "No hold", decisionNotes: decision.decisionNotes, updatedById: actorId(req) } });
-    await logAudit(req, { action: "clear_hold", entityType: "matchingRecord", entityId: id, sessionId: record.sessionId, summary: `Hold cleared for match ${record.operationalId}`, metadata: decision });
-    await addTimelineEvent({ sessionId: record.sessionId, caseId: record.caseId, eventType: "hold", entityType: "matchingRecord", entityId: id, title: "Hold cleared", body: decision.decisionNotes, createdById: actorId(req) });
-    res.json(record);
-  })
-);
-
-api.post(
-  "/matching-records/:id/mark-reunited",
-  requirePermission("matching:reunite"),
-  asyncHandler(async (req, res) => {
-    const { id } = idParam.parse(req.params);
-    const decision = requireDecisionBasis(req.body);
-    const match = await ensureVerifiedMatchForRelease(req, id, decision.coordinatorOverride, decision.overrideReason);
-    const record = await prisma.matchingRecord.update({
-      where: { id },
-      data: {
-        status: "Reunited",
-        decisionNotes: decision.decisionNotes,
-        coordinatorOverride: Boolean(decision.coordinatorOverride),
-        overrideReason: decision.overrideReason,
-        approvedById: actorId(req),
-        approvedAt: new Date(),
-        updatedById: actorId(req)
-      }
-    });
-    await withOperationalIdRetry(async () => prisma.reunificationReleaseRecord.create({
-      data: {
-        operationalId: await nextOperationalId("reunificationReleaseRecord", "REL"),
-        sessionId: record.sessionId,
-        matchId: id,
-        passengerRecordId: match?.passengerRecordId,
-        familyRecordId: match?.familyRecordId,
-        actionType: "Reunification",
-        status: "Completed",
-        identityChecked: true,
-        holdCleared: true,
-        authorizedById: actorId(req),
-        completedById: actorId(req),
-        completedAt: new Date(),
-        notes: decision.decisionNotes
-      }
-    }));
-    await logAudit(req, { action: "reunite", entityType: "matchingRecord", entityId: id, sessionId: record.sessionId, summary: `Match ${record.operationalId} marked reunited`, metadata: decision });
-    await addTimelineEvent({ sessionId: record.sessionId, caseId: record.caseId, eventType: "reunification", entityType: "matchingRecord", entityId: id, title: "Reunification completed", body: decision.decisionNotes, createdById: actorId(req) });
-    res.json(record);
-  })
-);
-
-api.post(
-  "/matching-records/:id/mark-released",
-  requirePermission("matching:release"),
-  asyncHandler(async (req, res) => {
-    const { id } = idParam.parse(req.params);
-    const decision = requireDecisionBasis(req.body);
-    const match = await ensureVerifiedMatchForRelease(req, id, decision.coordinatorOverride, decision.overrideReason);
-    const record = await prisma.matchingRecord.update({
-      where: { id },
-      data: { status: "Released", decisionNotes: decision.decisionNotes, coordinatorOverride: Boolean(decision.coordinatorOverride), overrideReason: decision.overrideReason, approvedById: actorId(req), approvedAt: new Date(), updatedById: actorId(req) }
-    });
-    await withOperationalIdRetry(async () => prisma.reunificationReleaseRecord.create({
-      data: {
-        operationalId: await nextOperationalId("reunificationReleaseRecord", "REL"),
-        sessionId: record.sessionId,
-        matchId: id,
-        passengerRecordId: match?.passengerRecordId,
-        familyRecordId: match?.familyRecordId,
-        actionType: "Release",
-        status: "Completed",
-        releaseDestination: req.body?.releaseDestination,
-        receivingParty: req.body?.receivingParty,
-        identityChecked: true,
-        holdCleared: true,
-        transportMode: req.body?.transportMode,
-        authorizedById: actorId(req),
-        completedById: actorId(req),
-        completedAt: new Date(),
-        notes: decision.decisionNotes
-      }
-    }));
-    await logAudit(req, { action: "release", entityType: "matchingRecord", entityId: id, sessionId: record.sessionId, summary: `Match ${record.operationalId} marked released`, metadata: decision });
-    await addTimelineEvent({ sessionId: record.sessionId, caseId: record.caseId, eventType: "release", entityType: "matchingRecord", entityId: id, title: "Release completed", body: decision.decisionNotes, createdById: actorId(req) });
-    res.json(record);
-  })
-);
 
 api.get(
   "/releases",
@@ -1259,12 +935,6 @@ api.post(
       where: { id },
       data: { status: "Completed", completedById: actorId(req), completedAt: new Date(), notes: decision.notes }
     });
-    if (record.matchId) {
-      await prisma.matchingRecord.update({
-        where: { id: record.matchId },
-        data: { status: record.actionType === "Release" ? "Released" : "Reunited", updatedById: actorId(req) }
-      });
-    }
     await logAudit(req, {
       action: record.actionType === "Release" ? "release" : "reunite",
       entityType: "reunificationReleaseRecord",
@@ -2293,8 +1963,9 @@ export function registerRoutes(app: Express, options: {
   incidentAssignmentRepository?: IncidentAssignmentRepository;
   passengerRepository?: PassengerRepository;
   familyRepository?: FamilyRepository;
+  matchingRepository?: MatchingRepository;
 } = {}) {
-  const usePostgres = config.persistenceMode === "postgres" || options.incidentRepository?.kind === "postgres" || options.enquiryRepository?.kind === "postgres" || options.passengerRepository?.kind === "postgres" || options.familyRepository?.kind === "postgres";
+  const usePostgres = config.persistenceMode === "postgres" || options.incidentRepository?.kind === "postgres" || options.enquiryRepository?.kind === "postgres" || options.passengerRepository?.kind === "postgres" || options.familyRepository?.kind === "postgres" || options.matchingRepository?.kind === "postgres";
   const incidentRepository = options.incidentRepository ?? (
     usePostgres ? createPrismaIncidentRepository(prisma) : undefined
   );
@@ -2313,5 +1984,8 @@ export function registerRoutes(app: Express, options: {
   const familyRepository = options.familyRepository ?? (
     usePostgres ? createPrismaFamilyRepository(prisma) : undefined
   );
-  app.use("/api", createDemoRouter({ incidentRepository, enquiryRepository, incidentAccessRepository, incidentAssignmentRepository, passengerRepository, familyRepository }));
+  const matchingRepository = options.matchingRepository ?? (
+    usePostgres ? createPrismaMatchingRepository(prisma) : undefined
+  );
+  app.use("/api", createDemoRouter({ incidentRepository, enquiryRepository, incidentAccessRepository, incidentAssignmentRepository, passengerRepository, familyRepository, matchingRepository }));
 }

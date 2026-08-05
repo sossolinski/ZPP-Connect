@@ -3,8 +3,7 @@ import { login } from "./helpers";
 
 const apiUrl = process.env.PLAYWRIGHT_API_URL ?? `http://127.0.0.1:${Number(process.env.PLAYWRIGHT_API_PORT ?? 4100)}/api`;
 const headers = { "content-type": "application/json", "x-user-email": "coordinator@lot.pl" };
-let cleanupSessionIds: string[] = [];
-
+const cleanupSessionIds: string[] = [];
 type Row = Record<string, any>;
 
 async function apiPost(page: Page, path: string, data: Row) {
@@ -12,267 +11,179 @@ async function apiPost(page: Page, path: string, data: Row) {
   return { response, body: await response.json() };
 }
 
-async function createSession(page: Page, label: string) {
-  const { response, body } = await apiPost(page, "/sessions", {
-    mode: "EXERCISE",
-    status: "Active",
-    eventType: "Exercise",
-    flightNumber: label,
-    route: "WAW-TEST",
-    description: "Ephemeral Stage 2B browser-test session"
-  });
-  expect(response.status()).toBe(201);
-  cleanupSessionIds.push(body.id);
-  return body;
+async function apiGet(page: Page, path: string, query: Row) {
+  const url = new URL(`${apiUrl}${path}`);
+  Object.entries(query).forEach(([key, value]) => url.searchParams.set(key, String(value)));
+  const response = await page.request.get(url.toString(), { headers });
+  return { response, body: await response.json() };
 }
 
-async function createFamily(page: Page, sessionId: string, token: string, caseId = `CASE-${token}`) {
-  const { response, body } = await apiPost(page, "/family-records", {
-    sessionId,
-    caseId,
-    firstName: "Family",
-    lastName: token,
-    claimedRelationship: "Sibling"
-  });
-  expect(response.status()).toBe(201);
-  return body;
+async function createSession(page: Page, token: string) {
+  const result = await apiPost(page, "/sessions", { mode: "EXERCISE", status: "Active", eventType: "Exercise", flightNumber: token, route: "WAW-TEST", description: "Foundation Stage 5 browser fixture" });
+  expect(result.response.status()).toBe(201);
+  cleanupSessionIds.push(result.body.id);
+  return result.body;
 }
 
-async function createPassenger(page: Page, sessionId: string, token: string, caseId = `CASE-${token}`) {
-  const { response, body } = await apiPost(page, "/passenger-records", {
-    sessionId,
-    caseId,
-    personType: "Passenger",
-    firstName: "Passenger",
-    lastName: token,
-    flightNumber: token,
-    source: "Manifest"
-  });
-  expect(response.status()).toBe(201);
-  return body;
-}
-
-async function createMatch(page: Page, sessionId: string, familyId: string, passengerId: string, matchBasis = "Browser-test authoritative links") {
-  const { response, body } = await apiPost(page, "/matching-records", {
-    sessionId,
-    familyRecordId: familyId,
-    passengerRecordId: passengerId,
-    matchBasis
-  });
-  expect(response.status()).toBe(201);
-  return body;
-}
-
-async function verifyMatch(page: Page, matchId: string) {
-  const { response } = await apiPost(page, `/matching-records/${matchId}/verify`, { decisionNotes: "Authoritative links reviewed in focused browser test." });
-  expect(response.ok()).toBeTruthy();
+async function createFixture(page: Page, sessionId: string, token: string) {
+  const passenger = await apiPost(page, "/passenger-records", { sessionId, caseId: `CASE-${token}`, personType: "Passenger", firstName: "Passenger", lastName: token, flightNumber: `LO-${token}`, route: "WAW-TEST", source: "Manual" });
+  expect(passenger.response.status()).toBe(201);
+  const family = await apiPost(page, "/family-records", { sessionId, caseId: `CASE-${token}`, firstName: "Family", lastName: token, claimedRelationship: "Sibling", passengerFirstName: passenger.body.firstName, passengerLastName: passenger.body.lastName, passengerFlight: passenger.body.flightNumber });
+  expect(family.response.status()).toBe(201);
+  return { passenger: passenger.body, family: family.body, claim: family.body.currentClaim };
 }
 
 async function useSession(page: Page, session: Row) {
   await page.goto("/sessions");
   const row = page.getByRole("row").filter({ hasText: session.operationalId });
   await expect(row).toBeVisible();
-  const useButton = row.getByRole("button", { name: "Use this session" });
-  if (await useButton.count()) await useButton.click();
+  const button = row.getByRole("button", { name: "Use this session" });
+  if (await button.count()) await button.click();
   await expect(page.locator(`[aria-label*="Current session EXERCISE ${session.operationalId}"]:visible`)).toHaveCount(1);
+}
+
+async function confirmViaApi(page: Page, sessionId: string, claim: Row, passenger: Row, operationId = crypto.randomUUID()) {
+  return apiPost(page, `/matching/claims/${claim.id}/confirm`, {
+    sessionId,
+    passengerRecordId: passenger.id,
+    reason: "Browser fixture human decision with reviewed source evidence.",
+    expectedClaimVersion: claim.version,
+    expectedPassengerVersion: passenger.version,
+    operationId
+  });
 }
 
 test.afterEach(async ({ page }) => {
   for (const sessionId of cleanupSessionIds.splice(0)) {
-    await page.request.post(`${apiUrl}/sessions/${sessionId}/close`, {
-      headers,
-      data: { notes: "Focused Stage 2B test cleanup" }
-    }).catch(() => undefined);
+    await page.request.post(`${apiUrl}/sessions/${sessionId}/close`, { headers, data: { notes: "Foundation Stage 5 browser cleanup" } }).catch(() => undefined);
   }
 });
 
-test("reaches unassigned records, supports keyboard matching, and validates authoritative links without a default score", async ({ page }) => {
-  const token = `S2B-MATCH-${Date.now()}`;
+test("keeps explainable suggestions separate from an explicit human confirmation", async ({ page }) => {
+  const token = `F5-SUG-${Date.now()}`;
   const session = await createSession(page, token);
-  const familyA = await createFamily(page, session.id, `${token}-A`);
-  const passengerA = await createPassenger(page, session.id, `${token}-A`);
-  const familyB = await createFamily(page, session.id, `${token}-B`);
-  const passengerB = await createPassenger(page, session.id, `${token}-B`);
-  const familyStale = await createFamily(page, session.id, `${token}-STALE`);
-  const passengerStale = await createPassenger(page, session.id, `${token}-STALE`);
+  const value = await createFixture(page, session.id, token);
+  await login(page);
+  await useSession(page, session);
+  await page.goto("/matching");
+
+  await expect(page.getByRole("main").getByRole("heading", { name: "Matching workspace" })).toBeVisible();
+  await expect(page.getByText(value.family.operationalId, { exact: false })).toBeVisible();
+  await expect(page.getByText("Nothing is confirmed automatically.")).toBeVisible();
+  await page.getByRole("button", { name: "Generate suggestions" }).click();
+  const suggestion = page.locator("article").filter({ hasText: value.passenger.operationalId });
+  await expect(suggestion).toContainText("zpp-deterministic-candidate v1.0.0");
+  await expect(suggestion.getByText("Positive signals")).toBeVisible();
+  await expect(suggestion.getByText("Conflicts", { exact: true })).toBeVisible();
+
+  const beforeDecision = await apiGet(page, "/matching-records", { sessionId: session.id, search: `CASE-${token}` });
+  expect(beforeDecision.body.data).toHaveLength(0);
+  await suggestion.getByRole("button", { name: "Reject suggestion" }).click();
+  const rejectDialog = page.getByRole("dialog", { name: "Reject algorithm suggestion" });
+  await rejectDialog.getByLabel("Decision reason").fill("Operator found that the current evidence does not support this suggestion.");
+  await rejectDialog.getByRole("button", { name: "Reject suggestion" }).click();
+  await expect(page.getByText("No current suggestions")).toBeVisible();
+  const rejected = await apiGet(page, `/matching/claims/${value.claim.id}/suggestions`, { sessionId: session.id, status: "REJECTED" });
+  expect(rejected.body.data).toHaveLength(1);
+  await page.getByRole("button", { name: "Generate suggestions" }).click();
+  await expect(suggestion).toContainText("zpp-deterministic-candidate v1.0.0");
+  await suggestion.getByRole("button", { name: "Confirm match" }).click();
+  const dialog = page.getByRole("dialog", { name: "Confirm passenger match" });
+  await expect(dialog.getByText(/relationship is not verified/i)).toBeVisible();
+  await expect(dialog.getByText("Signals reviewed")).toBeVisible();
+  await expect(dialog.getByText("Conflicts reviewed")).toBeVisible();
+  await expect(dialog.getByText(/same ID is retained after a timeout/i)).toBeVisible();
+  await dialog.getByLabel("Decision reason").fill("Human reviewed the matching signals and authoritative passenger source.");
+  await dialog.getByRole("button", { name: "Confirm match" }).click();
+  await expect(page.getByText("Current human decision: CONFIRMED")).toBeVisible();
+  await expect(page.getByText("Relationship verification")).toBeVisible();
+
+  const family = await apiGet(page, `/family-records/${value.family.id}`, { sessionId: session.id });
+  expect(family.body).toMatchObject({ verificationStatus: "Unverified", currentClaim: { status: "PENDING" } });
+  const projection = await apiGet(page, "/matching-records", { sessionId: session.id, search: `CASE-${token}` });
+  expect(projection.body.data[0]).toMatchObject({ status: "Verified match", releaseEligibility: { relationshipVerification: "NOT_VERIFIED", matchDecision: "CURRENT_CONFIRMED", eligible: false } });
+});
+
+test("supports manual matching without an invented score and preserves idempotent retry", async ({ page }) => {
+  const token = `F5-MANUAL-${Date.now()}`;
+  const session = await createSession(page, token);
+  const value = await createFixture(page, session.id, token);
+  const manual = await createFixture(page, session.id, `${token}-UI`);
+  const operationId = crypto.randomUUID();
+  const first = await confirmViaApi(page, session.id, value.claim, value.passenger, operationId);
+  const retry = await confirmViaApi(page, session.id, value.claim, value.passenger, operationId);
+  expect(first.response.status()).toBe(200);
+  expect(retry.response.status()).toBe(200);
+  expect(retry.body.idempotent).toBe(true);
+  expect(retry.body.decisionHistory.filter((item: Row) => item.operationId === operationId)).toHaveLength(1);
+  const projection = await apiGet(page, "/matching-records", { sessionId: session.id, search: `CASE-${token}` });
+  expect(projection.body.data[0].matchScore).toBeNull();
+  expect(projection.body.data[0].verificationChecklist).toEqual({ source: "manual" });
 
   await login(page);
   await useSession(page, session);
   await page.goto("/matching");
-  await page.getByRole("button", { name: "Suggestions / Unassigned" }).click();
-  const workspace = page.getByRole("dialog", { name: "Suggestions & Unassigned" });
-  await expect(workspace.getByText(familyA.operationalId, { exact: false })).toBeVisible();
-  await expect(workspace.getByRole("paragraph").filter({ hasText: passengerA.operationalId })).toBeVisible();
-  await expect(workspace.getByText("No system-generated suggestions")).toBeVisible();
-  await workspace.getByLabel("Target PAX").selectOption(passengerA.id);
-  await workspace.locator("div.rounded-md").filter({ hasText: familyA.operationalId }).getByRole("button", { name: "Add to selected PAX" }).click();
-  await expect(workspace).not.toBeVisible();
-  await page.getByRole("dialog", { name: "Record Inspector" }).getByRole("button", { name: "Close" }).click();
-
-  await page.getByRole("button", { name: "New" }).click();
-  let drawer = page.getByRole("dialog", { name: "Create Potential Match" });
-  await drawer.getByLabel("Passenger/Crew record").selectOption("");
-  await drawer.getByRole("button", { name: "Create potential match" }).click();
-  await expect(drawer.getByText("Select both a Family/NOK record and a Passenger/SRC record.")).toBeVisible();
-  await drawer.getByLabel("Family/NOK record").selectOption(familyB.id);
-  await drawer.getByLabel("Passenger/Crew record").selectOption(passengerB.id);
-  await expect(drawer.getByLabel("Match score")).toHaveValue("");
-  await expect(drawer.getByText("No confidence score. Manual matches do not receive a default value.")).toBeVisible();
-  await drawer.getByRole("button", { name: "Create potential match" }).click();
-  await expect(drawer).not.toBeVisible();
-
-  const matchesResponse = await page.request.get(`${apiUrl}/matching-records?sessionId=${session.id}&limit=200`, { headers });
-  const manualMatch = ((await matchesResponse.json()).data as Row[]).find((item) => item.familyRecordId === familyB.id && item.passengerRecordId === passengerB.id);
-  expect(manualMatch).toMatchObject({ status: "Potential match", holdCheck: "No hold" });
-  expect(manualMatch.matchScore ?? null).toBeNull();
-  await page.getByRole("dialog", { name: "Record Inspector" }).getByRole("button", { name: "Close" }).click();
-
-  await page.getByRole("button", { name: "New" }).click();
-  drawer = page.getByRole("dialog", { name: "Create Potential Match" });
-  await drawer.getByLabel("Family/NOK record").selectOption(familyStale.id);
-  await drawer.getByLabel("Passenger/Crew record").selectOption(passengerStale.id);
-  const staleUpdate = await page.request.patch(`${apiUrl}/family-records/${familyStale.id}`, {
-    headers,
-    data: { sessionId: session.id, version: familyStale.version, caseId: `CASE-${token}-CHANGED` }
-  });
-  expect(staleUpdate.ok()).toBeTruthy();
-  await drawer.getByRole("button", { name: "Create potential match" }).click();
-  await expect(drawer.getByText(/Family\/NOK and Passenger\/SRC records belong to different cases/)).toBeVisible();
-
+  await page.getByLabel("Matching claim queue").getByRole("button").filter({ hasText: `${token}-UI` }).click();
+  await expect(page.getByText(/manual passenger selection/i)).toBeVisible();
+  await page.getByLabel("Search passenger candidates").fill(manual.passenger.operationalId);
+  await page.getByRole("main").getByRole("button", { name: "Search" }).last().click();
+  const candidate = page.locator("div").filter({ hasText: manual.passenger.operationalId }).filter({ has: page.getByRole("button", { name: "Manual confirm" }) }).last();
+  await candidate.getByRole("button", { name: "Manual confirm" }).click();
+  const dialog = page.getByRole("dialog", { name: "Confirm passenger match" });
+  await dialog.getByLabel("Decision reason").fill("Operator found the Passenger manually and reviewed authoritative source evidence.");
+  await dialog.getByRole("button", { name: "Confirm match" }).click();
+  await expect(page.getByText("Current human decision: CONFIRMED")).toBeVisible();
+  const manualProjection = await apiGet(page, "/matching-records", { sessionId: session.id, search: `CASE-${token}-UI` });
+  expect(manualProjection.body.data[0].matchScore).toBeNull();
   await page.setViewportSize({ width: 390, height: 844 });
+  expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(391);
+});
+
+test("surfaces stale input and a human-resolvable 409 without automatic retry", async ({ page }) => {
+  const token = `F5-CONFLICT-${Date.now()}`;
+  const session = await createSession(page, token);
+  const value = await createFixture(page, session.id, token);
+  expect((await confirmViaApi(page, session.id, value.claim, value.passenger)).response.status()).toBe(200);
+  const corrected = await apiPost(page, `/passenger-records/${value.passenger.id}/correct-source`, { sessionId: session.id, version: value.passenger.version, firstName: "Corrected", reason: "Manifest owner corrected the passenger source." });
+  expect(corrected.response.status()).toBe(200);
+
+  await login(page);
+  await useSession(page, session);
+  await page.goto("/matching");
+  await expect(page.getByText("Review required.")).toBeVisible();
+  await expect(page.getByText(/historical decision remains auditable/i)).toBeVisible();
+  const candidate = page.locator("div").filter({ hasText: corrected.body.operationalId }).filter({ has: page.getByRole("button", { name: "Manual confirm" }) }).last();
+  await candidate.getByRole("button", { name: "Manual confirm" }).click();
+  const dialog = page.getByRole("dialog", { name: "Confirm passenger match" });
+  await dialog.getByLabel("Decision reason").fill("Operator reviewed the corrected passenger data before reconfirming.");
+
+  const external = await confirmViaApi(page, session.id, value.claim, corrected.body);
+  expect(external.response.status()).toBe(200);
+  await dialog.getByRole("button", { name: "Confirm match" }).click();
+  await expect(dialog.getByText(/No automatic retry was attempted/)).toBeVisible();
+  await expect(dialog.getByText(/same ID is retained after a timeout/i)).toBeVisible();
+});
+
+test("projects an independently verified current match into Release without starting Release", async ({ page }) => {
+  const token = `F5-RELEASE-${Date.now()}`;
+  const session = await createSession(page, token);
+  const value = await createFixture(page, session.id, token);
+  const verified = await apiPost(page, `/family-records/${value.family.id}/verify`, { sessionId: session.id, version: value.family.version, claimVersion: value.claim.version, basis: "Independent relationship evidence reviewed.", verifiedRelationshipType: "Sibling" });
+  expect(verified.response.status()).toBe(200);
+  const confirmed = await confirmViaApi(page, session.id, verified.body.currentClaim, value.passenger);
+  expect(confirmed.response.status()).toBe(200);
+  const projection = await apiGet(page, "/matching-records", { sessionId: session.id, search: `CASE-${token}` });
+  const match = projection.body.data[0];
+  expect(match).toMatchObject({ releaseEligibility: { relationshipVerification: "VERIFIED", matchDecision: "CURRENT_CONFIRMED", eligible: true } });
+
+  await login(page);
+  await useSession(page, session);
+  await page.goto("/release-control");
+  await page.getByRole("button", { name: "New" }).click();
+  const drawer = page.getByRole("dialog", { name: "Prepare Action" });
+  await expect(drawer.getByLabel("Match").getByRole("option", { name: new RegExp(match.operationalId) })).toHaveCount(1);
+  await drawer.getByLabel("Match").selectOption(match.id);
+  await expect(drawer.getByText(match.operationalId, { exact: true })).toBeVisible();
   await drawer.getByRole("button", { name: "Close" }).click();
   await page.getByRole("dialog", { name: "Discard unsaved changes?" }).getByRole("button", { name: "Discard changes" }).click();
-  await page.getByRole("button", { name: "Suggestions / Unassigned" }).click();
-  await expect(page.getByRole("heading", { name: "Suggestions & Unassigned" })).toBeVisible();
-  expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(391);
-
-  await login(page, "viewer@lot.pl");
-  await page.goto("/matching");
-  await expect(page.getByRole("heading", { name: "Limited Access" })).toBeVisible();
-  await expect(page.getByRole("button", { name: "Suggestions / Unassigned" })).toHaveCount(0);
-});
-
-test("edits prepared releases, prevents duplicate preparation, links existing actions, and keeps terminal actions read-only", async ({ page }) => {
-  const token = `S2B-REL-${Date.now()}`;
-  const session = await createSession(page, token);
-  const family = await createFamily(page, session.id, token);
-  const passenger = await createPassenger(page, session.id, token);
-  const match = await createMatch(page, session.id, family.id, passenger.id);
-  await verifyMatch(page, match.id);
-
-  await login(page);
-  await useSession(page, session);
-  await page.goto("/release-control");
-  await page.getByRole("button", { name: "New" }).click();
-  const createDrawer = page.getByRole("dialog", { name: "Prepare Action" });
-  await createDrawer.getByLabel("Match").selectOption(match.id);
-  const externalPrepared = await apiPost(page, "/releases", {
-    sessionId: session.id,
-    matchId: match.id,
-    actionType: "Release",
-    identityChecked: false,
-    holdCleared: true
-  });
-  expect(externalPrepared.response.status()).toBe(201);
-  await createDrawer.getByRole("button", { name: "Prepare action" }).click();
-  await expect(createDrawer.getByText(new RegExp(`${externalPrepared.body.operationalId} is already the open release action`))).toBeVisible();
-  await createDrawer.getByRole("button", { name: "Close" }).click();
-  await page.getByRole("dialog", { name: "Discard unsaved changes?" }).getByRole("button", { name: "Discard changes" }).click();
-  await page.reload();
-
-  let card = page.locator("article").filter({ hasText: externalPrepared.body.operationalId });
-  await expect(card.getByText("Identity pending")).toBeVisible();
-  await expect(card.getByText("Receiving party missing")).toBeVisible();
-  await expect(card.getByRole("button", { name: "Complete" })).toBeDisabled();
-  await expect(card.getByRole("button", { name: "View" })).toBeVisible();
-  await expect(card.getByRole("button", { name: "Edit" })).toBeVisible();
-  await expect(card.getByRole("button", { name: "Cancel" })).toBeVisible();
-
-  await card.getByRole("button", { name: "Edit" }).click();
-  const editDrawer = page.getByRole("dialog", { name: "Edit Prepared Action" });
-  await editDrawer.getByLabel("Receiving party").fill("Authorized receiver");
-  await editDrawer.getByLabel("Identity checked").check();
-  await editDrawer.getByRole("button", { name: "Save changes" }).click();
-  await expect(page.getByText(new RegExp(`${externalPrepared.body.operationalId} updated`))).toBeVisible();
-
-  await page.getByRole("button", { name: "New" }).click();
-  const duplicateDrawer = page.getByRole("dialog", { name: "Prepare Action" });
-  await expect(duplicateDrawer.getByLabel("Match").getByRole("option", { name: new RegExp(match.operationalId) })).toHaveCount(0);
-  await duplicateDrawer.getByRole("button", { name: "Close" }).click();
-
-  await page.goto("/matching");
-  await page.getByText(match.operationalId, { exact: true }).first().click();
-  await page.getByRole("link", { name: "Open existing or prepare release action" }).click();
-  await expect(page.getByRole("heading", { name: "View Release Action" })).toBeVisible();
-  await expect(page.getByText(externalPrepared.body.operationalId, { exact: true }).first()).toBeVisible();
-  await page.getByRole("dialog", { name: "View Release Action" }).getByRole("button", { name: "Close" }).click();
-
-  card = page.locator("article").filter({ hasText: externalPrepared.body.operationalId });
-  await expect(card.getByRole("button", { name: "Complete" })).toBeEnabled();
-  await card.getByRole("button", { name: "Complete" }).click();
-  await page.getByLabel("Decision note").fill("Identity, hold, receiver and transport checks completed.");
-  await page.getByRole("button", { name: "Complete action" }).click();
-  await expect(card.getByText("Completed", { exact: true })).toBeVisible();
-  await expect(card.getByRole("button", { name: "View" })).toBeVisible();
-  await expect(card.getByRole("button", { name: "Edit" })).toHaveCount(0);
-  await expect(card.getByRole("button", { name: "Complete" })).toHaveCount(0);
-  await expect(card.getByRole("button", { name: "Cancel" })).toHaveCount(0);
-
-  const replacement = await apiPost(page, "/releases", { sessionId: session.id, matchId: match.id, actionType: "Release", identityChecked: true, holdCleared: true, receivingParty: "Receiver" });
-  expect(replacement.response.status()).toBe(201);
-  await page.goto("/release-control");
-  const replacementCard = page.locator("article").filter({ hasText: replacement.body.operationalId });
-  await replacementCard.getByRole("button", { name: "Cancel" }).click();
-  await page.getByLabel("Decision note").fill("Replacement action cancelled after operational review.");
-  await page.getByRole("button", { name: "Cancel action" }).click();
-  await expect(replacementCard.getByText("Cancelled", { exact: true })).toBeVisible();
-  await expect(replacementCard.getByRole("button", { name: "Edit" })).toHaveCount(0);
-
-  await page.setViewportSize({ width: 390, height: 844 });
-  await expect(replacementCard.getByRole("button", { name: "View" })).toBeVisible();
-  expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(391);
-});
-
-test("shows exact release blockers and rejects a stale edit after hold or terminal state changes", async ({ page }) => {
-  const token = `S2B-BLOCK-${Date.now()}`;
-  const session = await createSession(page, token);
-  const family = await createFamily(page, session.id, token);
-  const passenger = await createPassenger(page, session.id, token);
-  const match = await createMatch(page, session.id, family.id, passenger.id);
-  await verifyMatch(page, match.id);
-  const prepared = await apiPost(page, "/releases", {
-    sessionId: session.id,
-    matchId: match.id,
-    actionType: "Release",
-    identityChecked: true,
-    holdCleared: true,
-    receivingParty: "Authorized receiver"
-  });
-  expect(prepared.response.status()).toBe(201);
-  const held = await apiPost(page, `/matching-records/${match.id}/hold`, {
-    decisionNotes: "Security review required before completion.",
-    holdCheck: "Security hold"
-  });
-  expect(held.response.ok()).toBeTruthy();
-
-  await login(page);
-  await useSession(page, session);
-  await page.goto("/release-control");
-  let card = page.locator("article").filter({ hasText: prepared.body.operationalId });
-  await expect(card.getByText("Active hold: Security hold")).toBeVisible();
-  await expect(card.getByText("Match status: Hold / escalate")).toBeVisible();
-  await expect(card.getByRole("button", { name: "Complete" })).toBeDisabled();
-
-  await apiPost(page, `/matching-records/${match.id}/clear-hold`, { decisionNotes: "Security hold cleared." });
-  await verifyMatch(page, match.id);
-  await page.reload();
-  card = page.locator("article").filter({ hasText: prepared.body.operationalId });
-  await card.getByRole("button", { name: "Edit" }).click();
-  const staleDrawer = page.getByRole("dialog", { name: "Edit Prepared Action" });
-  await staleDrawer.getByLabel("Receiving party").fill("Changed receiver");
-  const cancelled = await apiPost(page, `/releases/${prepared.body.id}/cancel`, { notes: "Action became terminal while the editor remained open." });
-  expect(cancelled.response.ok()).toBeTruthy();
-  await staleDrawer.getByRole("button", { name: "Save changes" }).click();
-  await expect(staleDrawer.getByText("This release action is no longer prepared and cannot be edited.")).toBeVisible();
-  await expect(staleDrawer).toBeVisible();
 });

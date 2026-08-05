@@ -166,15 +166,11 @@ test.describe.serial("Stage 2A session integrity", () => {
     await completedAssignmentDrawer.getByRole("button", { name: "Close" }).click();
 
     await page.goto("/matching");
-    await page.getByRole("button", { name: "New" }).click();
-    const matchDrawer = page.getByRole("dialog", { name: "Create Potential Match" });
-    await expect(matchDrawer.getByLabel("Status")).toHaveCount(0);
-    await expect(matchDrawer.getByText("Potential match", { exact: true })).toBeVisible();
-    await expect(matchDrawer.getByText("No hold", { exact: true })).toBeVisible();
-    await matchDrawer.getByRole("button", { name: "Close" }).click();
-    await page.getByText("MAT-2026-000001", { exact: true }).first().click();
-    await expect(page.getByRole("button", { name: "Verify" }).first()).toBeVisible();
-    await expect(page.getByRole("button", { name: "Clear" }).first()).toBeVisible();
+    await expect(page.getByText("Persisted algorithm suggestions and human decisions are separate.")).toBeVisible();
+    await expect(page.getByText("Relationship verification")).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Manual passenger selection" })).toBeVisible();
+    await expect(page.getByRole("button", { name: "Generate suggestions" })).toBeVisible();
+    await expect(page.getByRole("button", { name: "New" })).toHaveCount(0);
 
     await page.goto("/exercise");
     await expect(page.getByText("Initial status")).toBeVisible();

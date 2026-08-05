@@ -689,6 +689,7 @@ export const dictionaries = {
     "Suggested",
     "Potential match",
     "Verified match",
+    "Requires review",
     "Hold / escalate",
     "Rejected",
     "Reunited",
@@ -847,7 +848,7 @@ export const auditActions = [
 
 export const workflowStates = {
   completedMatchStatuses: ["Verified match", "Reunited", "Released"],
-  pendingMatchStatuses: ["Suggested", "Potential match"],
+  pendingMatchStatuses: ["Suggested", "Potential match", "Requires review"],
   terminalRequestStatuses: ["Done", "Closed", "Cancelled", "Completed", "Released", "Reunited"],
   terminalAssignmentStatuses: ["Completed", "Cancelled"],
   terminalReleaseStatuses: ["Cancelled", "Completed", "Released", "Reunited"]

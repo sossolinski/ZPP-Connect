@@ -74,6 +74,10 @@ import { createMemoryFamilyRepository } from "./modules/families/memory-family-r
 import type { FamilyRepository } from "./modules/families/family-repository.js";
 import type { FamilyActor, FamilyImportInput } from "./modules/families/family-types.js";
 import { validateFamilyImportRows } from "./modules/families/family-import.js";
+import { createMatchingRouter } from "./modules/matching/matching-router.js";
+import { createMatchingService } from "./modules/matching/matching-service.js";
+import { createMemoryMatchingRepository } from "./modules/matching/memory-matching-repository.js";
+import type { MatchingRepository } from "./modules/matching/matching-repository.js";
 import { hydrateReadOnlyProjection, mergeProjectionPage, syncProjectionRow } from "./modules/compatibility/read-only-projection.js";
 
 type Row = Record<string, any>;
@@ -1710,41 +1714,15 @@ function updateRow(resource: string, id: string, patch: Row, req?: Request) {
   return row;
 }
 
-function demoMatchingLinkError(input: Row, excludeMatchId?: string) {
-  if (!input.familyRecordId || !input.passengerRecordId) return { status: 400, error: "A Family/NOK record and Passenger/SRC record are required" };
-  const family = familyRecords.find((item) => item.id === input.familyRecordId);
-  const passenger = passengerRecords.find((item) => item.id === input.passengerRecordId);
-  const enquiry = input.enquiryId ? enquiries.find((item) => item.id === input.enquiryId) : undefined;
-  if (!family) return { status: 404, error: "Family/NOK record not found" };
-  if (!passenger) return { status: 404, error: "Passenger/SRC record not found" };
-  if (input.enquiryId && !enquiry) return { status: 404, error: "TEC enquiry not found" };
-  if (family.sessionId !== input.sessionId || passenger.sessionId !== input.sessionId || (enquiry && enquiry.sessionId !== input.sessionId)) {
-    return { status: 409, error: "Matching links must belong to the active session" };
-  }
-  if (family.caseId && passenger.caseId && family.caseId !== passenger.caseId) {
-    return { status: 409, error: "Family/NOK and Passenger/SRC records belong to different cases" };
-  }
-  const duplicate = matchingRecords.find(
-    (item) =>
-      item.id !== excludeMatchId &&
-      item.sessionId === input.sessionId &&
-      item.familyRecordId === input.familyRecordId &&
-      item.passengerRecordId === input.passengerRecordId &&
-      item.status !== "Rejected"
-  );
-  if (duplicate) return { status: 409, error: `An open matching record already links these records (${duplicate.operationalId})` };
-  return null;
-}
-
 function demoReleaseMatchError(input: Row) {
   if (!input.matchId) return { status: 400, error: "A verified matching record is required" };
   const match = matchingRecords.find((item) => item.id === input.matchId);
   if (!match) return { status: 404, error: "Matching record not found" };
   if (match.sessionId !== input.sessionId) return { status: 409, error: "Matching record belongs to a different session" };
-  if (!["Verified match", "Reunited", "Released"].includes(String(match.status))) {
-    return { status: 409, error: "Reunification/release requires a verified match" };
+  if (!match.releaseEligibility?.eligible) {
+    const blockers = Array.isArray(match.releaseEligibility?.blockers) ? match.releaseEligibility.blockers.join("; ") : "No current confirmed match";
+    return { status: 409, error: `Reunification/release preconditions are not satisfied: ${blockers}` };
   }
-  if (!isNoHold(match.holdCheck)) return { status: 409, error: "Hold blocks reunification/release until cleared" };
   return null;
 }
 
@@ -2044,6 +2022,7 @@ export function createDemoRouter(options: {
   incidentAssignmentRepository?: IncidentAssignmentRepository;
   passengerRepository?: PassengerRepository;
   familyRepository?: FamilyRepository;
+  matchingRepository?: MatchingRepository;
 } = {}) {
   const router = Router();
   const memoryIncidentAssignments: MemoryIncidentAssignment[] = sessions.flatMap((incident) =>
@@ -2112,9 +2091,20 @@ export function createDemoRouter(options: {
     now
   });
   const familyService = createFamilyService(familyRepository, incidentAccessService);
+  const matchingRepository = options.matchingRepository ?? createMemoryMatchingRepository({
+    matches: matchingRecords,
+    families: familyRecords,
+    passengers: passengerRecords,
+    auditLogs,
+    timeline,
+    users,
+    now
+  });
+  const matchingService = createMatchingService(matchingRepository, incidentAccessService);
   if (enquiryRepository.kind === "postgres") enquiries.splice(0, enquiries.length);
   if (passengerRepository.kind === "postgres") passengerRecords.splice(0, passengerRecords.length);
   if (familyRepository.kind === "postgres") familyRecords.splice(0, familyRecords.length);
+  if (matchingRepository.kind === "postgres") matchingRecords.splice(0, matchingRecords.length);
   const syncIncident = (record: Record<string, unknown>) => {
     const index = sessions.findIndex((item) => item.id === record.id);
     if (index >= 0) sessions[index] = { ...record };
@@ -2128,6 +2118,9 @@ export function createDemoRouter(options: {
   };
   const syncFamily = (record: Record<string, unknown>) => {
     syncProjectionRow(familyRecords, record);
+  };
+  const syncMatching = (record: Record<string, unknown>) => {
+    syncProjectionRow(matchingRecords, record);
   };
   const memberDirectory = createMemberDirectoryRepository(users.map((user) => ({ id: user.id, email: user.email, displayName: user.displayName, roles: user.roles })));
   memberDirectoryForAdmin = memberDirectory;
@@ -2302,6 +2295,12 @@ export function createDemoRouter(options: {
       : undefined,
     onChange: familyService.kind === "postgres" ? syncFamily : undefined
   }));
+  router.use(createMatchingRouter(matchingService, {
+    onList: matchingService.kind === "postgres"
+      ? (records, incidentId, offset) => mergeProjectionPage(matchingRecords, incidentId, records, offset)
+      : undefined,
+    onChange: matchingService.kind === "postgres" ? syncMatching : undefined
+  }));
   const requireIncidentAccess = (resolveIncidentId: (req: Request) => string, hydrateEnquiryCompatibility = false, requireWritable = false) => (req: Request, _res: any, next: NextFunction) => {
     const incidentId = resolveIncidentId(req);
     if (!req.user || !incidentId) {
@@ -2327,6 +2326,9 @@ export function createDemoRouter(options: {
       }
       if (hydrateEnquiryCompatibility && familyService.kind === "postgres" && can(req, "family:read")) {
         await hydrateReadOnlyProjection(familyRecords, incidentId, (offset) => familyService.list(accessActor, incidentId, { limit: 200, offset, sortBy: "updatedAt", sortDirection: "desc" }));
+      }
+      if (hydrateEnquiryCompatibility && can(req, "matching:read")) {
+        await hydrateReadOnlyProjection(matchingRecords, incidentId, (offset) => matchingService.listCompatibility(accessActor, incidentId, { limit: 200, offset, sortDirection: "desc" }));
       }
       next();
     })().catch(next);
@@ -2823,39 +2825,6 @@ export function createDemoRouter(options: {
   });
   router.get("/audit-logs", requirePermission("audit:read"), (req, res) => res.json(listRows("audit-logs", req)));
 
-  router.get("/matching-records", requirePermission("matching:read"), requireIncidentAccess((req) => String(req.query.sessionId ?? ""), true), (req, res) => res.json(listRows("matching-records", req)));
-  router.post("/matching-records", requirePermission("matching:create"), requireIncidentAccess((req) => String(req.body?.sessionId ?? ""), true), (req, res) => {
-    const body = { ...req.body, status: "Potential match", holdCheck: "No hold", decisionNotes: undefined };
-    const issue = demoMatchingLinkError(body);
-    if (issue) {
-      res.status(issue.status).json({ error: issue.error });
-      return;
-    }
-    const family = familyRecords.find((item) => item.id === body.familyRecordId);
-    const passenger = passengerRecords.find((item) => item.id === body.passengerRecordId);
-    const row = createRow("matching-records", { ...body, caseId: body.caseId ?? family?.caseId ?? passenger?.caseId }, req);
-    addAudit(req, "create_potential_match", `Potential match ${row.operationalId} created`, row.sessionId, undefined, "matchingRecord", row.id);
-    addTimeline(req, { sessionId: row.sessionId, caseId: row.caseId, eventType: "matching", entityType: "matchingRecord", entityId: row.id, title: `Potential match ${row.operationalId} created`, body: row.matchBasis });
-    res.status(201).json(row);
-  });
-  router.patch("/matching-records/:id", requirePermission("matching:create"), requireIncidentAccess((req) => String(matchingRecords.find((item) => item.id === req.params.id)?.sessionId ?? req.body?.sessionId ?? ""), true), (req, res) => {
-    const existing = matchingRecords.find((item) => item.id === req.params.id);
-    if (!existing) {
-      res.status(404).json({ error: "Matching record not found" });
-      return;
-    }
-    const merged = { ...existing, ...req.body, sessionId: existing.sessionId };
-    const issue = demoMatchingLinkError(merged, existing.id);
-    if (issue) {
-      res.status(issue.status).json({ error: issue.error });
-      return;
-    }
-    const { sessionId: _sessionId, status: _status, holdCheck: _holdCheck, decisionNotes: _decisionNotes, ...updates } = req.body ?? {};
-    const row = updateRow("matching-records", existing.id, updates, req)!;
-    addAudit(req, "update_matching_record", `Matching record ${row.operationalId} updated`, row.sessionId, undefined, "matchingRecord", row.id);
-    res.json(row);
-  });
-
   router.get("/releases", requirePermission("release:read"), requireIncidentAccess((req) => String(req.query.sessionId ?? ""), true), (req, res) => res.json(listRows("releases", req)));
   router.post("/releases", requirePermission("release:create"), requireIncidentAccess((req) => String(req.body?.sessionId ?? ""), true), (req, res) => {
     const issue = demoReleaseMatchError(req.body ?? {});
@@ -2899,45 +2868,6 @@ export function createDemoRouter(options: {
     res.json(row);
   });
 
-  router.get("/matching-records/suggestions", requirePermission("matching:read"), requireIncidentAccess((req) => String(req.query.sessionId ?? ""), true), (_req, res) => {
-    res.json({ data: [] });
-  });
-
-  router.post("/matching-records/:id/:action", requireIncidentAccess((req) => String(matchingRecords.find((item) => item.id === req.params.id)?.sessionId ?? req.body?.sessionId ?? ""), true), (req, res) => {
-    const action = String(req.params.action);
-    const matchingId = String(req.params.id);
-    const permissionByAction: Record<string, string> = {
-      verify: "matching:verify",
-      reject: "matching:reject",
-      hold: "matching:hold",
-      "clear-hold": "matching:clearHold",
-      "mark-reunited": "matching:reunite",
-      "mark-released": "matching:release"
-    };
-    const requiredPermission = permissionByAction[action];
-    if (!requiredPermission || !can(req, requiredPermission)) {
-      res.status(403).json({ error: "Forbidden" });
-      return;
-    }
-    const statusByAction: Record<string, string> = {
-      verify: "Verified match",
-      reject: "Rejected",
-      hold: "Hold / escalate",
-      "clear-hold": "Potential match",
-      "mark-reunited": "Reunited",
-      "mark-released": "Released"
-    };
-    const patch: Row = {
-      status: statusByAction[action] ?? "Potential match",
-      decisionNotes: req.body?.decisionNotes
-    };
-    if (action === "hold") patch.holdCheck = req.body?.holdCheck ?? "Identity verification hold";
-    if (action === "clear-hold") patch.holdCheck = "No hold";
-    const row = updateRow("matching-records", matchingId, patch, req);
-    addAudit(req, action, `Matching action ${action}`, row?.sessionId ?? "ses-demo-1", undefined, "matchingRecord", row?.id ?? matchingId);
-    res.json(row ?? { error: "Not found" });
-  });
-
   router.post("/releases/:id/complete", requirePermission("release:complete"), requireIncidentAccess((req) => String(releases.find((item) => item.id === req.params.id)?.sessionId ?? req.body?.sessionId ?? ""), true), (req, res) => {
     const note = demoDecisionNote(req.body?.notes);
     if (!note) {
@@ -2971,7 +2901,6 @@ export function createDemoRouter(options: {
       return;
     }
     const row = updateRow("releases", String(req.params.id), { status: "Completed", completedAt: now(), notes: note }, req)!;
-    if (row.matchId) updateRow("matching-records", row.matchId, { status: row.actionType === "Release" ? "Released" : "Reunited" }, req);
     const match = matchingRecords.find((item) => item.id === row.matchId);
     addAudit(req, row.actionType === "Release" ? "release" : "reunite", `${row.actionType} ${row.operationalId} completed`, row.sessionId, { status: "Completed", actionType: row.actionType, decisionNotes: note }, "reunificationReleaseRecord", row.id);
     addTimeline(req, {
