@@ -280,7 +280,18 @@ export const api = {
   markNotificationUnread: <T = AnyRecord>(id: string) => request<T>(`/notifications/${id}/unread`, { method: "POST", body: JSON.stringify({}) }),
   markNotificationsRead: <T = AnyRecord>(ids?: string[]) =>
     request<ApiList<T>>("/notifications/read-all", { method: "POST", body: JSON.stringify({ ids }) }),
-  suggestions: (sessionId?: string) => request<AnyRecord>(`/matching-records/suggestions${queryString({ sessionId })}`),
+  matchingQueue: (query: AnyRecord) => request<ApiList<AnyRecord>>(`/matching/queue${queryString(query)}`),
+  matchingContext: (claimId: string, sessionId: string) => request<AnyRecord>(`/matching/claims/${claimId}${queryString({ sessionId })}`),
+  matchingSuggestions: (claimId: string, query: AnyRecord) => request<ApiList<AnyRecord>>(`/matching/claims/${claimId}/suggestions${queryString(query)}`),
+  generateMatchingSuggestions: (claimId: string, body: AnyRecord) =>
+    request<ApiList<AnyRecord>>(`/matching/claims/${claimId}/suggestions/generate`, { method: "POST", body: JSON.stringify(body) }),
+  matchingCandidates: (claimId: string, query: AnyRecord) => request<ApiList<AnyRecord>>(`/matching/claims/${claimId}/candidates${queryString(query)}`),
+  confirmMatching: (claimId: string, body: AnyRecord) =>
+    request<AnyRecord>(`/matching/claims/${claimId}/confirm`, { method: "POST", body: JSON.stringify(body) }),
+  rejectMatchingSuggestion: (claimId: string, body: AnyRecord) =>
+    request<AnyRecord>(`/matching/claims/${claimId}/reject`, { method: "POST", body: JSON.stringify(body) }),
+  invalidateMatchingDecision: (claimId: string, body: AnyRecord) =>
+    request<AnyRecord>(`/matching/claims/${claimId}/invalidate`, { method: "POST", body: JSON.stringify(body) }),
   importFile: (type: string, file: File, sessionId?: string) => {
     const form = new FormData();
     form.set("file", file);

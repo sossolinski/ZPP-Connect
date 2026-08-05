@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { readFileSync } from "node:fs";
 import request from "supertest";
 import { describe, expect, it } from "vitest";
@@ -54,24 +55,28 @@ function apiDelete(app: ReturnType<typeof createApp>, path: string, email = "coo
 
 async function createVerifiedLinkedMatch(app: ReturnType<typeof createApp>, token: string) {
   const caseId = `CASE-${token}`;
-  const family = await apiPost(app, "/api/family-records").send({ sessionId: "ses-demo-1", caseId, firstName: "Family", lastName: token });
+  const family = await apiPost(app, "/api/family-records").send({ sessionId: "ses-demo-1", caseId, firstName: "Family", lastName: token, claimedRelationship: "Parent", passengerFirstName: "Passenger", passengerLastName: token });
   const passenger = await apiPost(app, "/api/passenger-records").send({ sessionId: "ses-demo-1", caseId, personType: "Passenger", firstName: "Passenger", lastName: token, source: "Manual" });
-  const match = await apiPost(app, "/api/matching-records").send({
+  const verifiedFamily = await apiPost(app, `/api/family-records/${family.body.id}/verify`).send({
     sessionId: "ses-demo-1",
-    caseId,
-    familyRecordId: family.body.id,
+    version: family.body.version,
+    claimVersion: family.body.currentClaim.version,
+    basis: "Identity and claimed relationship reviewed for API test.",
+    verifiedRelationshipType: "Parent"
+  });
+  expect(verifiedFamily.status).toBe(200);
+  const confirmed = await apiPost(app, `/api/matching/claims/${verifiedFamily.body.currentClaim.id}/confirm`).send({
+    sessionId: "ses-demo-1",
     passengerRecordId: passenger.body.id,
-    status: "Verified match",
-    holdCheck: "Security hold"
+    reason: "Authoritative records reviewed for API test.",
+    expectedClaimVersion: verifiedFamily.body.currentClaim.version,
+    expectedPassengerVersion: passenger.body.version,
+    operationId: randomUUID()
   });
-  expect(match.status).toBe(201);
-  expect(match.body.status).toBe("Potential match");
-  expect(match.body.holdCheck).toBe("No hold");
-  const verified = await apiPost(app, `/api/matching-records/${match.body.id}/verify`).send({
-    decisionNotes: "Authoritative records reviewed for API test."
-  });
-  expect(verified.status).toBe(200);
-  return match.body;
+  expect(confirmed.status).toBe(200);
+  const match = (await apiGet(app, "/api/matching-records").query({ sessionId: "ses-demo-1", search: caseId })).body.data[0];
+  expect(match).toMatchObject({ status: "Verified match", holdCheck: "No hold", matchScore: null });
+  return match;
 }
 
 describe("ZPP Connect API", () => {
@@ -373,7 +378,7 @@ describe("ZPP Connect API", () => {
     expect((await apiGet(app, "/api/assignments", "viewer@lot.pl")).status).toBe(403);
     expect((await apiGet(app, "/api/assignment-assignees", "volunteer@lot.pl")).status).toBe(403);
     expect((await apiPost(app, "/api/family-records", "volunteer@lot.pl").send({ sessionId: "ses-demo-1" })).status).toBe(403);
-    expect((await apiPost(app, "/api/matching-records/mat-demo-1/verify", "tec@lot.pl").send({ decisionNotes: "Not allowed." })).status).toBe(403);
+    expect((await apiPost(app, "/api/matching/claims/claim-memory-fam-demo-1/confirm", "tec@lot.pl").send({})).status).toBe(403);
   });
 
   it("keeps import/export behavior behind server-side permissions without technical UI copy", async () => {
@@ -855,12 +860,11 @@ describe("ZPP Connect API", () => {
   it("records release completion decisions in audit and timeline", async () => {
     const app = createApp();
     const decisionNote = "Identity, handover and transport confirmed.";
-    expect((await apiPost(app, "/api/matching-records/mat-demo-1/clear-hold", "zpp@lot.pl").send({ decisionNotes: "Identity hold reviewed and cleared." })).status).toBe(403);
-    await apiPost(app, "/api/matching-records/mat-demo-1/clear-hold", "coordinator@lot.pl").send({ decisionNotes: "Identity hold reviewed and cleared." });
-    await apiPost(app, "/api/matching-records/mat-demo-1/verify", "coordinator@lot.pl").send({ decisionNotes: "Authoritative Family/NOK and Passenger/SRC links reviewed." });
+    expect((await apiPost(app, "/api/matching-records/mat-demo-1/clear-hold", "zpp@lot.pl").send({ sessionId: "ses-demo-1", version: 1, reason: "Identity hold reviewed and cleared." })).status).toBe(403);
+    const eligibleMatch = await createVerifiedLinkedMatch(app, `REL-AUDIT-${Date.now()}`);
     const prepared = await apiPost(app, "/api/releases", "coordinator@lot.pl").send({
       sessionId: "ses-demo-1",
-      matchId: "mat-demo-1",
+      matchId: eligibleMatch.id,
       actionType: "Release",
       status: "Prepared",
       releaseDestination: "Family assistance centre",
@@ -895,29 +899,35 @@ describe("ZPP Connect API", () => {
   it("rejects incomplete and cross-session matching links and does not invent a score", async () => {
     const app = createApp();
     const token = `MATCH-${Date.now()}`;
-    const incomplete = await apiPost(app, "/api/matching-records").send({ sessionId: "ses-demo-1" });
+    const incomplete = await apiPost(app, "/api/matching/claims/missing/confirm").send({ sessionId: "ses-demo-1" });
     expect(incomplete.status).toBe(400);
 
-    const family = await apiPost(app, "/api/family-records").send({ sessionId: "ses-demo-1", caseId: token, firstName: "Family", lastName: token });
+    const family = await apiPost(app, "/api/family-records").send({ sessionId: "ses-demo-1", caseId: token, firstName: "Family", lastName: token, passengerFirstName: "Passenger", passengerLastName: token });
     const otherSession = await apiPost(app, "/api/sessions").send({ mode: "EXERCISE", status: "Active", eventType: "Exercise", flightNumber: token });
     const otherFamily = await apiPost(app, "/api/family-records").send({ sessionId: otherSession.body.id, caseId: token, firstName: "Other", lastName: token });
     const otherPassenger = await apiPost(app, "/api/passenger-records").send({ sessionId: "ses-demo-1", caseId: token, personType: "Passenger", firstName: "Passenger", lastName: token, source: "Manual" });
-    const crossSession = await apiPost(app, "/api/matching-records").send({
+    const crossSession = await apiPost(app, `/api/matching/claims/${otherFamily.body.currentClaim.id}/confirm`).send({
       sessionId: otherSession.body.id,
-      familyRecordId: otherFamily.body.id,
-      passengerRecordId: otherPassenger.body.id
+      passengerRecordId: otherPassenger.body.id,
+      reason: "Attempted cross-incident decision.",
+      expectedClaimVersion: otherFamily.body.currentClaim.version,
+      expectedPassengerVersion: otherPassenger.body.version,
+      operationId: randomUUID()
     });
     expect(crossSession.status).toBe(409);
 
     const passenger = await apiPost(app, "/api/passenger-records").send({ sessionId: "ses-demo-1", caseId: token, personType: "Passenger", firstName: "Passenger", lastName: token, source: "Manual" });
-    const created = await apiPost(app, "/api/matching-records").send({
+    const created = await apiPost(app, `/api/matching/claims/${family.body.currentClaim.id}/confirm`).send({
       sessionId: "ses-demo-1",
-      familyRecordId: family.body.id,
-      passengerRecordId: passenger.body.id
+      passengerRecordId: passenger.body.id,
+      reason: "Manual matching evidence reviewed.",
+      expectedClaimVersion: family.body.currentClaim.version,
+      expectedPassengerVersion: passenger.body.version,
+      operationId: randomUUID()
     });
-    expect(created.status).toBe(201);
-    expect(created.body).toMatchObject({ status: "Potential match", holdCheck: "No hold" });
-    expect(created.body.matchScore).toBeUndefined();
+    expect(created.status).toBe(200);
+    const compatibility = (await apiGet(app, "/api/matching-records").query({ sessionId: "ses-demo-1", search: token })).body.data[0];
+    expect(compatibility).toMatchObject({ status: "Verified match", holdCheck: "No hold", matchScore: null });
     expect((await apiPost(app, `/api/sessions/${otherSession.body.id}/close`).send({ notes: "Cross-incident matching test complete." })).status).toBe(200);
   });
 

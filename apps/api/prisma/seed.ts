@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { PrismaClient } from "@prisma/client";
 import { defaultOrganizations, defaultProfile, defaultRoles, dictionaries } from "@zpp/shared";
 
@@ -430,6 +431,9 @@ async function seedOperationalData() {
     }
   }
 
+  const familyClaim1 = await prisma.relationshipClaim.findFirstOrThrow({ where: { familyRecordId: family1.id, isCurrent: true } });
+  const familyClaim2 = await prisma.relationshipClaim.findFirstOrThrow({ where: { familyRecordId: family2.id, isCurrent: true } });
+
   await prisma.enquiry.update({
     where: { id: enquiry1.id },
     data: { passengerRecord: { connect: { id: passenger1.id } } }
@@ -439,9 +443,9 @@ async function seedOperationalData() {
     data: { passengerRecord: { connect: { id: passenger2.id } } }
   });
 
-  await prisma.matchingRecord.upsert({
+  const matching1 = await prisma.matchingRecord.upsert({
     where: { operationalId: "MAT-2026-000001" },
-    update: {},
+    update: { relationshipClaimId: familyClaim1.id },
     create: {
       operationalId: "MAT-2026-000001",
       sessionId: session.id,
@@ -449,6 +453,7 @@ async function seedOperationalData() {
       enquiryId: enquiry1.id,
       familyRecordId: family1.id,
       passengerRecordId: passenger1.id,
+      relationshipClaimId: familyClaim1.id,
       status: "Hold / escalate",
       matchScore: 0.92,
       matchBasis: "Name, flight, claimed relationship and contact history align. Relationship verification still pending.",
@@ -465,9 +470,9 @@ async function seedOperationalData() {
     }
   });
 
-  await prisma.matchingRecord.upsert({
+  const matching2 = await prisma.matchingRecord.upsert({
     where: { operationalId: "MAT-2026-000002" },
-    update: {},
+    update: { relationshipClaimId: familyClaim2.id },
     create: {
       operationalId: "MAT-2026-000002",
       sessionId: session.id,
@@ -475,6 +480,7 @@ async function seedOperationalData() {
       enquiryId: enquiry2.id,
       familyRecordId: family2.id,
       passengerRecordId: passenger2.id,
+      relationshipClaimId: familyClaim2.id,
       status: "Suggested",
       matchScore: 0.86,
       matchBasis: "Name and flight align. Family verification not yet completed.",
@@ -490,6 +496,30 @@ async function seedOperationalData() {
       updatedById: zpp.id
     }
   });
+
+  for (const [matching, claim, passenger, score, positiveSignals, conflicts] of [
+    [matching1, familyClaim1, passenger1, 0.92, [{ key: "linked-passenger", label: "Passenger explicitly linked in the current claim" }, { key: "last-name", label: "Passenger surname matches the claim" }, { key: "first-name", label: "Passenger first name matches the claim" }, { key: "flight", label: "Flight matches the claim" }], []],
+    [matching2, familyClaim2, passenger2, 0.86, [{ key: "linked-passenger", label: "Passenger explicitly linked in the current claim" }, { key: "last-name", label: "Passenger surname matches the claim" }, { key: "first-name", label: "Passenger first name matches the claim" }, { key: "flight", label: "Flight matches the claim" }], []]
+  ] as const) {
+    let suggestion = await prisma.matchSuggestion.findFirst({ where: { incidentId: session.id, relationshipClaimId: claim.id, passengerRecordId: passenger.id, algorithmVersion: "1.0.0", isCurrent: true } });
+    suggestion ??= await prisma.matchSuggestion.create({ data: { incidentId: session.id, relationshipClaimId: claim.id, passengerRecordId: passenger.id, score, positiveSignals, conflicts, algorithm: "zpp-deterministic-candidate", algorithmVersion: "1.0.0", generationId: randomUUID(), claimVersion: claim.version, passengerVersion: passenger.version } });
+    await prisma.matchingRecord.update({ where: { id: matching.id }, data: { suggestionId: suggestion.id } });
+  }
+
+  await prisma.$queryRaw`
+    SELECT setval(
+      '"MatchingRecord_operational_seq"',
+      GREATEST(
+        COALESCE((
+          SELECT MAX(substring("operationalId" FROM '([0-9]+)$')::BIGINT)
+          FROM "MatchingRecord"
+          WHERE "operationalId" ~ '^MAT-[0-9]{4}-[0-9]+$'
+        ), 0) + 1,
+        1
+      ),
+      false
+    )
+  `;
 
   await prisma.welfareRequest.upsert({
     where: { operationalId: "REQ-2026-000001" },

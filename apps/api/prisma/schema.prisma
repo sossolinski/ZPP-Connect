@@ -33,6 +33,7 @@ model User {
   familyClaimsCreated           RelationshipClaim[]                @relation("RelationshipClaimCreatedBy")
   familyVerificationDecisions   RelationshipVerificationDecision[] @relation("RelationshipDecisionBy")
   familyVerificationProjections FamilyRecord[]                     @relation("FamilyVerificationProjectionBy")
+  matchDecisions                MatchDecision[]                    @relation("MatchDecisionBy")
   auditLogs                     AuditLog[]                         @relation("ActorAudit")
 
   @@index([organizationId])
@@ -99,6 +100,8 @@ model Session {
   familyRecords         FamilyRecord[]
   relationshipClaims    RelationshipClaim[]
   relationshipDecisions RelationshipVerificationDecision[]
+  matchSuggestions      MatchSuggestion[]
+  matchDecisions        MatchDecision[]
   passengerRecords      PassengerRecord[]
   matchingRecords       MatchingRecord[]
   releases              ReunificationReleaseRecord[]
@@ -249,6 +252,9 @@ model RelationshipClaim {
   passengerRecord           PassengerRecord?                   @relation(fields: [passengerRecordId], references: [id], onDelete: SetNull)
   claimedBy                 User?                              @relation("RelationshipClaimCreatedBy", fields: [claimedById], references: [id], onDelete: SetNull)
   decisions                 RelationshipVerificationDecision[]
+  matchSuggestions          MatchSuggestion[]
+  matchDecisions            MatchDecision[]
+  matchingRecords           MatchingRecord[]
 
   @@index([incidentId, status, updatedAt])
   @@index([incidentId, familyRecordId])
@@ -329,6 +335,8 @@ model PassengerRecord {
   requests                 WelfareRequest[]
   releases                 ReunificationReleaseRecord[]
   familyRelationshipClaims RelationshipClaim[]
+  matchSuggestions         MatchSuggestion[]
+  matchDecisions           MatchDecision[]
 
   @@index([sessionId, updatedAt])
   @@index([sessionId, conditionStatus, updatedAt])
@@ -347,6 +355,8 @@ model MatchingRecord {
   enquiryId             String?                      @db.Uuid
   familyRecordId        String?                      @db.Uuid
   passengerRecordId     String?                      @db.Uuid
+  relationshipClaimId   String?                      @db.Uuid
+  suggestionId          String?                      @db.Uuid
   status                String                       @default("Potential match")
   matchScore            Float?
   matchBasis            String?
@@ -357,6 +367,7 @@ model MatchingRecord {
   overrideReason        String?
   approvedById          String?                      @db.Uuid
   approvedAt            DateTime?
+  version               Int                          @default(1)
   createdById           String?                      @db.Uuid
   updatedById           String?                      @db.Uuid
   createdAt             DateTime                     @default(now())
@@ -365,11 +376,82 @@ model MatchingRecord {
   enquiry               Enquiry?                     @relation(fields: [enquiryId], references: [id], onDelete: SetNull)
   familyRecord          FamilyRecord?                @relation(fields: [familyRecordId], references: [id], onDelete: SetNull)
   passengerRecord       PassengerRecord?             @relation(fields: [passengerRecordId], references: [id], onDelete: SetNull)
+  relationshipClaim     RelationshipClaim?           @relation(fields: [relationshipClaimId], references: [id], onDelete: SetNull)
+  suggestion            MatchSuggestion?             @relation(fields: [suggestionId], references: [id], onDelete: SetNull)
   approvedBy            User?                        @relation("MatchApprovedBy", fields: [approvedById], references: [id], onDelete: SetNull)
+  decisions             MatchDecision[]
   releases              ReunificationReleaseRecord[]
 
   @@index([sessionId, status])
+  @@index([sessionId, relationshipClaimId])
+  @@index([sessionId, passengerRecordId])
   @@index([caseId])
+}
+
+model MatchSuggestion {
+  id                  String            @id @default(uuid()) @db.Uuid
+  incidentId          String            @db.Uuid
+  relationshipClaimId String            @db.Uuid
+  passengerRecordId   String            @db.Uuid
+  score               Float
+  positiveSignals     Json
+  conflicts           Json
+  algorithm           String
+  algorithmVersion    String
+  generationId        String            @db.Uuid
+  claimVersion        Int
+  passengerVersion    Int
+  status              String            @default("ACTIVE")
+  isCurrent           Boolean           @default(true)
+  version             Int               @default(1)
+  generatedAt         DateTime          @default(now())
+  createdAt           DateTime          @default(now())
+  updatedAt           DateTime          @updatedAt
+  incident            Session           @relation(fields: [incidentId], references: [id], onDelete: Cascade)
+  relationshipClaim   RelationshipClaim @relation(fields: [relationshipClaimId], references: [id], onDelete: Cascade)
+  passengerRecord     PassengerRecord   @relation(fields: [passengerRecordId], references: [id], onDelete: Cascade)
+  matchingRecords     MatchingRecord[]
+  decisions           MatchDecision[]
+
+  @@index([incidentId, relationshipClaimId, isCurrent, score])
+  @@index([incidentId, passengerRecordId, isCurrent])
+  @@index([generationId])
+}
+
+model MatchDecision {
+  id                   String            @id @default(uuid()) @db.Uuid
+  incidentId           String            @db.Uuid
+  relationshipClaimId  String            @db.Uuid
+  passengerRecordId    String            @db.Uuid
+  matchingRecordId     String?           @db.Uuid
+  suggestionId         String?           @db.Uuid
+  decision             String
+  reason               String
+  validity             String            @default("CURRENT")
+  isCurrent            Boolean           @default(false)
+  claimVersion         Int
+  passengerVersion     Int
+  operationId          String            @db.Uuid
+  commandFingerprint   String
+  decisionById         String?           @db.Uuid
+  decidedAt            DateTime          @default(now())
+  requestId            String?
+  supersedesDecisionId String?           @db.Uuid
+  createdAt            DateTime          @default(now())
+  incident             Session           @relation(fields: [incidentId], references: [id], onDelete: Cascade)
+  relationshipClaim    RelationshipClaim @relation(fields: [relationshipClaimId], references: [id], onDelete: Cascade)
+  passengerRecord      PassengerRecord   @relation(fields: [passengerRecordId], references: [id], onDelete: Cascade)
+  matchingRecord       MatchingRecord?   @relation(fields: [matchingRecordId], references: [id], onDelete: SetNull)
+  suggestion           MatchSuggestion?  @relation(fields: [suggestionId], references: [id], onDelete: SetNull)
+  decisionBy           User?             @relation("MatchDecisionBy", fields: [decisionById], references: [id], onDelete: SetNull)
+  supersedesDecision   MatchDecision?    @relation("MatchDecisionSupersession", fields: [supersedesDecisionId], references: [id], onDelete: SetNull)
+  supersededBy         MatchDecision[]   @relation("MatchDecisionSupersession")
+
+  @@unique([incidentId, operationId])
+  @@index([incidentId, relationshipClaimId, decidedAt])
+  @@index([incidentId, passengerRecordId, decidedAt])
+  @@index([matchingRecordId])
+  @@index([suggestionId])
 }
 
 model ReunificationReleaseRecord {

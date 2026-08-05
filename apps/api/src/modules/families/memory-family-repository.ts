@@ -73,7 +73,9 @@ export function createMemoryFamilyRepository(sources: Sources): FamilyRepository
     const claimDecisions = decisions.filter((item) => item.relationshipClaimId === claim.id).sort((a, b) => String(b.decisionAt).localeCompare(String(a.decisionAt)));
     const familyClaimIds = new Set(claims.filter((item) => item.familyRecordId === row.id).map((item) => item.id));
     const decisionHistory = decisions.filter((item) => familyClaimIds.has(item.relationshipClaimId)).sort((a, b) => String(b.decisionAt).localeCompare(String(a.decisionAt))).map((item) => ({ ...item, decisionByDisplayName: sources.users?.find((user) => user.id === item.decisionById)?.displayName ?? null }));
-    return { ...row, currentClaim: { ...claim, decisions: claimDecisions.map((item) => ({ ...item, decisionByDisplayName: sources.users?.find((user) => user.id === item.decisionById)?.displayName ?? null })) }, decisionHistory, claimHistoryCount: familyClaimIds.size, potentialDuplicateIds: duplicateIds(row) } as FamilyRecord;
+    row.currentClaim = { ...claim, decisions: claimDecisions.map((item) => ({ ...item, decisionByDisplayName: sources.users?.find((user) => user.id === item.decisionById)?.displayName ?? null })) };
+    row.decisionHistory = decisionHistory;
+    return { ...row, claimHistoryCount: familyClaimIds.size, potentialDuplicateIds: duplicateIds(row) } as FamilyRecord;
   }
 
   function find(context: IncidentContext, familyId: string) {

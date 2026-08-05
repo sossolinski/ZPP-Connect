@@ -100,20 +100,6 @@ export const enquirySchema = z.object({
   status: z.enum(dictionaries.enquiryStatuses).default("New")
 });
 
-export const matchingSchema = z.object({
-  sessionId: z.string().uuid(),
-  caseId: z.string().optional().nullable(),
-  enquiryId: z.string().uuid().optional().nullable(),
-  familyRecordId: z.string().uuid().optional().nullable(),
-  passengerRecordId: z.string().uuid().optional().nullable(),
-  status: z.enum(dictionaries.matchingStatuses).default("Potential match"),
-  matchScore: z.coerce.number().min(0).max(1).optional().nullable(),
-  matchBasis: z.string().optional().nullable(),
-  verificationChecklist: z.unknown().optional().nullable(),
-  holdCheck: z.enum(dictionaries.holdTypes).default("No hold"),
-  decisionNotes: z.string().optional().nullable()
-});
-
 export const releaseSchema = z.object({
   sessionId: z.string().uuid(),
   matchId: z.string().uuid().optional().nullable(),
