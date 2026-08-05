@@ -168,6 +168,7 @@ export const api = {
   list: <T = AnyRecord>(resource: string, query?: AnyRecord) => request<ApiList<T>>(`/${resource}${queryString(query)}`),
   listAll: <T = AnyRecord>(resource: string, query?: AnyRecord, options?: ListAllOptions) =>
     listAllPages<T>((pageQuery) => request<ApiList<T>>(`/${resource}${queryString(pageQuery)}`), query, options),
+  record: <T = AnyRecord>(resource: string, id: string, query?: AnyRecord) => request<T>(`/${resource}/${id}${queryString(query)}`),
   create: <T = AnyRecord>(resource: string, body: AnyRecord) => request<T>(`/${resource}`, { method: "POST", body: JSON.stringify(body) }),
   update: <T = AnyRecord>(resource: string, id: string, body: AnyRecord) => request<T>(`/${resource}/${id}`, { method: "PATCH", body: JSON.stringify(body) }),
   remove: <T = AnyRecord>(path: string) => request<T>(path, { method: "DELETE" }),

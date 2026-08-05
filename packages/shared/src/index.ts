@@ -631,7 +631,7 @@ export const dictionaries = {
     "Urgent welfare",
     "Closed"
   ],
-  verificationStatuses: ["Unverified", "Partially verified", "Verified", "Disputed"],
+  verificationStatuses: ["Unverified", "Review required", "Verified", "Rejected"],
   personTypes: ["Passenger", "Crew", "Child", "Infant", "Other"],
   genders: ["Female", "Male", "Non-binary", "Unknown", "Other"],
   nationalities: [

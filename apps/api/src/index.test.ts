@@ -899,10 +899,11 @@ describe("ZPP Connect API", () => {
     expect(incomplete.status).toBe(400);
 
     const family = await apiPost(app, "/api/family-records").send({ sessionId: "ses-demo-1", caseId: token, firstName: "Family", lastName: token });
-    const otherFamily = await apiPost(app, "/api/family-records").send({ sessionId: "ses-demo-2", caseId: token, firstName: "Other", lastName: token });
+    const otherSession = await apiPost(app, "/api/sessions").send({ mode: "EXERCISE", status: "Active", eventType: "Exercise", flightNumber: token });
+    const otherFamily = await apiPost(app, "/api/family-records").send({ sessionId: otherSession.body.id, caseId: token, firstName: "Other", lastName: token });
     const otherPassenger = await apiPost(app, "/api/passenger-records").send({ sessionId: "ses-demo-1", caseId: token, personType: "Passenger", firstName: "Passenger", lastName: token, source: "Manual" });
     const crossSession = await apiPost(app, "/api/matching-records").send({
-      sessionId: "ses-demo-2",
+      sessionId: otherSession.body.id,
       familyRecordId: otherFamily.body.id,
       passengerRecordId: otherPassenger.body.id
     });
@@ -917,6 +918,7 @@ describe("ZPP Connect API", () => {
     expect(created.status).toBe(201);
     expect(created.body).toMatchObject({ status: "Potential match", holdCheck: "No hold" });
     expect(created.body.matchScore).toBeUndefined();
+    expect((await apiPost(app, `/api/sessions/${otherSession.body.id}/close`).send({ notes: "Cross-incident matching test complete." })).status).toBe(200);
   });
 
   it("updates only prepared releases and prevents duplicate open actions", async () => {

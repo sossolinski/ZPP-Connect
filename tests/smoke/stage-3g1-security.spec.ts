@@ -67,13 +67,13 @@ test.describe("Stage 3G1 security containment", () => {
     await expect(page.locator("body")).not.toContainText(noTechnicalStorageCopy);
   });
 
-  test("exposes only Manifest CSV and rejects Rostering mutations without an explicit Session", async ({ page, request }) => {
+  test("exposes controlled CSV imports and rejects Rostering mutations without an explicit Session", async ({ page, request }) => {
     await login(page, "admin@lot.pl");
     await page.goto("/files-import");
 
     const importType = page.getByLabel("Import type");
     await expect(importType).toHaveValue("manifest");
-    await expect(importType.locator("option")).toHaveText(["Manifest CSV"]);
+    await expect(importType.locator("option")).toHaveText(["Manifest CSV", "Family / NOK CSV"]);
     const fileInput = page.getByLabel("File");
     await expect(fileInput).toHaveAttribute("accept", ".csv,text/csv");
     await expect(page.locator("body")).not.toContainText(noTechnicalStorageCopy);

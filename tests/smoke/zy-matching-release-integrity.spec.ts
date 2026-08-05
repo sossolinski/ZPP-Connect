@@ -32,8 +32,7 @@ async function createFamily(page: Page, sessionId: string, token: string, caseId
     caseId,
     firstName: "Family",
     lastName: token,
-    claimedRelationship: "Sibling",
-    verificationStatus: "Partially verified"
+    claimedRelationship: "Sibling"
   });
   expect(response.status()).toBe(201);
   return body;
@@ -134,11 +133,11 @@ test("reaches unassigned records, supports keyboard matching, and validates auth
   await drawer.getByLabel("Passenger/Crew record").selectOption(passengerStale.id);
   const staleUpdate = await page.request.patch(`${apiUrl}/family-records/${familyStale.id}`, {
     headers,
-    data: { sessionId: "different-session" }
+    data: { sessionId: session.id, version: familyStale.version, caseId: `CASE-${token}-CHANGED` }
   });
   expect(staleUpdate.ok()).toBeTruthy();
   await drawer.getByRole("button", { name: "Create potential match" }).click();
-  await expect(drawer.getByText(/Family\/NOK record is missing, stale or belongs to another session/)).toBeVisible();
+  await expect(drawer.getByText(/Family\/NOK and Passenger\/SRC records belong to different cases/)).toBeVisible();
 
   await page.setViewportSize({ width: 390, height: 844 });
   await drawer.getByRole("button", { name: "Close" }).click();

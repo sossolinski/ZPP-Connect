@@ -14,6 +14,7 @@ import type { EnquiryRepository } from "./modules/enquiries/enquiry-repository.j
 import type { IncidentAccessRepository } from "./modules/incident-access/incident-access-repository.js";
 import type { IncidentAssignmentRepository } from "./modules/incident-assignments/incident-assignment-repository.js";
 import type { PassengerRepository } from "./modules/passengers/passenger-repository.js";
+import type { FamilyRepository } from "./modules/families/family-repository.js";
 
 export function createApp(options: {
   incidentRepository?: IncidentRepository;
@@ -21,6 +22,7 @@ export function createApp(options: {
   incidentAccessRepository?: IncidentAccessRepository;
   incidentAssignmentRepository?: IncidentAssignmentRepository;
   passengerRepository?: PassengerRepository;
+  familyRepository?: FamilyRepository;
   skipRuntimeValidation?: boolean;
 } = {}) {
   if (!options.skipRuntimeValidation) validateRuntimeConfig(config);
@@ -56,7 +58,8 @@ export function createApp(options: {
     enquiryRepository: options.enquiryRepository,
     incidentAccessRepository: options.incidentAccessRepository,
     incidentAssignmentRepository: options.incidentAssignmentRepository,
-    passengerRepository: options.passengerRepository
+    passengerRepository: options.passengerRepository,
+    familyRepository: options.familyRepository
   });
 
   app.use(notFound);

@@ -100,30 +100,6 @@ export const enquirySchema = z.object({
   status: z.enum(dictionaries.enquiryStatuses).default("New")
 });
 
-export const familySchema = z.object({
-  sessionId: z.string().uuid(),
-  caseId: z.string().optional().nullable(),
-  firstName: z.string().min(1),
-  lastName: z.string().min(1),
-  phone: z.string().optional().nullable(),
-  email: z.string().email().optional().nullable().or(z.literal("")),
-  preferredContactChannel: z.string().optional().nullable(),
-  preferredLanguage: z.string().optional().nullable(),
-  location: z.string().optional().nullable(),
-  claimedRelationship: z.string().optional().nullable(),
-  passengerFirstName: z.string().optional().nullable(),
-  passengerLastName: z.string().optional().nullable(),
-  passengerFlight: z.string().optional().nullable(),
-  verificationStatus: z.enum(dictionaries.verificationStatuses).default("Unverified"),
-  verificationNotes: z.string().optional().nullable(),
-  immediateNeeds: z.string().optional().nullable(),
-  questionsAsked: z.string().optional().nullable(),
-  commitmentsMade: z.string().optional().nullable(),
-  nextContactDue: z.coerce.date().optional().nullable(),
-  assignedOfficer: z.string().optional().nullable(),
-  notes: z.string().optional().nullable()
-});
-
 export const matchingSchema = z.object({
   sessionId: z.string().uuid(),
   caseId: z.string().optional().nullable(),
