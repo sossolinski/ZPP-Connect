@@ -18,8 +18,8 @@ async function apiGet(page: Page, path: string, query: Row) {
   return { response, body: await response.json() };
 }
 
-async function createSession(page: Page, token: string) {
-  const result = await apiPost(page, "/sessions", { mode: "EXERCISE", status: "Active", eventType: "Exercise", flightNumber: token, route: "WAW-TEST", description: "Foundation Stage 5 browser fixture" });
+async function createSession(page: Page, token: string, mode = "EXERCISE", status = "Active") {
+  const result = await apiPost(page, "/sessions", { mode, status, eventType: "Exercise", flightNumber: token, route: "WAW-TEST", description: "Foundation browser fixture" });
   expect(result.response.status()).toBe(201);
   cleanupSessionIds.push(result.body.id);
   return result.body;
@@ -39,7 +39,7 @@ async function useSession(page: Page, session: Row) {
   await expect(row).toBeVisible();
   const button = row.getByRole("button", { name: "Use this session" });
   if (await button.count()) await button.click();
-  await expect(page.locator(`[aria-label*="Current session EXERCISE ${session.operationalId}"]:visible`)).toHaveCount(1);
+  await expect(page.locator(`[aria-label*="Current session ${session.mode} ${session.operationalId}"]:visible`)).toHaveCount(1);
 }
 
 async function confirmViaApi(page: Page, sessionId: string, claim: Row, passenger: Row, operationId = crypto.randomUUID()) {
@@ -55,7 +55,7 @@ async function confirmViaApi(page: Page, sessionId: string, claim: Row, passenge
 
 test.afterEach(async ({ page }) => {
   for (const sessionId of cleanupSessionIds.splice(0)) {
-    await page.request.post(`${apiUrl}/sessions/${sessionId}/close`, { headers, data: { notes: "Foundation Stage 5 browser cleanup" } }).catch(() => undefined);
+    await page.request.post(`${apiUrl}/sessions/${sessionId}/close`, { headers, data: { notes: "Foundation Stage 6 browser cleanup" } }).catch(() => undefined);
   }
 });
 
@@ -164,8 +164,8 @@ test("surfaces stale input and a human-resolvable 409 without automatic retry", 
   await expect(dialog.getByText(/same ID is retained after a timeout/i)).toBeVisible();
 });
 
-test("projects an independently verified current match into Release without starting Release", async ({ page }) => {
-  const token = `F5-RELEASE-${Date.now()}`;
+test("separates preparation, checks, authorization and completion in Release Control", async ({ page }) => {
+  const token = `F6-RELEASE-${Date.now()}`;
   const session = await createSession(page, token);
   const value = await createFixture(page, session.id, token);
   const verified = await apiPost(page, `/family-records/${value.family.id}/verify`, { sessionId: session.id, version: value.family.version, claimVersion: value.claim.version, basis: "Independent relationship evidence reviewed.", verifiedRelationshipType: "Sibling" });
@@ -179,11 +179,106 @@ test("projects an independently verified current match into Release without star
   await login(page);
   await useSession(page, session);
   await page.goto("/release-control");
-  await page.getByRole("button", { name: "New" }).click();
-  const drawer = page.getByRole("dialog", { name: "Prepare Action" });
-  await expect(drawer.getByLabel("Match").getByRole("option", { name: new RegExp(match.operationalId) })).toHaveCount(1);
-  await drawer.getByLabel("Match").selectOption(match.id);
-  await expect(drawer.getByText(match.operationalId, { exact: true })).toBeVisible();
-  await drawer.getByRole("button", { name: "Close" }).click();
+  await expect(page.getByText("ELIGIBLE ≠ PREPARED ≠ AUTHORIZED ≠ COMPLETED")).toBeVisible();
+  await expect(page.getByRole("button", { name: "Prepare action" })).toBeEnabled();
+  await page.getByRole("button", { name: "Prepare action" }).click();
+  const prepareDialog = page.getByRole("dialog", { name: "Prepare release action" });
+  await expect(prepareDialog.getByLabel("Current human match").getByRole("option", { name: new RegExp(value.passenger.operationalId) })).toHaveCount(1);
+  await prepareDialog.getByLabel("Current human match").selectOption(match.matchDecisionId);
+  await prepareDialog.getByLabel("Action type").selectOption("RELEASE");
+  await prepareDialog.getByLabel("Receiving party").fill("Authorized browser-test recipient");
+  await prepareDialog.getByLabel("Preparation notes").fill("Prepared for independent checks; no authorization implied.");
+  await prepareDialog.getByRole("button", { name: "Prepare action" }).click();
+
+  await expect(page.getByText(/prepared\. This is not authorization or completion/i)).toBeVisible();
+  await expect(page.getByText("PREPARED", { exact: true }).first()).toBeVisible();
+  await expect(page.locator('input[type="checkbox"]')).toHaveCount(0);
+  await expect(page.getByText("No independent checks")).toBeVisible();
+
+  await page.getByRole("button", { name: "Identity check", exact: true }).click();
+  const identityDialog = page.getByRole("dialog", { name: "Record identity check" });
+  await identityDialog.getByLabel("Identity result").selectOption("PASS");
+  await identityDialog.getByLabel("Evidence reference or type").fill("approved evidence type");
+  await identityDialog.getByLabel("Check basis").fill("Identity evidence was reviewed by the assigned human operator.");
+  await identityDialog.getByRole("button", { name: "Record identity check" }).click();
+  await expect(page.getByText("IDENTITY PASS")).toBeVisible();
+
+  await page.getByRole("button", { name: "Review hold" }).click();
+  const holdDialog = page.getByRole("dialog", { name: "Record Passenger hold review" });
+  await expect(holdDialog.getByText(/cannot clear or alter the hold/i)).toBeVisible();
+  await holdDialog.getByLabel("Check basis").fill("The current Passenger hold state was independently reviewed.");
+  await holdDialog.getByRole("button", { name: "Record Passenger hold review" }).click();
+  await expect(page.getByText("HOLD_REVIEW PASS")).toBeVisible();
+
+  await page.getByRole("button", { name: "Authorize" }).click();
+  const authorizeDialog = page.getByRole("dialog", { name: "AUTHORIZE RELEASE" });
+  await expect(authorizeDialog.getByText("Relationship verified")).toBeVisible();
+  await expect(authorizeDialog.getByText("Current human match", { exact: true })).toBeVisible();
+  await authorizeDialog.getByLabel("Human decision basis").fill("All current independent safety conditions were freshly reviewed.");
+  await authorizeDialog.getByRole("button", { name: "AUTHORIZE RELEASE" }).click();
+  await expect(page.getByText("AUTHORIZED", { exact: true }).first()).toBeVisible();
+  await expect(page.getByRole("button", { name: "Complete" })).toBeEnabled();
+
+  await page.getByRole("button", { name: "Complete" }).click();
+  const completionDialog = page.getByRole("dialog", { name: "COMPLETE RELEASE" });
+  await completionDialog.getByLabel("Human decision basis").fill("The physical release handover was completed by the human operator.");
+  await completionDialog.getByRole("button", { name: "COMPLETE RELEASE" }).click();
+  await expect(page.getByText("COMPLETED", { exact: true }).first()).toBeVisible();
+  await expect(page.getByRole("button", { name: "Complete", exact: true })).toHaveCount(0);
+});
+
+test("shows upstream stale blockers and handles an authorization 409 without auto-retry", async ({ page }) => {
+  const token = `F6-CONFLICT-${Date.now()}`;
+  const session = await createSession(page, token);
+  const value = await createFixture(page, session.id, token);
+  const verified = await apiPost(page, `/family-records/${value.family.id}/verify`, { sessionId: session.id, version: value.family.version, claimVersion: value.claim.version, basis: "Relationship evidence reviewed.", verifiedRelationshipType: "Sibling" });
+  const confirmed = await confirmViaApi(page, session.id, verified.body.currentClaim, value.passenger);
+  expect(confirmed.response.status()).toBe(200);
+  const prepared = await apiPost(page, "/releases/prepare", { sessionId: session.id, matchDecisionId: confirmed.body.currentDecision.id, actionType: "REUNIFICATION", operationId: crypto.randomUUID() });
+  const identity = await apiPost(page, `/releases/${prepared.body.id}/checks/identity`, { sessionId: session.id, result: "PASS", basis: "Identity evidence reviewed for conflict test.", expectedVersion: prepared.body.version, operationId: crypto.randomUUID() });
+  const hold = await apiPost(page, `/releases/${prepared.body.id}/checks/hold`, { sessionId: session.id, basis: "Current hold state reviewed for conflict test.", expectedVersion: identity.body.version, operationId: crypto.randomUUID() });
+
+  await login(page);
+  await useSession(page, session);
+  await page.goto("/release-control");
+  await page.getByRole("button", { name: new RegExp(prepared.body.operationalId) }).click();
+  await page.getByRole("button", { name: "Authorize" }).click();
+  const dialog = page.getByRole("dialog", { name: "AUTHORIZE REUNIFICATION" });
+  await dialog.getByLabel("Human decision basis").fill("UI operator reviewed all current preconditions.");
+  const external = await apiPost(page, `/releases/${prepared.body.id}/authorize`, { sessionId: session.id, reason: "Another operator authorized first.", expectedVersion: hold.body.version, operationId: crypto.randomUUID() });
+  expect(external.response.status()).toBe(200);
+  await dialog.getByRole("button", { name: "AUTHORIZE REUNIFICATION" }).click();
+  await expect(dialog.getByText(/No automatic retry was attempted/)).toBeVisible();
+
+  await dialog.getByRole("button", { name: "Close" }).click();
   await page.getByRole("dialog", { name: "Discard unsaved changes?" }).getByRole("button", { name: "Discard changes" }).click();
+  const held = await apiPost(page, `/passenger-records/${value.passenger.id}/change-hold`, { sessionId: session.id, version: value.passenger.version, holdStatus: "Security hold", reason: "A new security hold appeared after authorization." });
+  expect(held.response.status()).toBe(200);
+  await page.getByRole("button", { name: "Refresh" }).click();
+  await expect(page.getByText(/BLOCKED — active Passenger hold/i)).toBeVisible();
+  await expect(page.getByText("REQUIRES_REVIEW", { exact: true }).first()).toBeVisible();
+  await expect(page.getByRole("button", { name: "Complete" })).toBeDisabled();
+});
+
+test("shows an explicit REAL human-authorization confirmation surface", async ({ page }) => {
+  const token = `F6-REAL-${Date.now()}`;
+  const session = await createSession(page, token, "REAL", "Draft");
+  const value = await createFixture(page, session.id, token);
+  const verified = await apiPost(page, `/family-records/${value.family.id}/verify`, { sessionId: session.id, version: value.family.version, claimVersion: value.claim.version, basis: "Relationship evidence reviewed for REAL confirmation test.", verifiedRelationshipType: "Sibling" });
+  const confirmed = await confirmViaApi(page, session.id, verified.body.currentClaim, value.passenger);
+  const prepared = await apiPost(page, "/releases/prepare", { sessionId: session.id, matchDecisionId: confirmed.body.currentDecision.id, actionType: "RELEASE", receivingParty: "Authorized REAL recipient", operationId: crypto.randomUUID() });
+  const identity = await apiPost(page, `/releases/${prepared.body.id}/checks/identity`, { sessionId: session.id, result: "PASS", basis: "Identity evidence reviewed for REAL test.", expectedVersion: prepared.body.version, operationId: crypto.randomUUID() });
+  await apiPost(page, `/releases/${prepared.body.id}/checks/hold`, { sessionId: session.id, basis: "Passenger hold state reviewed for REAL test.", expectedVersion: identity.body.version, operationId: crypto.randomUUID() });
+
+  await login(page);
+  await useSession(page, session);
+  await page.goto("/release-control");
+  await page.getByRole("button", { name: new RegExp(prepared.body.operationalId) }).click();
+  await page.getByRole("button", { name: "Authorize" }).click();
+  const dialog = page.getByRole("dialog", { name: "AUTHORIZE RELEASE" });
+  await expect(dialog.getByText(/REAL INCIDENT — this is an operational human decision/i)).toBeVisible();
+  await expect(dialog.getByText(new RegExp(value.passenger.lastName))).toBeVisible();
+  await expect(dialog.getByText(new RegExp(value.family.lastName))).toBeVisible();
+  await expect(dialog.getByText("Relationship verified")).toBeVisible();
+  await expect(dialog.getByText("Current human match", { exact: true })).toBeVisible();
 });

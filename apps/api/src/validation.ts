@@ -4,17 +4,11 @@ import { dictionaries } from "@zpp/shared";
 const requestStatuses = [...dictionaries.requestStatuses, "Completed"] as const;
 const assignmentStatuses = dictionaries.assignmentStatuses;
 const assignmentPriorities = dictionaries.assignmentPriorities;
-const releaseStatuses = ["Prepared", "Completed", "Cancelled"] as const;
-const releaseActionTypes = ["Reunification", "Release"] as const;
 
 export const requestStatusSchema = z.enum(requestStatuses);
 export const operationalNoteSchema = z.string().trim().min(3);
 
 export const sessionCloseSchema = z.object({
-  notes: operationalNoteSchema
-});
-
-export const releaseDecisionSchema = z.object({
   notes: operationalNoteSchema
 });
 
@@ -100,21 +94,6 @@ export const enquirySchema = z.object({
   status: z.enum(dictionaries.enquiryStatuses).default("New")
 });
 
-export const releaseSchema = z.object({
-  sessionId: z.string().uuid(),
-  matchId: z.string().uuid().optional().nullable(),
-  passengerRecordId: z.string().uuid().optional().nullable(),
-  familyRecordId: z.string().uuid().optional().nullable(),
-  actionType: z.enum(releaseActionTypes).default("Reunification"),
-  status: z.enum(releaseStatuses).default("Prepared"),
-  releaseDestination: z.string().optional().nullable(),
-  receivingParty: z.string().optional().nullable(),
-  identityChecked: z.boolean().default(false),
-  holdCleared: z.boolean().default(false),
-  transportMode: z.string().optional().nullable(),
-  notes: z.string().optional().nullable()
-});
-
 export const requestSchema = z.object({
   sessionId: z.string().uuid(),
   caseId: z.string().optional().nullable(),
@@ -174,12 +153,4 @@ export const exerciseObservationSchema = z.object({
   owner: z.string().optional().nullable(),
   includeInAar: z.boolean().default(true),
   status: z.string().default("Open")
-});
-
-export const decisionSchema = z.object({
-  decisionNotes: z.string().min(3),
-  matchBasis: z.string().optional(),
-  holdCheck: z.enum(dictionaries.holdTypes).optional(),
-  overrideReason: z.string().optional(),
-  coordinatorOverride: z.boolean().optional()
 });

@@ -123,7 +123,7 @@ export function createMemoryMatchingRepository(sources: Sources): MatchingReposi
     const relationshipVerified = claim.status === "VERIFIED";
     const blockers = [relationshipVerified ? null : "Relationship claim is not verified", current ? null : stale ? "Match decision is stale" : "No current confirmed match", passenger.holdStatus && passenger.holdStatus !== "No hold" ? `Passenger hold: ${passenger.holdStatus}` : null, row.holdCheck && row.holdCheck !== "No hold" ? `Matching hold: ${row.holdCheck}` : null].filter((value): value is string => Boolean(value));
     const source = suggestions.find((item) => item.id === row.suggestionId);
-    return { ...row, relationshipClaimId: claim.id, status: current ? "Verified match" : stale ? "Requires review" : row.status, matchScore: source?.score ?? null, verificationChecklist: source ? { algorithm: source.algorithm, algorithmVersion: source.algorithmVersion, positiveSignals: source.positiveSignals, conflicts: source.conflicts } : { source: "manual" }, decisionNotes: accepted?.reason ?? row.decisionNotes, approvedById: accepted?.decisionById ?? null, approvedAt: accepted?.decidedAt ?? null, version: Number(row.version ?? 1), releaseEligibility: { relationshipVerification: relationshipVerified ? "VERIFIED" : "NOT_VERIFIED", matchDecision: current ? "CURRENT_CONFIRMED" : stale ? "STALE" : "NOT_CONFIRMED", passengerHold: passenger.holdStatus ?? "Unknown", passengerCondition: passenger.conditionStatus ?? "Unknown", eligible: blockers.length === 0, blockers } } as MatchingCompatibilityRecord;
+    return { ...row, relationshipClaimId: claim.id, matchDecisionId: accepted?.id ?? null, status: current ? "Verified match" : stale ? "Requires review" : row.status, matchScore: source?.score ?? null, verificationChecklist: source ? { algorithm: source.algorithm, algorithmVersion: source.algorithmVersion, positiveSignals: source.positiveSignals, conflicts: source.conflicts } : { source: "manual" }, decisionNotes: accepted?.reason ?? row.decisionNotes, approvedById: accepted?.decisionById ?? null, approvedAt: accepted?.decidedAt ?? null, version: Number(row.version ?? 1), releaseEligibility: { relationshipVerification: relationshipVerified ? "VERIFIED" : "NOT_VERIFIED", matchDecision: current ? "CURRENT_CONFIRMED" : stale ? "STALE" : "NOT_CONFIRMED", passengerHold: passenger.holdStatus ?? "Unknown", passengerCondition: passenger.conditionStatus ?? "Unknown", eligible: blockers.length === 0, blockers } } as MatchingCompatibilityRecord;
   }
 
   for (const row of sources.matches) {
@@ -138,7 +138,12 @@ export function createMemoryMatchingRepository(sources: Sources): MatchingReposi
       row.suggestionId = suggestionId;
       suggestions.push({ id: suggestionId, incidentId: row.sessionId, relationshipClaimId: claim.id, passengerRecordId: passenger.id, score: Number(row.matchScore), positiveSignals: [], conflicts: [], algorithm: "legacy-matching-record", algorithmVersion: "legacy-v1", generationId: randomUUID(), claimVersion: claim.version, passengerVersion: Number(passenger.version ?? 1), status: "ACTIVE", isCurrent: true, version: 1, generatedAt: row.createdAt ?? now(), createdAt: row.createdAt ?? now(), updatedAt: row.updatedAt ?? now() });
     }
-    if (["Verified match", "Reunited", "Released"].includes(String(row.status))) decisions.push({ id: `decision-memory-${row.id}`, incidentId: row.sessionId, relationshipClaimId: claim.id, passengerRecordId: passenger.id, matchingRecordId: row.id, suggestionId: row.suggestionId ?? null, decision: "CONFIRMED", reason: row.decisionNotes ?? row.matchBasis ?? "Historical matching decision", validity: "CURRENT", isCurrent: true, claimVersion: claim.version, passengerVersion: Number(passenger.version ?? 1), operationId: randomUUID(), commandFingerprint: `legacy:${row.id}`, decisionById: row.approvedById ?? null, decidedAt: row.approvedAt ?? row.updatedAt ?? now(), requestId: null, createdAt: row.createdAt ?? now() });
+    if (["Verified match", "Reunited", "Released"].includes(String(row.status))) {
+      const legacyDecision = { id: `decision-memory-${row.id}`, incidentId: row.sessionId, relationshipClaimId: claim.id, passengerRecordId: passenger.id, matchingRecordId: row.id, suggestionId: row.suggestionId ?? null, decision: "CONFIRMED", reason: row.decisionNotes ?? row.matchBasis ?? "Historical matching decision", validity: "CURRENT", isCurrent: true, claimVersion: claim.version, passengerVersion: Number(passenger.version ?? 1), operationId: randomUUID(), commandFingerprint: `legacy:${row.id}`, decisionById: row.approvedById ?? null, decidedAt: row.approvedAt ?? row.updatedAt ?? now(), requestId: null, createdAt: row.createdAt ?? now() };
+      decisions.push(legacyDecision);
+      row.matchDecisionId = legacyDecision.id;
+    }
+    Object.assign(row, compatibility(row) ?? {});
   }
 
   return {
@@ -188,6 +193,8 @@ export function createMemoryMatchingRepository(sources: Sources): MatchingReposi
       if (previous) Object.assign(previous, { isCurrent: false, validity: "SUPERSEDED" });
       const created: Row = { id: `decision-memory-${randomUUID()}`, incidentId: context.incidentId, relationshipClaimId: claimId, passengerRecordId: passenger.id, matchingRecordId: match.id, suggestionId: source?.id ?? null, decision: "CONFIRMED", reason: input.reason, validity: "CURRENT", isCurrent: true, claimVersion: pair.claim.version, passengerVersion: Number(passenger.version ?? 1), operationId: input.operationId, commandFingerprint, decisionById: actor.id, decidedAt: now(), requestId: actor.requestId, supersedesDecisionId: previous?.id ?? null, createdAt: now() };
       decisions.push(created);
+      match.matchDecisionId = created.id;
+      Object.assign(match, compatibility(match) ?? {});
       if (source) Object.assign(source, { status: "USED", version: source.version + 1 });
       const common = { relationshipClaimId: claimId, passengerRecordId: passenger.id, suggestionId: source?.id ?? null, decisionId: created.id, result: "CONFIRMED", reason: input.reason, algorithm: source?.algorithm, algorithmVersion: source?.algorithmVersion, score: source?.score, claimVersion: pair.claim.version, passengerVersion: Number(passenger.version ?? 1), operationId: input.operationId };
       audit(context, actor, source ? "confirm_suggested_match" : "confirm_manual_match", created.id, `Passenger match confirmed for ${pair.family.operationalId}`, common);
@@ -217,7 +224,10 @@ export function createMemoryMatchingRepository(sources: Sources): MatchingReposi
       if (!pair || !existing || !passenger || pair.claim.version !== input.expectedClaimVersion || Number(passenger.version ?? 1) !== input.expectedPassengerVersion) return { record: null, conflict: true };
       Object.assign(existing, { isCurrent: false, validity: "SUPERSEDED" });
       const match = sources.matches.find((row) => row.id === existing.matchingRecordId);
-      if (match) Object.assign(match, { status: "Potential match", decisionNotes: input.reason, approvedById: null, approvedAt: null, version: Number(match.version ?? 1) + 1, updatedById: actor.id, updatedAt: now() });
+      if (match) {
+        Object.assign(match, { status: "Potential match", matchDecisionId: null, decisionNotes: input.reason, approvedById: null, approvedAt: null, version: Number(match.version ?? 1) + 1, updatedById: actor.id, updatedAt: now() });
+        Object.assign(match, compatibility(match) ?? {});
+      }
       const created = { id: `decision-memory-${randomUUID()}`, incidentId: context.incidentId, relationshipClaimId: claimId, passengerRecordId: passenger.id, matchingRecordId: existing.matchingRecordId, suggestionId: existing.suggestionId, decision: "INVALIDATED", reason: input.reason, validity: "HISTORICAL", isCurrent: false, claimVersion: pair.claim.version, passengerVersion: Number(passenger.version ?? 1), operationId: input.operationId, commandFingerprint, decisionById: actor.id, decidedAt: now(), requestId: actor.requestId, supersedesDecisionId: existing.id, createdAt: now() };
       decisions.push(created);
       audit(context, actor, "invalidate_match_decision", created.id, `Passenger match invalidated for ${pair.family.operationalId}`, { relationshipClaimId: claimId, passengerRecordId: passenger.id, previousDecisionId: existing.id, decisionId: created.id, result: "INVALIDATED", reason: input.reason, operationId: input.operationId });

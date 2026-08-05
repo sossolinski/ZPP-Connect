@@ -80,10 +80,10 @@ export const permissions = {
   "matching:reject": "Reject matches",
   "matching:hold": "Create holds/escalations",
   "matching:clearHold": "Clear holds",
-  "matching:reunite": "Mark reunited",
-  "matching:release": "Mark released",
   "release:read": "Read reunification/release records",
-  "release:create": "Prepare reunification/release",
+  "release:prepare": "Prepare reunification/release",
+  "release:check": "Record independent release checks",
+  "release:authorize": "Authorize reunification/release",
   "release:complete": "Complete reunification/release",
   "release:cancel": "Cancel pending release action",
   "request:read": "Read requests",
@@ -247,10 +247,10 @@ export const defaultRoles: Array<{
       "matching:reject",
       "matching:hold",
       "matching:clearHold",
-      "matching:reunite",
-      "matching:release",
       "release:read",
-      "release:create",
+      "release:prepare",
+      "release:check",
+      "release:authorize",
       "release:complete",
       "release:cancel",
       "request:read",
@@ -851,7 +851,7 @@ export const workflowStates = {
   pendingMatchStatuses: ["Suggested", "Potential match", "Requires review"],
   terminalRequestStatuses: ["Done", "Closed", "Cancelled", "Completed", "Released", "Reunited"],
   terminalAssignmentStatuses: ["Completed", "Cancelled"],
-  terminalReleaseStatuses: ["Cancelled", "Completed", "Released", "Reunited"]
+  terminalReleaseStatuses: ["Cancelled", "Completed", "Released", "Reunited", "CANCELLED", "COMPLETED"]
 } as const;
 
 export type DictionaryKey = keyof typeof dictionaries;

@@ -16,6 +16,7 @@ import type { IncidentAssignmentRepository } from "./modules/incident-assignment
 import type { PassengerRepository } from "./modules/passengers/passenger-repository.js";
 import type { FamilyRepository } from "./modules/families/family-repository.js";
 import type { MatchingRepository } from "./modules/matching/matching-repository.js";
+import type { ReleaseRepository } from "./modules/releases/release-repository.js";
 
 export function createApp(options: {
   incidentRepository?: IncidentRepository;
@@ -25,6 +26,7 @@ export function createApp(options: {
   passengerRepository?: PassengerRepository;
   familyRepository?: FamilyRepository;
   matchingRepository?: MatchingRepository;
+  releaseRepository?: ReleaseRepository;
   skipRuntimeValidation?: boolean;
 } = {}) {
   if (!options.skipRuntimeValidation) validateRuntimeConfig(config);
@@ -62,7 +64,8 @@ export function createApp(options: {
     incidentAssignmentRepository: options.incidentAssignmentRepository,
     passengerRepository: options.passengerRepository,
     familyRepository: options.familyRepository,
-    matchingRepository: options.matchingRepository
+    matchingRepository: options.matchingRepository,
+    releaseRepository: options.releaseRepository
   });
 
   app.use(notFound);

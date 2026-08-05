@@ -21,8 +21,11 @@ model User {
   createdSessions               Session[]                          @relation("SessionCreatedBy")
   closedSessions                Session[]                          @relation("SessionClosedBy")
   approvedMatches               MatchingRecord[]                   @relation("MatchApprovedBy")
-  authorizedReleases            ReunificationReleaseRecord[]       @relation("ReleaseAuthorizedBy")
-  completedReleases             ReunificationReleaseRecord[]       @relation("ReleaseCompletedBy")
+  preparedReleaseActions        ReleaseAction[]                    @relation("ReleasePreparedBy")
+  authorizedReleaseActions      ReleaseAction[]                    @relation("ReleaseAuthorizedBy")
+  completedReleaseActions       ReleaseAction[]                    @relation("ReleaseCompletedBy")
+  cancelledReleaseActions       ReleaseAction[]                    @relation("ReleaseCancelledBy")
+  releaseChecks                 ReleaseCheck[]                     @relation("ReleaseCheckActor")
   assignedAssignments           AssignmentTask[]                   @relation("AssignmentAssignedTo")
   incidentAssignments           IncidentAssignment[]               @relation("IncidentAssignedUser")
   createdIncidentAssignments    IncidentAssignment[]               @relation("IncidentAssignmentCreator")
@@ -104,7 +107,9 @@ model Session {
   matchDecisions        MatchDecision[]
   passengerRecords      PassengerRecord[]
   matchingRecords       MatchingRecord[]
-  releases              ReunificationReleaseRecord[]
+  releaseActions        ReleaseAction[]
+  releaseChecks         ReleaseCheck[]
+  releaseOperations     ReleaseOperation[]
   requests              WelfareRequest[]
   assignments           AssignmentTask[]
   timelineEvents        CaseTimelineEvent[]
@@ -179,11 +184,11 @@ model IncidentAssignment {
 }
 
 model FamilyRecord {
-  id                       String                       @id @default(uuid()) @db.Uuid
-  operationalId            String                       @unique
-  sessionId                String                       @db.Uuid
+  id                       String              @id @default(uuid()) @db.Uuid
+  operationalId            String              @unique
+  sessionId                String              @db.Uuid
   caseId                   String?
-  sourceBatchId            String?                      @db.Uuid
+  sourceBatchId            String?             @db.Uuid
   sourceImportedAt         DateTime?
   firstName                String
   lastName                 String
@@ -198,9 +203,9 @@ model FamilyRecord {
   passengerFirstName       String?
   passengerLastName        String?
   passengerFlight          String?
-  verificationStatus       String                       @default("Unverified")
+  verificationStatus       String              @default("Unverified")
   verificationNotes        String?
-  verificationDecisionById String?                      @db.Uuid
+  verificationDecisionById String?             @db.Uuid
   verificationDecisionAt   DateTime?
   verifiedRelationship     String?
   immediateNeeds           String?
@@ -209,18 +214,17 @@ model FamilyRecord {
   nextContactDue           DateTime?
   assignedOfficer          String?
   notes                    String?
-  version                  Int                          @default(1)
-  createdById              String?                      @db.Uuid
-  updatedById              String?                      @db.Uuid
-  createdAt                DateTime                     @default(now())
-  updatedAt                DateTime                     @updatedAt
-  session                  Session                      @relation(fields: [sessionId], references: [id], onDelete: Cascade)
-  sourceBatch              ImportBatch?                 @relation(fields: [sourceBatchId], references: [id], onDelete: SetNull)
-  verificationDecisionBy   User?                        @relation("FamilyVerificationProjectionBy", fields: [verificationDecisionById], references: [id], onDelete: SetNull)
+  version                  Int                 @default(1)
+  createdById              String?             @db.Uuid
+  updatedById              String?             @db.Uuid
+  createdAt                DateTime            @default(now())
+  updatedAt                DateTime            @updatedAt
+  session                  Session             @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  sourceBatch              ImportBatch?        @relation(fields: [sourceBatchId], references: [id], onDelete: SetNull)
+  verificationDecisionBy   User?               @relation("FamilyVerificationProjectionBy", fields: [verificationDecisionById], references: [id], onDelete: SetNull)
   relationshipClaims       RelationshipClaim[]
   matches                  MatchingRecord[]
   requests                 WelfareRequest[]
-  releases                 ReunificationReleaseRecord[]
 
   @@index([sessionId, verificationStatus, updatedAt])
   @@index([sessionId, normalizedPhone])
@@ -255,6 +259,7 @@ model RelationshipClaim {
   matchSuggestions          MatchSuggestion[]
   matchDecisions            MatchDecision[]
   matchingRecords           MatchingRecord[]
+  releaseActions            ReleaseAction[]
 
   @@index([incidentId, status, updatedAt])
   @@index([incidentId, familyRecordId])
@@ -285,9 +290,9 @@ model RelationshipVerificationDecision {
 }
 
 model PassengerRecord {
-  id                       String                       @id @default(uuid()) @db.Uuid
-  operationalId            String                       @unique
-  sessionId                String                       @db.Uuid
+  id                       String              @id @default(uuid()) @db.Uuid
+  operationalId            String              @unique
+  sessionId                String              @db.Uuid
   caseId                   String?
   personType               String
   firstName                String
@@ -303,37 +308,37 @@ model PassengerRecord {
   ticketNumber             String?
   manifestVersion          String?
   source                   String
-  sourceBatchId            String?                      @db.Uuid
+  sourceBatchId            String?             @db.Uuid
   sourceExternalId         String?
   sourceImportedAt         DateTime?
   travellingCompanions     String?
-  conditionStatus          String                       @default("Unknown")
+  conditionStatus          String              @default("Unknown")
   conditionUpdatedAt       DateTime?
-  conditionUpdatedById     String?                      @db.Uuid
+  conditionUpdatedById     String?             @db.Uuid
   conditionBasis           String?
-  holdStatus               String                       @default("No hold")
+  holdStatus               String              @default("No hold")
   holdUpdatedAt            DateTime?
-  holdUpdatedById          String?                      @db.Uuid
+  holdUpdatedById          String?             @db.Uuid
   holdReason               String?
-  srcConfirmed             Boolean                      @default(false)
+  srcConfirmed             Boolean             @default(false)
   srcConfirmedAt           DateTime?
-  srcConfirmedById         String?                      @db.Uuid
+  srcConfirmedById         String?             @db.Uuid
   srcConfirmationBasis     String?
   notes                    String?
-  version                  Int                          @default(1)
-  createdById              String?                      @db.Uuid
-  updatedById              String?                      @db.Uuid
-  createdAt                DateTime                     @default(now())
-  updatedAt                DateTime                     @updatedAt
-  session                  Session                      @relation(fields: [sessionId], references: [id], onDelete: Cascade)
-  sourceBatch              ImportBatch?                 @relation(fields: [sourceBatchId], references: [id], onDelete: SetNull)
-  srcConfirmedBy           User?                        @relation("PassengerSrcConfirmedBy", fields: [srcConfirmedById], references: [id], onDelete: SetNull)
-  conditionUpdatedBy       User?                        @relation("PassengerConditionUpdatedBy", fields: [conditionUpdatedById], references: [id], onDelete: SetNull)
-  holdUpdatedBy            User?                        @relation("PassengerHoldUpdatedBy", fields: [holdUpdatedById], references: [id], onDelete: SetNull)
+  version                  Int                 @default(1)
+  createdById              String?             @db.Uuid
+  updatedById              String?             @db.Uuid
+  createdAt                DateTime            @default(now())
+  updatedAt                DateTime            @updatedAt
+  session                  Session             @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  sourceBatch              ImportBatch?        @relation(fields: [sourceBatchId], references: [id], onDelete: SetNull)
+  srcConfirmedBy           User?               @relation("PassengerSrcConfirmedBy", fields: [srcConfirmedById], references: [id], onDelete: SetNull)
+  conditionUpdatedBy       User?               @relation("PassengerConditionUpdatedBy", fields: [conditionUpdatedById], references: [id], onDelete: SetNull)
+  holdUpdatedBy            User?               @relation("PassengerHoldUpdatedBy", fields: [holdUpdatedById], references: [id], onDelete: SetNull)
   enquiries                Enquiry[]
   matches                  MatchingRecord[]
   requests                 WelfareRequest[]
-  releases                 ReunificationReleaseRecord[]
+  releaseActions           ReleaseAction[]
   familyRelationshipClaims RelationshipClaim[]
   matchSuggestions         MatchSuggestion[]
   matchDecisions           MatchDecision[]
@@ -348,39 +353,39 @@ model PassengerRecord {
 }
 
 model MatchingRecord {
-  id                    String                       @id @default(uuid()) @db.Uuid
-  operationalId         String                       @unique
-  sessionId             String                       @db.Uuid
+  id                    String             @id @default(uuid()) @db.Uuid
+  operationalId         String             @unique
+  sessionId             String             @db.Uuid
   caseId                String?
-  enquiryId             String?                      @db.Uuid
-  familyRecordId        String?                      @db.Uuid
-  passengerRecordId     String?                      @db.Uuid
-  relationshipClaimId   String?                      @db.Uuid
-  suggestionId          String?                      @db.Uuid
-  status                String                       @default("Potential match")
+  enquiryId             String?            @db.Uuid
+  familyRecordId        String?            @db.Uuid
+  passengerRecordId     String?            @db.Uuid
+  relationshipClaimId   String?            @db.Uuid
+  suggestionId          String?            @db.Uuid
+  status                String             @default("Potential match")
   matchScore            Float?
   matchBasis            String?
   verificationChecklist Json?
-  holdCheck             String                       @default("No hold")
+  holdCheck             String             @default("No hold")
   decisionNotes         String?
-  coordinatorOverride   Boolean                      @default(false)
+  coordinatorOverride   Boolean            @default(false)
   overrideReason        String?
-  approvedById          String?                      @db.Uuid
+  approvedById          String?            @db.Uuid
   approvedAt            DateTime?
-  version               Int                          @default(1)
-  createdById           String?                      @db.Uuid
-  updatedById           String?                      @db.Uuid
-  createdAt             DateTime                     @default(now())
-  updatedAt             DateTime                     @updatedAt
-  session               Session                      @relation(fields: [sessionId], references: [id], onDelete: Cascade)
-  enquiry               Enquiry?                     @relation(fields: [enquiryId], references: [id], onDelete: SetNull)
-  familyRecord          FamilyRecord?                @relation(fields: [familyRecordId], references: [id], onDelete: SetNull)
-  passengerRecord       PassengerRecord?             @relation(fields: [passengerRecordId], references: [id], onDelete: SetNull)
-  relationshipClaim     RelationshipClaim?           @relation(fields: [relationshipClaimId], references: [id], onDelete: SetNull)
-  suggestion            MatchSuggestion?             @relation(fields: [suggestionId], references: [id], onDelete: SetNull)
-  approvedBy            User?                        @relation("MatchApprovedBy", fields: [approvedById], references: [id], onDelete: SetNull)
+  version               Int                @default(1)
+  createdById           String?            @db.Uuid
+  updatedById           String?            @db.Uuid
+  createdAt             DateTime           @default(now())
+  updatedAt             DateTime           @updatedAt
+  session               Session            @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  enquiry               Enquiry?           @relation(fields: [enquiryId], references: [id], onDelete: SetNull)
+  familyRecord          FamilyRecord?      @relation(fields: [familyRecordId], references: [id], onDelete: SetNull)
+  passengerRecord       PassengerRecord?   @relation(fields: [passengerRecordId], references: [id], onDelete: SetNull)
+  relationshipClaim     RelationshipClaim? @relation(fields: [relationshipClaimId], references: [id], onDelete: SetNull)
+  suggestion            MatchSuggestion?   @relation(fields: [suggestionId], references: [id], onDelete: SetNull)
+  approvedBy            User?              @relation("MatchApprovedBy", fields: [approvedById], references: [id], onDelete: SetNull)
   decisions             MatchDecision[]
-  releases              ReunificationReleaseRecord[]
+  releaseActions        ReleaseAction[]
 
   @@index([sessionId, status])
   @@index([sessionId, relationshipClaimId])
@@ -446,6 +451,7 @@ model MatchDecision {
   decisionBy           User?             @relation("MatchDecisionBy", fields: [decisionById], references: [id], onDelete: SetNull)
   supersedesDecision   MatchDecision?    @relation("MatchDecisionSupersession", fields: [supersedesDecisionId], references: [id], onDelete: SetNull)
   supersededBy         MatchDecision[]   @relation("MatchDecisionSupersession")
+  releaseActions       ReleaseAction[]
 
   @@unique([incidentId, operationId])
   @@index([incidentId, relationshipClaimId, decidedAt])
@@ -454,34 +460,105 @@ model MatchDecision {
   @@index([suggestionId])
 }
 
-model ReunificationReleaseRecord {
-  id                 String           @id @default(uuid()) @db.Uuid
-  operationalId      String           @unique
-  sessionId          String           @db.Uuid
-  matchId            String?          @db.Uuid
-  passengerRecordId  String?          @db.Uuid
-  familyRecordId     String?          @db.Uuid
-  actionType         String           @default("Reunification")
-  status             String           @default("Prepared")
-  releaseDestination String?
-  receivingParty     String?
-  identityChecked    Boolean          @default(false)
-  holdCleared        Boolean          @default(false)
-  transportMode      String?
-  authorizedById     String?          @db.Uuid
-  completedById      String?          @db.Uuid
-  completedAt        DateTime?
-  notes              String?
-  createdAt          DateTime         @default(now())
-  updatedAt          DateTime         @updatedAt
-  session            Session          @relation(fields: [sessionId], references: [id], onDelete: Cascade)
-  match              MatchingRecord?  @relation(fields: [matchId], references: [id], onDelete: SetNull)
-  passengerRecord    PassengerRecord? @relation(fields: [passengerRecordId], references: [id], onDelete: SetNull)
-  familyRecord       FamilyRecord?    @relation(fields: [familyRecordId], references: [id], onDelete: SetNull)
-  authorizedBy       User?            @relation("ReleaseAuthorizedBy", fields: [authorizedById], references: [id], onDelete: SetNull)
-  completedBy        User?            @relation("ReleaseCompletedBy", fields: [completedById], references: [id], onDelete: SetNull)
+model ReleaseAction {
+  id                              String             @id @default(uuid()) @db.Uuid
+  operationalId                   String             @unique
+  incidentId                      String             @db.Uuid
+  actionType                      String             @default("REUNIFICATION")
+  status                          String             @default("PREPARED")
+  relationshipClaimId             String?            @db.Uuid
+  matchDecisionId                 String?            @db.Uuid
+  matchingRecordId                String?            @db.Uuid
+  passengerRecordId               String?            @db.Uuid
+  relationshipClaimVersion        Int?
+  passengerVersion                Int?
+  releaseDestination              String?
+  receivingParty                  String?
+  transportMode                   String?
+  notes                           String?
+  version                         Int                @default(1)
+  preparedById                    String?            @db.Uuid
+  preparedAt                      DateTime           @default(now())
+  authorizedById                  String?            @db.Uuid
+  authorizedAt                    DateTime?
+  authorizationReason             String?
+  authorizedClaimVersion          Int?
+  authorizedPassengerVersion      Int?
+  completedById                   String?            @db.Uuid
+  completedAt                     DateTime?
+  completionNotes                 String?
+  cancelledById                   String?            @db.Uuid
+  cancelledAt                     DateTime?
+  cancelReason                    String?
+  legacyImported                  Boolean            @default(false)
+  verificationEvidenceUnavailable Boolean            @default(false)
+  legacyMetadata                  Json?
+  createdAt                       DateTime           @default(now())
+  updatedAt                       DateTime           @updatedAt
+  incident                        Session            @relation(fields: [incidentId], references: [id], onDelete: Cascade)
+  relationshipClaim               RelationshipClaim? @relation(fields: [relationshipClaimId], references: [id], onDelete: Restrict)
+  matchDecision                   MatchDecision?     @relation(fields: [matchDecisionId], references: [id], onDelete: Restrict)
+  matchingRecord                  MatchingRecord?    @relation(fields: [matchingRecordId], references: [id], onDelete: SetNull)
+  passengerRecord                 PassengerRecord?   @relation(fields: [passengerRecordId], references: [id], onDelete: Restrict)
+  preparedBy                      User?              @relation("ReleasePreparedBy", fields: [preparedById], references: [id], onDelete: SetNull)
+  authorizedBy                    User?              @relation("ReleaseAuthorizedBy", fields: [authorizedById], references: [id], onDelete: SetNull)
+  completedBy                     User?              @relation("ReleaseCompletedBy", fields: [completedById], references: [id], onDelete: SetNull)
+  cancelledBy                     User?              @relation("ReleaseCancelledBy", fields: [cancelledById], references: [id], onDelete: SetNull)
+  checks                          ReleaseCheck[]
+  operations                      ReleaseOperation[]
 
-  @@index([sessionId, status])
+  @@index([incidentId, status, updatedAt])
+  @@index([incidentId, actionType, updatedAt])
+  @@index([relationshipClaimId])
+  @@index([matchDecisionId])
+  @@index([passengerRecordId])
+}
+
+model ReleaseCheck {
+  id                  String         @id @default(uuid()) @db.Uuid
+  incidentId          String         @db.Uuid
+  releaseActionId     String         @db.Uuid
+  type                String
+  result              String
+  actorId             String?        @db.Uuid
+  checkedAt           DateTime       @default(now())
+  basis               String
+  evidenceReference   String?
+  relationshipClaimId String?        @db.Uuid
+  claimVersion        Int?
+  matchDecisionId     String?        @db.Uuid
+  passengerVersion    Int?
+  operationId         String         @db.Uuid
+  version             Int            @default(1)
+  isCurrent           Boolean        @default(true)
+  supersedesCheckId   String?        @db.Uuid
+  requestId           String?
+  createdAt           DateTime       @default(now())
+  incident            Session        @relation(fields: [incidentId], references: [id], onDelete: Cascade)
+  releaseAction       ReleaseAction  @relation(fields: [releaseActionId], references: [id], onDelete: Cascade)
+  actor               User?          @relation("ReleaseCheckActor", fields: [actorId], references: [id], onDelete: SetNull)
+  supersedesCheck     ReleaseCheck?  @relation("ReleaseCheckSupersession", fields: [supersedesCheckId], references: [id], onDelete: SetNull)
+  supersededBy        ReleaseCheck[] @relation("ReleaseCheckSupersession")
+
+  @@unique([incidentId, operationId])
+  @@index([incidentId, releaseActionId, type, checkedAt])
+}
+
+model ReleaseOperation {
+  id                 String        @id @default(uuid()) @db.Uuid
+  incidentId         String        @db.Uuid
+  releaseActionId    String        @db.Uuid
+  operationId        String        @db.Uuid
+  command            String
+  commandFingerprint String
+  resultVersion      Int
+  requestId          String?
+  createdAt          DateTime      @default(now())
+  incident           Session       @relation(fields: [incidentId], references: [id], onDelete: Cascade)
+  releaseAction      ReleaseAction @relation(fields: [releaseActionId], references: [id], onDelete: Cascade)
+
+  @@unique([incidentId, operationId])
+  @@index([releaseActionId, createdAt])
 }
 
 model WelfareRequest {

@@ -860,36 +860,36 @@ describe("ZPP Connect API", () => {
   it("records release completion decisions in audit and timeline", async () => {
     const app = createApp();
     const decisionNote = "Identity, handover and transport confirmed.";
-    expect((await apiPost(app, "/api/matching-records/mat-demo-1/clear-hold", "zpp@lot.pl").send({ sessionId: "ses-demo-1", version: 1, reason: "Identity hold reviewed and cleared." })).status).toBe(403);
     const eligibleMatch = await createVerifiedLinkedMatch(app, `REL-AUDIT-${Date.now()}`);
-    const prepared = await apiPost(app, "/api/releases", "coordinator@lot.pl").send({
+    const prepared = await apiPost(app, "/api/releases/prepare", "coordinator@lot.pl").send({
       sessionId: "ses-demo-1",
-      matchId: eligibleMatch.id,
-      actionType: "Release",
-      status: "Prepared",
+      matchDecisionId: eligibleMatch.matchDecisionId,
+      actionType: "RELEASE",
       releaseDestination: "Family assistance centre",
       receivingParty: "Anna Kowalska",
-      identityChecked: true,
-      holdCleared: true
+      operationId: randomUUID()
     });
 
-    expect(prepared.status).toBe(201);
-    const completed = await apiPost(app, `/api/releases/${prepared.body.id}/complete`, "coordinator@lot.pl").send({ notes: decisionNote });
+    expect(prepared.status, JSON.stringify(prepared.body)).toBe(201);
+    const identity = await apiPost(app, `/api/releases/${prepared.body.id}/checks/identity`).send({ sessionId: "ses-demo-1", result: "PASS", basis: "Identity evidence reviewed with the receiving person.", expectedVersion: prepared.body.version, operationId: randomUUID() });
+    const hold = await apiPost(app, `/api/releases/${prepared.body.id}/checks/hold`).send({ sessionId: "ses-demo-1", basis: "Current Passenger hold state reviewed.", expectedVersion: identity.body.version, operationId: randomUUID() });
+    const authorized = await apiPost(app, `/api/releases/${prepared.body.id}/authorize`).send({ sessionId: "ses-demo-1", reason: "All independent checks and upstream decisions reviewed.", expectedVersion: hold.body.version, operationId: randomUUID() });
+    const completed = await apiPost(app, `/api/releases/${prepared.body.id}/complete`, "coordinator@lot.pl").send({ sessionId: "ses-demo-1", reason: decisionNote, expectedVersion: authorized.body.version, operationId: randomUUID() });
     expect(completed.status).toBe(200);
-    expect(completed.body.status).toBe("Completed");
+    expect(completed.body.status).toBe("COMPLETED");
 
     const audit = await apiGet(app, "/api/audit-logs").query({ sessionId: "ses-demo-1" });
     expect(audit.body.data[0]).toMatchObject({
-      action: "release",
+      action: "complete_release",
       actorEmail: "coordinator@lot.pl",
-      summary: `Release ${prepared.body.operationalId} completed`,
-      metadata: { status: "Completed", actionType: "Release", decisionNotes: decisionNote }
+      summary: `RELEASE ${prepared.body.operationalId} completed`,
+      metadata: { beforeState: "AUTHORIZED", afterState: "COMPLETED", reason: decisionNote }
     });
 
     const timeline = await apiGet(app, "/api/timeline").query({ sessionId: "ses-demo-1" });
     expect(timeline.body.data[0]).toMatchObject({
       eventType: "release",
-      entityType: "reunificationReleaseRecord",
+      entityType: "releaseAction",
       entityId: prepared.body.id,
       body: decisionNote,
       createdBy: { userId: demoIds.coordinator }
@@ -931,29 +931,28 @@ describe("ZPP Connect API", () => {
     expect((await apiPost(app, `/api/sessions/${otherSession.body.id}/close`).send({ notes: "Cross-incident matching test complete." })).status).toBe(200);
   });
 
-  it("updates only prepared releases and prevents duplicate open actions", async () => {
+  it("removes generic release writes and prevents duplicate active actions", async () => {
     const app = createApp();
     const match = await createVerifiedLinkedMatch(app, `REL-${Date.now()}`);
-    const prepared = await apiPost(app, "/api/releases").send({
+    expect((await apiPost(app, "/api/releases").send({ sessionId: "ses-demo-1" })).status).toBe(404);
+    const prepared = await apiPost(app, "/api/releases/prepare").send({
       sessionId: "ses-demo-1",
-      matchId: match.id,
-      actionType: "Release",
-      identityChecked: false,
-      holdCleared: true
+      matchDecisionId: match.matchDecisionId,
+      actionType: "RELEASE",
+      operationId: randomUUID()
     });
-    expect(prepared.status).toBe(201);
+    expect(prepared.status, JSON.stringify(prepared.body)).toBe(201);
 
-    expect((await apiPost(app, "/api/releases").send({ sessionId: "ses-demo-1", matchId: match.id, actionType: "Release" })).status).toBe(409);
+    expect((await apiPost(app, "/api/releases/prepare").send({ sessionId: "ses-demo-1", matchDecisionId: match.matchDecisionId, actionType: "RELEASE", operationId: randomUUID() })).status).toBe(409);
+    expect((await apiPatch(app, `/api/releases/${prepared.body.id}`).send({ status: "COMPLETED", identityChecked: true, holdCleared: true })).status).toBe(404);
+    expect((await apiPost(app, `/api/matching-records/${match.id}/mark-reunited`).send({ sessionId: "ses-demo-1" })).status).toBe(404);
+    expect((await apiPost(app, `/api/matching-records/${match.id}/mark-released`).send({ sessionId: "ses-demo-1" })).status).toBe(404);
 
-    const edited = await apiPatch(app, `/api/releases/${prepared.body.id}`).send({ status: "Completed", receivingParty: "Authorized receiver" });
-    expect(edited.status).toBe(200);
-    expect(edited.body.status).toBe("Prepared");
-
-    const cancelled = await apiPost(app, `/api/releases/${prepared.body.id}/cancel`).send({ notes: "Preparation superseded by a corrected action." });
+    const cancelled = await apiPost(app, `/api/releases/${prepared.body.id}/cancel`).send({ sessionId: "ses-demo-1", reason: "Preparation superseded by a corrected action.", expectedVersion: prepared.body.version, operationId: randomUUID() });
     expect(cancelled.status).toBe(200);
-    expect((await apiPatch(app, `/api/releases/${prepared.body.id}`).send({ receivingParty: "Changed after cancel" })).status).toBe(409);
+    expect(cancelled.body.status).toBe("CANCELLED");
 
-    const replacement = await apiPost(app, "/api/releases").send({ sessionId: "ses-demo-1", matchId: match.id, actionType: "Release" });
+    const replacement = await apiPost(app, "/api/releases/prepare").send({ sessionId: "ses-demo-1", matchDecisionId: match.matchDecisionId, actionType: "RELEASE", operationId: randomUUID() });
     expect(replacement.status).toBe(201);
   });
 

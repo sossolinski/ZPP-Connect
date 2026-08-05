@@ -146,6 +146,7 @@ export type MatchingCompatibilityRecord = {
   familyRecordId: string;
   passengerRecordId: string;
   relationshipClaimId: string;
+  matchDecisionId?: string | null;
   suggestionId?: string | null;
   status: string;
   matchScore?: number | null;

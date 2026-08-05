@@ -312,7 +312,7 @@ export function CasesPage() {
                   title={compact([row.operationalId, row.actionType]) || "Release"}
                   detail={compact([row.releaseDestination, row.receivingParty]) || row.notes}
                   status={row.status}
-                  meta={[row.identityChecked ? "Identity checked" : "Identity pending", row.holdCleared ? "Hold cleared" : "Hold pending", row.transportMode]}
+                  meta={[row.identityChecked ? "Identity check passed" : "Identity check pending", row.holdCleared ? "Current hold review passed" : "Hold review pending", row.transportMode]}
                 />
               ))
             ) : (

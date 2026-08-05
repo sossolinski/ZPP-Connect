@@ -82,7 +82,7 @@ jobs:
           kill "$api_pid"
           wait "$api_pid" || true
 
-      - name: PostgreSQL Foundation Stage 1, 2, 2.5, 3, 4 and 5 integration tests
+      - name: PostgreSQL Foundation Stage 1, 2, 2.5, 3, 4, 5 and 6 integration tests
         run: npm run test:postgres
 
       - name: Rehearse IncidentAssignment backfill from pre-Stage-2 data
@@ -153,6 +153,24 @@ jobs:
           DATABASE_URL="$BACKFILL_DATABASE_URL" npx prisma migrate deploy --schema "$migration_workspace/schema.prisma"
           matching_backfill=$(psql "$BACKFILL_PSQL_URL" --tuples-only --no-align --command='SELECT count(*) FROM "MatchingRecord" matching JOIN "MatchSuggestion" suggestion ON suggestion."id" = matching."suggestionId" JOIN "MatchDecision" decision ON decision."matchingRecordId" = matching."id" JOIN "RelationshipClaim" claim ON claim."id" = matching."relationshipClaimId" WHERE matching."id" = '\''50000000-0000-4000-8000-000000000001'\'' AND suggestion."algorithm" = '\''legacy-matching-record'\'' AND suggestion."algorithmVersion" = '\''legacy-v1'\'' AND decision."decision" = '\''CONFIRMED'\'' AND decision."isCurrent" = true AND decision."claimVersion" = claim."version";')
           test "$matching_backfill" = "1"
+          psql "$BACKFILL_PSQL_URL" --set=ON_ERROR_STOP=1 <<'SQL'
+          INSERT INTO "ReunificationReleaseRecord" (
+            "id", "operationalId", "sessionId", "matchId", "passengerRecordId", "familyRecordId",
+            "actionType", "status", "receivingParty", "identityChecked", "holdCleared",
+            "authorizedById", "completedById", "completedAt", "notes", "updatedAt"
+          ) VALUES (
+            '60000000-0000-4000-8000-000000000001', 'REL-BACKFILL-001',
+            '20000000-0000-4000-8000-000000000001', '50000000-0000-4000-8000-000000000001',
+            '30000000-0000-4000-8000-000000000001', '40000000-0000-4000-8000-000000000001',
+            'Release', 'Completed', 'Historical receiving party', true, true,
+            '10000000-0000-4000-8000-000000000001', '10000000-0000-4000-8000-000000000001',
+            CURRENT_TIMESTAMP, 'Historical shortcut state without independent evidence', CURRENT_TIMESTAMP
+          );
+          SQL
+          cp -R apps/api/prisma/migrations/20260806010000_release_actions_checks "$migration_workspace/migrations/"
+          DATABASE_URL="$BACKFILL_DATABASE_URL" npx prisma migrate deploy --schema "$migration_workspace/schema.prisma"
+          release_backfill=$(psql "$BACKFILL_PSQL_URL" --tuples-only --no-align --command='SELECT count(*) FROM "ReleaseAction" action WHERE action."id" = '\''60000000-0000-4000-8000-000000000001'\'' AND action."status" = '\''COMPLETED'\'' AND action."actionType" = '\''RELEASE'\'' AND action."legacyImported" = true AND action."verificationEvidenceUnavailable" = true AND action."preparedById" = '\''10000000-0000-4000-8000-000000000001'\'' AND NOT EXISTS (SELECT 1 FROM "ReleaseCheck" check_record WHERE check_record."releaseActionId" = action."id");')
+          test "$release_backfill" = "1"
 
   quality:
     name: Typecheck, Unit, Build and Browser
