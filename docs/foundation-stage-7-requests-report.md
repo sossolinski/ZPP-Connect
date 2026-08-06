@@ -166,7 +166,7 @@ Integracja modularnego routera dodała dwa wiersze netto do `demo-router.ts`; le
 
 ## W. CI
 
-Branch: `agent/foundation-stage-7-requests`. Publikacyjne commit/PR/run ID i końcowe wyniki są raportowane w PR oraz końcowym handoffie, ponieważ commit nie może wiarygodnie zawierać własnego SHA.
+Branch: `agent/foundation-stage-7-requests`. Implementacja: `cac011dd63e408c556c35bdaf414e1f9965a0029`. Draft PR: #4. Run ID i końcowe wyniki są raportowane w PR oraz końcowym handoffie, ponieważ commit nie może wiarygodnie zawierać własnego SHA.
 
 CI rozszerza Foundation PostgreSQL Gate do Stage 1–7: fresh migration, seed, startup, wszystkie real PostgreSQL suites bez skipped oraz backfill rehearsal. Quality uruchamia Typecheck, Unit, Build i Browser. Dependency Audit pozostaje niesuppressowany; dopuszczony jest wyłącznie `GHSA-qwww-vcr4-c8h2`.
 
