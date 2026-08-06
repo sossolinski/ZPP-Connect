@@ -1,31 +1,14 @@
 import { z } from "zod";
 import { dictionaries } from "@zpp/shared";
 
-const requestStatuses = [...dictionaries.requestStatuses, "Completed"] as const;
 const assignmentStatuses = dictionaries.assignmentStatuses;
 const assignmentPriorities = dictionaries.assignmentPriorities;
 
-export const requestStatusSchema = z.enum(requestStatuses);
 export const operationalNoteSchema = z.string().trim().min(3);
 
 export const sessionCloseSchema = z.object({
   notes: operationalNoteSchema
 });
-
-export const requestStatusUpdateSchema = z
-  .object({
-    status: requestStatusSchema,
-    closureNote: operationalNoteSchema.optional()
-  })
-  .superRefine((value, ctx) => {
-    if (value.status === "Closed" && !value.closureNote) {
-      ctx.addIssue({
-        code: z.ZodIssueCode.custom,
-        path: ["closureNote"],
-        message: "Closure note is required when closing a request"
-      });
-    }
-  });
 
 export const assignmentStatusUpdateSchema = z.object({
   status: z.enum(assignmentStatuses),
@@ -92,23 +75,6 @@ export const enquirySchema = z.object({
   urgency: z.enum(dictionaries.enquiryUrgencies).default("Normal"),
   notes: z.string().optional().nullable(),
   status: z.enum(dictionaries.enquiryStatuses).default("New")
-});
-
-export const requestSchema = z.object({
-  sessionId: z.string().uuid(),
-  caseId: z.string().optional().nullable(),
-  relatedEnquiryId: z.string().uuid().optional().nullable(),
-  relatedFamilyRecordId: z.string().uuid().optional().nullable(),
-  relatedPassengerRecordId: z.string().uuid().optional().nullable(),
-  category: z.string().min(1),
-  priority: z.enum(dictionaries.requestPriorities).default("Normal"),
-  requester: z.string().optional().nullable(),
-  ownerAssignedTo: z.string().optional().nullable(),
-  details: z.string().min(1),
-  approvalStatus: z.enum(dictionaries.approvalStatuses).default("Not required"),
-  status: requestStatusSchema.default("Open"),
-  closureNote: z.string().optional().nullable(),
-  notes: z.string().optional().nullable()
 });
 
 export const assignmentSchema = z.object({

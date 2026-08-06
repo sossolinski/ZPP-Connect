@@ -849,7 +849,7 @@ export const auditActions = [
 export const workflowStates = {
   completedMatchStatuses: ["Verified match", "Reunited", "Released"],
   pendingMatchStatuses: ["Suggested", "Potential match", "Requires review"],
-  terminalRequestStatuses: ["Done", "Closed", "Cancelled", "Completed", "Released", "Reunited"],
+  terminalRequestStatuses: ["Done", "Closed", "Cancelled", "Completed", "Released", "Reunited", "RESOLVED", "CANCELLED"],
   terminalAssignmentStatuses: ["Completed", "Cancelled"],
   terminalReleaseStatuses: ["Cancelled", "Completed", "Released", "Reunited", "CANCELLED", "COMPLETED"]
 } as const;

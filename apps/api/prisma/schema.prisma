@@ -37,6 +37,12 @@ model User {
   familyVerificationDecisions   RelationshipVerificationDecision[] @relation("RelationshipDecisionBy")
   familyVerificationProjections FamilyRecord[]                     @relation("FamilyVerificationProjectionBy")
   matchDecisions                MatchDecision[]                    @relation("MatchDecisionBy")
+  ownedRequests                 Request[]                          @relation("RequestOwner")
+  createdRequests               Request[]                          @relation("RequestCreatedBy")
+  updatedRequests               Request[]                          @relation("RequestUpdatedBy")
+  resolvedRequests              Request[]                          @relation("RequestResolvedBy")
+  reopenedRequests              Request[]                          @relation("RequestReopenedBy")
+  cancelledRequests             Request[]                          @relation("RequestCancelledBy")
   auditLogs                     AuditLog[]                         @relation("ActorAudit")
 
   @@index([organizationId])
@@ -110,7 +116,8 @@ model Session {
   releaseActions        ReleaseAction[]
   releaseChecks         ReleaseCheck[]
   releaseOperations     ReleaseOperation[]
-  requests              WelfareRequest[]
+  requests              Request[]
+  requestOperations     RequestOperation[]
   assignments           AssignmentTask[]
   timelineEvents        CaseTimelineEvent[]
   importBatches         ImportBatch[]
@@ -153,7 +160,7 @@ model Enquiry {
   session             Session          @relation(fields: [sessionId], references: [id], onDelete: Cascade)
   passengerRecord     PassengerRecord? @relation(fields: [passengerRecordId], references: [id], onDelete: SetNull)
   matches             MatchingRecord[]
-  requests            WelfareRequest[]
+  requests            Request[]
 
   @@index([sessionId, status, updatedAt])
   @@index([caseId])
@@ -224,7 +231,7 @@ model FamilyRecord {
   verificationDecisionBy   User?               @relation("FamilyVerificationProjectionBy", fields: [verificationDecisionById], references: [id], onDelete: SetNull)
   relationshipClaims       RelationshipClaim[]
   matches                  MatchingRecord[]
-  requests                 WelfareRequest[]
+  requests                 Request[]
 
   @@index([sessionId, verificationStatus, updatedAt])
   @@index([sessionId, normalizedPhone])
@@ -337,7 +344,7 @@ model PassengerRecord {
   holdUpdatedBy            User?               @relation("PassengerHoldUpdatedBy", fields: [holdUpdatedById], references: [id], onDelete: SetNull)
   enquiries                Enquiry[]
   matches                  MatchingRecord[]
-  requests                 WelfareRequest[]
+  requests                 Request[]
   releaseActions           ReleaseAction[]
   familyRelationshipClaims RelationshipClaim[]
   matchSuggestions         MatchSuggestion[]
@@ -506,6 +513,7 @@ model ReleaseAction {
   cancelledBy                     User?              @relation("ReleaseCancelledBy", fields: [cancelledById], references: [id], onDelete: SetNull)
   checks                          ReleaseCheck[]
   operations                      ReleaseOperation[]
+  requests                        Request[]
 
   @@index([incidentId, status, updatedAt])
   @@index([incidentId, actionType, updatedAt])
@@ -561,34 +569,79 @@ model ReleaseOperation {
   @@index([releaseActionId, createdAt])
 }
 
-model WelfareRequest {
-  id                       String           @id @default(uuid()) @db.Uuid
-  operationalId            String           @unique
-  sessionId                String           @db.Uuid
+model Request {
+  id                       String             @id @default(uuid()) @db.Uuid
+  operationalId            String
+  incidentId               String             @map("sessionId") @db.Uuid
   caseId                   String?
-  relatedEnquiryId         String?          @db.Uuid
-  relatedFamilyRecordId    String?          @db.Uuid
-  relatedPassengerRecordId String?          @db.Uuid
+  relatedEnquiryId         String?            @db.Uuid
+  relatedFamilyRecordId    String?            @db.Uuid
+  relatedPassengerRecordId String?            @db.Uuid
+  relatedReleaseActionId   String?            @db.Uuid
   category                 String
-  priority                 String           @default("Normal")
+  priority                 String             @default("Normal")
   requester                String?
-  ownerAssignedTo          String?
+  ownerUserId              String?            @db.Uuid
+  legacyOwnerLabel         String?            @map("ownerAssignedTo")
   details                  String
-  approvalStatus           String           @default("Not required")
-  status                   String           @default("Open")
-  closureNote              String?
+  approvalStatus           String             @default("Not required")
+  status                   String             @default("OPEN")
+  dueAt                    DateTime?
+  resolutionOutcome        String?
+  resolutionNote           String?            @map("closureNote")
+  resolvedById             String?            @db.Uuid
+  resolvedAt               DateTime?
+  reopenedById             String?            @db.Uuid
+  reopenedAt               DateTime?
+  reopenReason             String?
+  cancelledById            String?            @db.Uuid
+  cancelledAt              DateTime?
+  cancelReason             String?
   notes                    String?
-  createdById              String?          @db.Uuid
-  updatedById              String?          @db.Uuid
-  createdAt                DateTime         @default(now())
-  updatedAt                DateTime         @updatedAt
-  session                  Session          @relation(fields: [sessionId], references: [id], onDelete: Cascade)
-  relatedEnquiry           Enquiry?         @relation(fields: [relatedEnquiryId], references: [id], onDelete: SetNull)
-  relatedFamilyRecord      FamilyRecord?    @relation(fields: [relatedFamilyRecordId], references: [id], onDelete: SetNull)
-  relatedPassengerRecord   PassengerRecord? @relation(fields: [relatedPassengerRecordId], references: [id], onDelete: SetNull)
+  version                  Int                @default(1)
+  legacyImported           Boolean            @default(false)
+  legacyMetadata           Json?
+  createdById              String?            @db.Uuid
+  updatedById              String?            @db.Uuid
+  createdAt                DateTime           @default(now())
+  updatedAt                DateTime           @updatedAt
+  incident                 Session            @relation(fields: [incidentId], references: [id], onDelete: Cascade)
+  relatedEnquiry           Enquiry?           @relation(fields: [relatedEnquiryId], references: [id], onDelete: SetNull)
+  relatedFamilyRecord      FamilyRecord?      @relation(fields: [relatedFamilyRecordId], references: [id], onDelete: SetNull)
+  relatedPassengerRecord   PassengerRecord?   @relation(fields: [relatedPassengerRecordId], references: [id], onDelete: SetNull)
+  relatedReleaseAction     ReleaseAction?     @relation(fields: [relatedReleaseActionId], references: [id], onDelete: SetNull)
+  owner                    User?              @relation("RequestOwner", fields: [ownerUserId], references: [id], onDelete: SetNull)
+  createdBy                User?              @relation("RequestCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
+  updatedBy                User?              @relation("RequestUpdatedBy", fields: [updatedById], references: [id], onDelete: SetNull)
+  resolvedBy               User?              @relation("RequestResolvedBy", fields: [resolvedById], references: [id], onDelete: SetNull)
+  reopenedBy               User?              @relation("RequestReopenedBy", fields: [reopenedById], references: [id], onDelete: SetNull)
+  cancelledBy              User?              @relation("RequestCancelledBy", fields: [cancelledById], references: [id], onDelete: SetNull)
+  operations               RequestOperation[]
 
-  @@index([sessionId, status])
+  @@unique([incidentId, operationalId])
+  @@index([incidentId, status, updatedAt(sort: Desc)])
+  @@index([incidentId, priority, status])
+  @@index([incidentId, ownerUserId, status])
+  @@index([incidentId, dueAt])
   @@index([caseId])
+  @@map("WelfareRequest")
+}
+
+model RequestOperation {
+  id                 String   @id @default(uuid()) @db.Uuid
+  incidentId         String   @db.Uuid
+  requestRecordId    String   @db.Uuid
+  operationId        String   @db.Uuid
+  command            String
+  commandFingerprint String
+  resultVersion      Int
+  requestId          String?
+  createdAt          DateTime @default(now())
+  incident           Session  @relation(fields: [incidentId], references: [id], onDelete: Cascade)
+  request            Request  @relation(fields: [requestRecordId], references: [id], onDelete: Cascade)
+
+  @@unique([incidentId, operationId])
+  @@index([requestRecordId, createdAt])
 }
 
 model AssignmentTask {

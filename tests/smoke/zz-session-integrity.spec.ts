@@ -135,20 +135,17 @@ test.describe.serial("Stage 2A session integrity", () => {
     await familyDrawer.getByRole("button", { name: "Close" }).click();
 
     await page.goto("/requests");
-    await page.getByRole("button", { name: "New request" }).click();
-    const requestDrawer = page.getByRole("dialog", { name: "New support request" });
-    await expect(requestDrawer.getByLabel("Approval status").getByRole("option", { name: "Approved", exact: true })).toHaveCount(0);
-    await expect(requestDrawer.getByLabel("Approval status").getByRole("option", { name: "Rejected", exact: true })).toHaveCount(0);
-    for (const state of ["Assigned", "In progress", "Waiting", "Done", "Closed", "Cancelled"]) {
-      await expect(requestDrawer.getByLabel("Status").getByRole("option", { name: state, exact: true })).toHaveCount(0);
-    }
-    await requestDrawer.getByRole("button", { name: "Close" }).click();
-    await page.getByRole("row").filter({ hasText: "REQ-2026-000001" }).getByRole("button", { name: "Edit" }).click();
-    const existingRequestDrawer = page.getByRole("dialog", { name: "Edit support request" });
-    const controlledRequestStatus = existingRequestDrawer.locator("select:disabled").filter({ has: page.locator('option[value="Assigned"]') });
-    await expect(controlledRequestStatus).toHaveCount(1);
-    await expect(controlledRequestStatus).toHaveValue("Assigned");
-    await existingRequestDrawer.getByRole("button", { name: "Close" }).first().click();
+    await page.getByRole("button", { name: "New Request" }).click();
+    const requestDrawer = page.getByRole("dialog", { name: "Create Request" });
+    await expect(requestDrawer.getByLabel("Status")).toHaveCount(0);
+    await expect(requestDrawer.getByLabel("Owner")).toHaveCount(0);
+    await requestDrawer.getByRole("button", { name: "Cancel" }).click();
+    const requestRow = page.getByRole("row", { name: /Open Request REQ-2026-000001/ });
+    await requestRow.press("Enter");
+    const existingRequestDrawer = page.getByRole("dialog", { name: "Request REQ-2026-000001" });
+    await expect(existingRequestDrawer.getByText("ASSIGNED", { exact: true })).toBeVisible();
+    await expect(existingRequestDrawer.getByLabel("Status")).toHaveCount(0);
+    await existingRequestDrawer.getByRole("button", { name: "Close", exact: true }).click();
 
     await page.goto("/assignments");
     await page.getByRole("button", { name: "New" }).click();
@@ -223,7 +220,7 @@ test.describe.serial("Stage 2A session integrity", () => {
     await page.setViewportSize({ width: 390, height: 844 });
     await page.goto("/requests");
     await expect(page.getByText(/No open operational session is selected/)).toBeVisible();
-    await expect(page.getByRole("button", { name: "New request" })).toHaveCount(0);
+    await expect(page.getByRole("button", { name: "New Request" })).toHaveCount(0);
     await expect(page.locator('[aria-label^="No active session"]:visible')).toHaveCount(1);
     expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(391);
 

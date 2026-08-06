@@ -521,12 +521,12 @@ async function seedOperationalData() {
     )
   `;
 
-  await prisma.welfareRequest.upsert({
-    where: { operationalId: "REQ-2026-000001" },
+  await prisma.request.upsert({
+    where: { incidentId_operationalId: { incidentId: session.id, operationalId: "REQ-2026-000001" } },
     update: {},
     create: {
       operationalId: "REQ-2026-000001",
-      sessionId: session.id,
+      incidentId: session.id,
       caseId: "CASE-2026-0001",
       relatedEnquiryId: enquiry1.id,
       relatedFamilyRecordId: family1.id,
@@ -534,15 +534,23 @@ async function seedOperationalData() {
       category: "Psychological First Aid",
       priority: "Urgent",
       requester: "Anna Kowalska",
-      ownerAssignedTo: "ZPP",
+      ownerUserId: zpp.id,
       details: "Arrange PFA support and quiet waiting room for caller if arriving at FRC.",
       approvalStatus: "Not required",
-      status: "Assigned",
+      status: "ASSIGNED",
       notes: "Linked to urgent welfare enquiry.",
       createdById: zpp.id,
       updatedById: zpp.id
     }
   });
+
+  await prisma.$queryRaw`
+    SELECT setval(
+      '"Request_operational_seq"',
+      GREATEST(COALESCE((SELECT MAX(substring("operationalId" FROM '([0-9]+)$')::BIGINT) FROM "WelfareRequest"), 0) + 1, 1),
+      false
+    )
+  `;
 
   const assignments = [
     {

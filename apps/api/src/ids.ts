@@ -7,7 +7,7 @@ const delegates = {
   familyRecord: prisma.familyRecord,
   passengerRecord: prisma.passengerRecord,
   matchingRecord: prisma.matchingRecord,
-  welfareRequest: prisma.welfareRequest,
+  request: prisma.request,
   assignmentTask: prisma.assignmentTask,
   importBatch: prisma.importBatch,
   storedFile: prisma.storedFile,

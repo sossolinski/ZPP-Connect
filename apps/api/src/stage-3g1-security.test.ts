@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import request from "supertest";
 import { describe, expect, it } from "vitest";
 import { createApp } from "./app.js";
@@ -211,11 +212,11 @@ describe("Stage 3G1 security containment", () => {
     const createdRequest = await apiPost(app, "/api/requests").send({
       sessionId: session.body.id,
       caseId: `CASE-${token}`,
-      category: "Welfare",
+      category: "Other",
       priority: "Urgent",
       requester: "Scope test",
       details,
-      status: "Open"
+      operationId: randomUUID()
     });
     expect(createdRequest.status).toBe(201);
 

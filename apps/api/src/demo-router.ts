@@ -82,6 +82,10 @@ import { createReleaseRouter } from "./modules/releases/release-router.js";
 import { createReleaseService } from "./modules/releases/release-service.js";
 import { createMemoryReleaseRepository } from "./modules/releases/memory-release-repository.js";
 import type { ReleaseRepository } from "./modules/releases/release-repository.js";
+import { createRequestRouter } from "./modules/requests/request-router.js";
+import { createRequestService } from "./modules/requests/request-service.js";
+import { createMemoryRequestRepository } from "./modules/requests/memory-request-repository.js";
+import type { RequestRepository } from "./modules/requests/request-repository.js";
 import { hydrateReadOnlyProjection, mergeProjectionPage, syncProjectionRow } from "./modules/compatibility/read-only-projection.js";
 
 type Row = Record<string, any>;
@@ -2016,6 +2020,7 @@ export function createDemoRouter(options: {
   familyRepository?: FamilyRepository;
   matchingRepository?: MatchingRepository;
   releaseRepository?: ReleaseRepository;
+  requestRepository?: RequestRepository;
 } = {}) {
   const router = Router();
   const memoryIncidentAssignments: MemoryIncidentAssignment[] = sessions.flatMap((incident) =>
@@ -2105,11 +2110,25 @@ export function createDemoRouter(options: {
     now
   });
   const releaseService = createReleaseService(releaseRepository, incidentAccessService);
+  const requestRepository = options.requestRepository ?? createMemoryRequestRepository({
+    requests,
+    enquiries,
+    families: familyRecords,
+    passengers: passengerRecords,
+    releases,
+    users,
+    incidentAssignments: memoryIncidentAssignments,
+    auditLogs,
+    timeline,
+    now
+  });
+  const requestService = createRequestService(requestRepository, incidentAccessService);
   if (enquiryRepository.kind === "postgres") enquiries.splice(0, enquiries.length);
   if (passengerRepository.kind === "postgres") passengerRecords.splice(0, passengerRecords.length);
   if (familyRepository.kind === "postgres") familyRecords.splice(0, familyRecords.length);
   if (matchingRepository.kind === "postgres") matchingRecords.splice(0, matchingRecords.length);
   if (releaseRepository.kind === "postgres") releases.splice(0, releases.length);
+  if (requestRepository.kind === "postgres") requests.splice(0, requests.length);
   const syncIncident = (record: Record<string, unknown>) => {
     const index = sessions.findIndex((item) => item.id === record.id);
     if (index >= 0) sessions[index] = { ...record };
@@ -2129,6 +2148,9 @@ export function createDemoRouter(options: {
   };
   const syncRelease = (record: Record<string, unknown>) => {
     syncProjectionRow(releases, record);
+  };
+  const syncRequest = (record: Record<string, unknown>) => {
+    syncProjectionRow(requests, record);
   };
   const memberDirectory = createMemberDirectoryRepository(users.map((user) => ({ id: user.id, email: user.email, displayName: user.displayName, roles: user.roles })));
   memberDirectoryForAdmin = memberDirectory;
@@ -2315,6 +2337,12 @@ export function createDemoRouter(options: {
       : undefined,
     onChange: releaseService.kind === "postgres" ? syncRelease : undefined
   }));
+  router.use(createRequestRouter(requestService, {
+    onList: requestService.kind === "postgres"
+      ? (records, incidentId, offset) => mergeProjectionPage(requests, incidentId, records, offset)
+      : undefined,
+    onChange: requestService.kind === "postgres" ? syncRequest : undefined
+  }));
   const requireIncidentAccess = (resolveIncidentId: (req: Request) => string, hydrateEnquiryCompatibility = false, requireWritable = false) => (req: Request, _res: any, next: NextFunction) => {
     const incidentId = resolveIncidentId(req);
     if (!req.user || !incidentId) {
@@ -2346,6 +2374,9 @@ export function createDemoRouter(options: {
       }
       if (hydrateEnquiryCompatibility && releaseService.kind === "postgres" && can(req, "release:read")) {
         await hydrateReadOnlyProjection(releases, incidentId, (offset) => releaseService.listCompatibility(accessActor, incidentId, { limit: 200, offset, sortDirection: "desc" }));
+      }
+      if (hydrateEnquiryCompatibility && requestService.kind === "postgres" && can(req, "request:read")) {
+        await hydrateReadOnlyProjection(requests, incidentId, (offset) => requestService.listCompatibility({ ...accessActor, displayName: req.user!.displayName, permissions: req.user!.permissions, requestId: req.requestId }, incidentId, { limit: 200, offset, sortBy: "updatedAt", sortDirection: "desc" }));
       }
       next();
     })().catch(next);
@@ -2796,7 +2827,6 @@ export function createDemoRouter(options: {
   }));
 
   const demoResourceRoutes = [
-    { resource: "requests", read: "request:read", create: "request:create", update: "request:update" },
     { resource: "files", read: "import:create", create: "import:create", update: "import:create" },
     { resource: "exercise/injects", read: "exercise:manage", create: "exercise:manage", update: "exercise:manage" },
     { resource: "exercise/observations", read: "exercise:manage", create: "exercise:manage", update: "exercise:manage" }
@@ -2842,34 +2872,6 @@ export function createDemoRouter(options: {
   });
   router.get("/audit-logs", requirePermission("audit:read"), (req, res) => res.json(listRows("audit-logs", req)));
 
-  router.post("/requests/:id/assign-to-me", requirePermission("request:assign"), (req, res) => res.json(updateRow("requests", String(req.params.id), { status: "Assigned", ownerAssignedTo: req.user?.displayName }, req)));
-  router.post("/requests/:id/status", requirePermission("request:update"), (req, res) => {
-    const status = String(req.body?.status ?? "");
-    const note = demoDecisionNote(req.body?.closureNote);
-    if (status === "Closed" && !note) {
-      res.status(400).json({ error: "Closure note must contain at least 3 characters" });
-      return;
-    }
-    const row = updateRow("requests", String(req.params.id), { status, closureNote: note || undefined }, req);
-    if (!row) {
-      res.status(404).json({ error: "Not found" });
-      return;
-    }
-    addAudit(req, status === "Closed" ? "close_request" : "update_request_status", `Request ${row.operationalId} status changed to ${status}`, row.sessionId, status === "Closed" ? { status, closureNote: note } : { status }, "request", row.id);
-    if (status === "Closed") {
-      addTimeline(req, {
-        sessionId: row.sessionId,
-        caseId: row.caseId,
-        eventType: "request",
-        entityType: "request",
-        entityId: row.id,
-        title: `Request ${row.operationalId} closed`,
-        body: note,
-        metadata: { status }
-      });
-    }
-    res.json(row);
-  });
   router.get("/assignments", requirePermission("assignment:read"), (req, res) => res.json(listRows("assignments", req)));
   router.get("/assignment-assignees", requirePermission("assignment:assign"), (req, res) => {
     if (!isAssignmentManager(req)) {

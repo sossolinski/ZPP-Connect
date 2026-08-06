@@ -70,7 +70,7 @@ postgresDescribe("Foundation Stage 3 PostgreSQL Passenger persistence and source
     if (!prisma) return;
     await prisma.matchingRecord.deleteMany({ where: { sessionId: { in: incidentIds } } });
     await prisma.releaseAction.deleteMany({ where: { incidentId: { in: incidentIds } } });
-    await prisma.welfareRequest.deleteMany({ where: { sessionId: { in: incidentIds } } });
+    await prisma.request.deleteMany({ where: { incidentId: { in: incidentIds } } });
     await prisma.enquiry.deleteMany({ where: { sessionId: { in: incidentIds } } });
     await prisma.passengerRecord.deleteMany({ where: { sessionId: { in: incidentIds } } });
     await prisma.importBatch.deleteMany({ where: { sessionId: { in: incidentIds } } });
