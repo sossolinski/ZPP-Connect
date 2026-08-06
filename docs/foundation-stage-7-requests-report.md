@@ -159,7 +159,8 @@ Integracja modularnego routera dodała dwa wiersze netto do `demo-router.ts`; le
 
 - Prisma validate: PASS.
 - Typecheck: PASS.
-- API unit/memory: PASS — 96/96; PostgreSQL suites są lokalnie pomijane bez `TEST_DATABASE_URL`, zero skipped jest wymagane w remote gate.
+- API unit/memory: PASS — 96/96.
+- Real PostgreSQL 16 fresh migration/seed, Stage 1–7: PASS — 44/44, zero skipped (niezależny lokalny gate uruchomiony podczas awarii hosted runners GitHub).
 - Build: PASS (wyłącznie istniejące ostrzeżenie Vite o rozmiarze chunku).
 - Browser: PASS — 60/60.
 - Stage 7 PostgreSQL suite pokrywa migration assets/constraints/indexes/triggers, restart persistence, granular permissions, owner ≠ authorization, assign/reassign, FSM/bypass/no-delete, resolution/reopen/cancel, audit/timeline, concurrency, idempotent retry, EXERCISE/REAL isolation, pełny revoke, closed incident, wszystkie cztery same-incident references na service i DB, permission intersection, linked-domain independence i kolejkę 1000 rekordów.

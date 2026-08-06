@@ -16,7 +16,7 @@ ALTER TABLE "WelfareRequest"
   ADD COLUMN "legacyMetadata" JSONB;
 
 WITH unique_owner AS (
-  SELECT "displayName", MIN("id") AS "id"
+  SELECT "displayName", MIN("id"::text)::uuid AS "id"
   FROM "User"
   GROUP BY "displayName"
   HAVING COUNT(*) = 1
