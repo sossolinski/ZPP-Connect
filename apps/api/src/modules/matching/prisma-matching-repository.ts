@@ -132,7 +132,7 @@ const compatibilityInclude = {
   passengerRecord: passengerProjection,
   suggestion: true,
   decisions: { where: { decision: "CONFIRMED", isCurrent: true }, orderBy: { decidedAt: "desc" as const }, take: 1, include: { decisionBy: { select: { displayName: true } } } },
-  releases: { where: { status: "Completed" }, orderBy: { completedAt: "desc" as const }, take: 1 }
+  releaseActions: { where: { status: "COMPLETED" }, orderBy: { completedAt: "desc" as const }, take: 1 }
 } satisfies Prisma.MatchingRecordInclude;
 
 function compatibility(row: any): MatchingCompatibilityRecord {
@@ -148,8 +148,8 @@ function compatibility(row: any): MatchingCompatibilityRecord {
     pax?.holdStatus && pax.holdStatus !== "No hold" ? `Passenger hold: ${pax.holdStatus}` : null,
     row.holdCheck && row.holdCheck !== "No hold" ? `Matching hold: ${row.holdCheck}` : null
   ].filter((item): item is string => Boolean(item));
-  const release = row.releases[0];
-  const status = release ? (release.actionType === "Release" ? "Released" : "Reunited") : currentMatch ? "Verified match" : stale ? "Requires review" : row.status;
+  const release = row.releaseActions[0];
+  const status = release ? (release.actionType === "RELEASE" ? "Released" : "Reunited") : currentMatch ? "Verified match" : stale ? "Requires review" : row.status;
   const suggestionSignals = row.suggestion ? { algorithm: row.suggestion.algorithm, algorithmVersion: row.suggestion.algorithmVersion, positiveSignals: signals(row.suggestion.positiveSignals), conflicts: signals(row.suggestion.conflicts) } : null;
   return {
     id: row.id,
@@ -159,6 +159,7 @@ function compatibility(row: any): MatchingCompatibilityRecord {
     familyRecordId: row.familyRecordId,
     passengerRecordId: row.passengerRecordId,
     relationshipClaimId: row.relationshipClaimId,
+    matchDecisionId: accepted?.id ?? null,
     suggestionId: row.suggestionId,
     status,
     matchScore: row.suggestion?.score ?? null,

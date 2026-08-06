@@ -75,7 +75,7 @@ postgresDescribe("Foundation Stage 5 PostgreSQL matching persistence and concurr
 
   afterAll(async () => {
     if (!prisma) return;
-    await prisma.reunificationReleaseRecord.deleteMany({ where: { sessionId: { in: incidentIds } } });
+    await prisma.releaseAction.deleteMany({ where: { incidentId: { in: incidentIds } } });
     await prisma.matchDecision.deleteMany({ where: { incidentId: { in: incidentIds } } });
     await prisma.matchingRecord.deleteMany({ where: { sessionId: { in: incidentIds } } });
     await prisma.matchSuggestion.deleteMany({ where: { incidentId: { in: incidentIds } } });

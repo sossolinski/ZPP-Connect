@@ -18,13 +18,10 @@ import {
   assignmentReassignSchema,
   assignmentSchema,
   assignmentStatusUpdateSchema,
-  decisionSchema,
   exerciseInjectSchema,
   exerciseObservationSchema,
   idParam,
   listQuery,
-  releaseSchema,
-  releaseDecisionSchema,
   requestSchema,
   requestStatusUpdateSchema,
   sessionCloseSchema,
@@ -49,6 +46,8 @@ import { createPrismaFamilyRepository } from "../modules/families/prisma-family-
 import type { FamilyRepository } from "../modules/families/family-repository.js";
 import { createPrismaMatchingRepository } from "../modules/matching/prisma-matching-repository.js";
 import type { MatchingRepository } from "../modules/matching/matching-repository.js";
+import { createPrismaReleaseRepository } from "../modules/releases/prisma-release-repository.js";
+import type { ReleaseRepository } from "../modules/releases/release-repository.js";
 
 type Delegate = {
   count(args: unknown): Promise<number>;
@@ -123,7 +122,7 @@ function buildDashboardAggregates({
   matches: DashboardMatch[];
   families: DashboardFamily[];
   enquiries: DashboardEnquiry[];
-  releases: Array<{ status: string; matchId: string | null; passengerRecordId: string | null; identityChecked: boolean; holdCleared: boolean }>;
+  releases: Array<{ status: string; matchingRecordId: string | null; passengerRecordId: string | null; checks: Array<{ type: string; result: string }>; passengerRecord?: { holdStatus: string } | null }>;
   importBatches: Array<{ importType: string; totalRecords: number; validRecords: number; invalidRecords: number }>;
   openRequests: number;
   urgentWelfare: number;
@@ -238,7 +237,7 @@ function buildDashboardAggregates({
     unknownCondition: passengers.filter((passenger) => !passenger.conditionStatus || passenger.conditionStatus === "Unknown").length,
     familyContactMissing: families.filter((family) => !family.phone && !family.email).length,
     openReleaseActions: releases.filter((release) => !terminalReleaseStatuses.has(release.status)).length,
-    releaseChecklistPending: releases.filter((release) => !release.identityChecked || !release.holdCleared).length
+    releaseChecklistPending: releases.filter((release) => !release.checks.some((check) => check.type === "IDENTITY" && check.result === "PASS") || !release.checks.some((check) => check.type === "HOLD_REVIEW" && check.result === "PASS") || !isNoHold(release.passengerRecord?.holdStatus)).length
   };
 
   return { manifestCoverage, matchingProgress, workRemaining, dataQuality };
@@ -385,11 +384,6 @@ async function listRecords(
   sendRedacted(req, res, { total, data });
 }
 
-function requireDecisionBasis(body: unknown) {
-  const parsed = decisionSchema.parse(body);
-  return parsed;
-}
-
 async function assertActiveRealSessionRule(mode: string, status: string, excludingId?: string) {
   if (mode !== "REAL" || status !== "Active") return;
   const existing = await prisma.session.findFirst({
@@ -408,47 +402,6 @@ async function sessionModeLabel(sessionId?: string | null) {
   if (!sessionId) return undefined;
   const session = await prisma.session.findUnique({ where: { id: sessionId }, select: { mode: true, operationalId: true } });
   return session ? `${session.mode} ${session.operationalId}` : undefined;
-}
-
-async function ensureVerifiedMatchForRelease(req: Request, matchId?: string | null, coordinatorOverride?: boolean, overrideReason?: string, expectedSessionId?: string) {
-  const canOverrideRelease = Boolean(coordinatorOverride && overrideReason && req.user?.permissions.includes("matching:release"));
-  if (!matchId) {
-    if (canOverrideRelease) return undefined;
-    throw new HttpError(400, "Release requires a verified match or Coordinator-approved exception");
-  }
-
-  const match = await prisma.matchingRecord.findUnique({
-    where: { id: matchId },
-    include: {
-      relationshipClaim: true,
-      passengerRecord: true,
-      decisions: { where: { decision: "CONFIRMED", isCurrent: true, validity: "CURRENT" }, take: 1 }
-    }
-  });
-  if (!match) throw new HttpError(404, "Matching record not found");
-  if (expectedSessionId && match.sessionId !== expectedSessionId) throw new HttpError(409, "Matching record belongs to a different session");
-
-  const accepted = match.decisions[0];
-  const isCurrent = Boolean(
-    accepted &&
-    match.relationshipClaim?.isCurrent &&
-    match.relationshipClaim.status === "VERIFIED" &&
-    accepted.claimVersion === match.relationshipClaim.version &&
-    accepted.passengerVersion === match.passengerRecord?.version
-  );
-  if (!isCurrent) {
-    if (!canOverrideRelease) {
-      throw new HttpError(409, "Reunification/release requires a verified match or Coordinator-approved exception");
-    }
-  }
-
-  if (match.holdCheck && match.holdCheck !== "No hold") {
-    if (!canOverrideRelease) {
-      throw new HttpError(409, "Hold blocks reunification/release until cleared or Coordinator override is recorded");
-    }
-  }
-
-  return match;
 }
 
 function responseFile(res: Response, filename: string, mime: string, buffer: Buffer) {
@@ -694,7 +647,7 @@ api.get(
         }),
         prisma.familyRecord.findMany({ where: { sessionId }, select: { id: true, verificationStatus: true, caseId: true, phone: true, email: true } }),
         prisma.enquiry.findMany({ where: { sessionId }, select: { id: true, status: true, urgency: true, passengerRecordId: true } }),
-        prisma.reunificationReleaseRecord.findMany({ where: { sessionId }, select: { status: true, matchId: true, passengerRecordId: true, identityChecked: true, holdCleared: true } }),
+        prisma.releaseAction.findMany({ where: { incidentId: sessionId }, select: { status: true, matchingRecordId: true, passengerRecordId: true, checks: { where: { isCurrent: true }, select: { type: true, result: true } }, passengerRecord: { select: { holdStatus: true } } } }),
         prisma.importBatch.findMany({
           where: { sessionId, importType: { in: ["manifest", "passenger"] } },
           select: { importType: true, totalRecords: true, validRecords: true, invalidRecords: true },
@@ -853,143 +806,6 @@ api.post(
   })
 );
 
-
-api.get(
-  "/releases",
-  requirePermission("release:read"),
-  asyncHandler((req, res) => listRecords(req, res, prisma.reunificationReleaseRecord, ["operationalId", "receivingParty", "releaseDestination"]))
-);
-
-api.post(
-  "/releases",
-  requirePermission("release:create"),
-  asyncHandler(async (req, res) => {
-    const body = clean(releaseSchema.parse(req.body));
-    const decision = decisionSchema.partial().parse(req.body ?? {});
-    const match = await ensureVerifiedMatchForRelease(req, body.matchId, decision.coordinatorOverride, decision.overrideReason, body.sessionId);
-    if (!body.matchId) throw new HttpError(400, "A verified matching record is required");
-    const duplicate = await prisma.reunificationReleaseRecord.findFirst({
-      where: { sessionId: body.sessionId, matchId: body.matchId, status: "Prepared" }
-    });
-    if (duplicate) throw new HttpError(409, `An open release action already exists (${duplicate.operationalId})`);
-    const record = await withOperationalIdRetry(async () => prisma.reunificationReleaseRecord.create({
-      data: {
-        ...body,
-        status: "Prepared",
-        passengerRecordId: match?.passengerRecordId,
-        familyRecordId: match?.familyRecordId,
-        operationalId: await nextOperationalId("reunificationReleaseRecord", "REL"),
-        authorizedById: actorId(req)
-      }
-    }));
-    await logAudit(req, { action: "prepare_release", entityType: "reunificationReleaseRecord", entityId: record.id, sessionId: record.sessionId, summary: `${record.actionType} ${record.operationalId} prepared` });
-    res.status(201).json(record);
-  })
-);
-
-api.patch(
-  "/releases/:id",
-  requirePermission("release:create"),
-  asyncHandler(async (req, res) => {
-    const { id } = idParam.parse(req.params);
-    const existing = await prisma.reunificationReleaseRecord.findUnique({ where: { id } });
-    if (!existing) throw new HttpError(404, "Release/reunification record not found");
-    if (existing.status !== "Prepared") throw new HttpError(409, "Completed or cancelled release actions are read-only");
-    const body = clean(releaseSchema.partial().parse(req.body));
-    const match = await ensureVerifiedMatchForRelease(req, existing.matchId, false, undefined, existing.sessionId);
-    const {
-      sessionId: _sessionId,
-      matchId: _matchId,
-      passengerRecordId: _passengerRecordId,
-      familyRecordId: _familyRecordId,
-      status: _status,
-      ...updates
-    } = body;
-    const record = await prisma.reunificationReleaseRecord.update({
-      where: { id },
-      data: {
-        ...updates,
-        passengerRecordId: match?.passengerRecordId,
-        familyRecordId: match?.familyRecordId
-      }
-    });
-    await logAudit(req, { action: "update_release", entityType: "reunificationReleaseRecord", entityId: id, sessionId: record.sessionId, summary: `${record.actionType} ${record.operationalId} updated` });
-    res.json(record);
-  })
-);
-
-api.post(
-  "/releases/:id/complete",
-  requirePermission("release:complete"),
-  asyncHandler(async (req, res) => {
-    const { id } = idParam.parse(req.params);
-    const decision = releaseDecisionSchema.parse(req.body);
-    const existing = await prisma.reunificationReleaseRecord.findUnique({ where: { id }, include: { match: true } });
-    if (!existing) throw new HttpError(404, "Release/reunification record not found");
-    if (existing.status !== "Prepared") throw new HttpError(409, "Only prepared release actions can be completed");
-    await ensureVerifiedMatchForRelease(req, existing.matchId, false, undefined, existing.sessionId);
-    if (!existing.identityChecked) throw new HttpError(409, "Identity check must be confirmed before completion");
-    if (!existing.holdCleared) throw new HttpError(409, "Hold cleared check must be confirmed before completion");
-    if (!existing.receivingParty && existing.actionType === "Release") throw new HttpError(400, "Receiving party is required for release");
-    const record = await prisma.reunificationReleaseRecord.update({
-      where: { id },
-      data: { status: "Completed", completedById: actorId(req), completedAt: new Date(), notes: decision.notes }
-    });
-    await logAudit(req, {
-      action: record.actionType === "Release" ? "release" : "reunite",
-      entityType: "reunificationReleaseRecord",
-      entityId: id,
-      sessionId: record.sessionId,
-      summary: `${record.actionType} ${record.operationalId} completed`,
-      metadata: { status: "Completed", actionType: record.actionType, decisionNotes: decision.notes }
-    });
-    await addTimelineEvent({
-      sessionId: record.sessionId,
-      caseId: existing.match?.caseId,
-      eventType: record.actionType === "Release" ? "release" : "reunification",
-      entityType: "reunificationReleaseRecord",
-      entityId: id,
-      title: `${record.actionType} ${record.operationalId} completed`,
-      body: decision.notes,
-      metadata: { status: "Completed", actionType: record.actionType },
-      createdById: actorId(req)
-    });
-    res.json(record);
-  })
-);
-
-api.post(
-  "/releases/:id/cancel",
-  requirePermission("release:cancel"),
-  asyncHandler(async (req, res) => {
-    const { id } = idParam.parse(req.params);
-    const decision = releaseDecisionSchema.parse(req.body);
-    const existing = await prisma.reunificationReleaseRecord.findUnique({ where: { id }, include: { match: true } });
-    if (!existing) throw new HttpError(404, "Release/reunification record not found");
-    if (existing.status !== "Prepared") throw new HttpError(409, "Only prepared release actions can be cancelled");
-    const record = await prisma.reunificationReleaseRecord.update({ where: { id }, data: { status: "Cancelled", notes: decision.notes } });
-    await logAudit(req, {
-      action: "cancel_release",
-      entityType: "reunificationReleaseRecord",
-      entityId: id,
-      sessionId: record.sessionId,
-      summary: `${record.actionType} ${record.operationalId} cancelled`,
-      metadata: { status: "Cancelled", actionType: record.actionType, decisionNotes: decision.notes }
-    });
-    await addTimelineEvent({
-      sessionId: record.sessionId,
-      caseId: existing.match?.caseId,
-      eventType: "release",
-      entityType: "reunificationReleaseRecord",
-      entityId: id,
-      title: `${record.actionType} ${record.operationalId} cancelled`,
-      body: decision.notes,
-      metadata: { status: "Cancelled", actionType: record.actionType },
-      createdById: actorId(req)
-    });
-    res.json(record);
-  })
-);
 
 api.get(
   "/requests",
@@ -1964,8 +1780,9 @@ export function registerRoutes(app: Express, options: {
   passengerRepository?: PassengerRepository;
   familyRepository?: FamilyRepository;
   matchingRepository?: MatchingRepository;
+  releaseRepository?: ReleaseRepository;
 } = {}) {
-  const usePostgres = config.persistenceMode === "postgres" || options.incidentRepository?.kind === "postgres" || options.enquiryRepository?.kind === "postgres" || options.passengerRepository?.kind === "postgres" || options.familyRepository?.kind === "postgres" || options.matchingRepository?.kind === "postgres";
+  const usePostgres = config.persistenceMode === "postgres" || options.incidentRepository?.kind === "postgres" || options.enquiryRepository?.kind === "postgres" || options.passengerRepository?.kind === "postgres" || options.familyRepository?.kind === "postgres" || options.matchingRepository?.kind === "postgres" || options.releaseRepository?.kind === "postgres";
   const incidentRepository = options.incidentRepository ?? (
     usePostgres ? createPrismaIncidentRepository(prisma) : undefined
   );
@@ -1987,5 +1804,8 @@ export function registerRoutes(app: Express, options: {
   const matchingRepository = options.matchingRepository ?? (
     usePostgres ? createPrismaMatchingRepository(prisma) : undefined
   );
-  app.use("/api", createDemoRouter({ incidentRepository, enquiryRepository, incidentAccessRepository, incidentAssignmentRepository, passengerRepository, familyRepository, matchingRepository }));
+  const releaseRepository = options.releaseRepository ?? (
+    usePostgres ? createPrismaReleaseRepository(prisma) : undefined
+  );
+  app.use("/api", createDemoRouter({ incidentRepository, enquiryRepository, incidentAccessRepository, incidentAssignmentRepository, passengerRepository, familyRepository, matchingRepository, releaseRepository }));
 }

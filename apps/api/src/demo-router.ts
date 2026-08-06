@@ -78,6 +78,10 @@ import { createMatchingRouter } from "./modules/matching/matching-router.js";
 import { createMatchingService } from "./modules/matching/matching-service.js";
 import { createMemoryMatchingRepository } from "./modules/matching/memory-matching-repository.js";
 import type { MatchingRepository } from "./modules/matching/matching-repository.js";
+import { createReleaseRouter } from "./modules/releases/release-router.js";
+import { createReleaseService } from "./modules/releases/release-service.js";
+import { createMemoryReleaseRepository } from "./modules/releases/memory-release-repository.js";
+import type { ReleaseRepository } from "./modules/releases/release-repository.js";
 import { hydrateReadOnlyProjection, mergeProjectionPage, syncProjectionRow } from "./modules/compatibility/read-only-projection.js";
 
 type Row = Record<string, any>;
@@ -1714,18 +1718,6 @@ function updateRow(resource: string, id: string, patch: Row, req?: Request) {
   return row;
 }
 
-function demoReleaseMatchError(input: Row) {
-  if (!input.matchId) return { status: 400, error: "A verified matching record is required" };
-  const match = matchingRecords.find((item) => item.id === input.matchId);
-  if (!match) return { status: 404, error: "Matching record not found" };
-  if (match.sessionId !== input.sessionId) return { status: 409, error: "Matching record belongs to a different session" };
-  if (!match.releaseEligibility?.eligible) {
-    const blockers = Array.isArray(match.releaseEligibility?.blockers) ? match.releaseEligibility.blockers.join("; ") : "No current confirmed match";
-    return { status: 409, error: `Reunification/release preconditions are not satisfied: ${blockers}` };
-  }
-  return null;
-}
-
 function addAudit(req: Request, action: string, summary: string, sessionId = "ses-demo-1", metadata?: Row, entityType = "demo", entityId?: string | null) {
   const actor = currentUser(req);
   auditLogs.unshift({
@@ -2023,6 +2015,7 @@ export function createDemoRouter(options: {
   passengerRepository?: PassengerRepository;
   familyRepository?: FamilyRepository;
   matchingRepository?: MatchingRepository;
+  releaseRepository?: ReleaseRepository;
 } = {}) {
   const router = Router();
   const memoryIncidentAssignments: MemoryIncidentAssignment[] = sessions.flatMap((incident) =>
@@ -2101,10 +2094,22 @@ export function createDemoRouter(options: {
     now
   });
   const matchingService = createMatchingService(matchingRepository, incidentAccessService);
+  const releaseRepository = options.releaseRepository ?? createMemoryReleaseRepository({
+    releases,
+    matches: matchingRecords,
+    families: familyRecords,
+    passengers: passengerRecords,
+    auditLogs,
+    timeline,
+    users,
+    now
+  });
+  const releaseService = createReleaseService(releaseRepository, incidentAccessService);
   if (enquiryRepository.kind === "postgres") enquiries.splice(0, enquiries.length);
   if (passengerRepository.kind === "postgres") passengerRecords.splice(0, passengerRecords.length);
   if (familyRepository.kind === "postgres") familyRecords.splice(0, familyRecords.length);
   if (matchingRepository.kind === "postgres") matchingRecords.splice(0, matchingRecords.length);
+  if (releaseRepository.kind === "postgres") releases.splice(0, releases.length);
   const syncIncident = (record: Record<string, unknown>) => {
     const index = sessions.findIndex((item) => item.id === record.id);
     if (index >= 0) sessions[index] = { ...record };
@@ -2121,6 +2126,9 @@ export function createDemoRouter(options: {
   };
   const syncMatching = (record: Record<string, unknown>) => {
     syncProjectionRow(matchingRecords, record);
+  };
+  const syncRelease = (record: Record<string, unknown>) => {
+    syncProjectionRow(releases, record);
   };
   const memberDirectory = createMemberDirectoryRepository(users.map((user) => ({ id: user.id, email: user.email, displayName: user.displayName, roles: user.roles })));
   memberDirectoryForAdmin = memberDirectory;
@@ -2248,7 +2256,7 @@ export function createDemoRouter(options: {
   });
 
   router.use((req, res, next) => {
-    if (config.authMode === "entra") {
+    if (config.authMode === "entra" || releaseRepository.kind === "postgres") {
       void authenticate(req, res, next);
       return;
     }
@@ -2301,6 +2309,12 @@ export function createDemoRouter(options: {
       : undefined,
     onChange: matchingService.kind === "postgres" ? syncMatching : undefined
   }));
+  router.use(createReleaseRouter(releaseService, {
+    onList: releaseService.kind === "postgres"
+      ? (records, incidentId, offset) => mergeProjectionPage(releases, incidentId, records, offset)
+      : undefined,
+    onChange: releaseService.kind === "postgres" ? syncRelease : undefined
+  }));
   const requireIncidentAccess = (resolveIncidentId: (req: Request) => string, hydrateEnquiryCompatibility = false, requireWritable = false) => (req: Request, _res: any, next: NextFunction) => {
     const incidentId = resolveIncidentId(req);
     if (!req.user || !incidentId) {
@@ -2329,6 +2343,9 @@ export function createDemoRouter(options: {
       }
       if (hydrateEnquiryCompatibility && can(req, "matching:read")) {
         await hydrateReadOnlyProjection(matchingRecords, incidentId, (offset) => matchingService.listCompatibility(accessActor, incidentId, { limit: 200, offset, sortDirection: "desc" }));
+      }
+      if (hydrateEnquiryCompatibility && releaseService.kind === "postgres" && can(req, "release:read")) {
+        await hydrateReadOnlyProjection(releases, incidentId, (offset) => releaseService.listCompatibility(accessActor, incidentId, { limit: 200, offset, sortDirection: "desc" }));
       }
       next();
     })().catch(next);
@@ -2825,126 +2842,6 @@ export function createDemoRouter(options: {
   });
   router.get("/audit-logs", requirePermission("audit:read"), (req, res) => res.json(listRows("audit-logs", req)));
 
-  router.get("/releases", requirePermission("release:read"), requireIncidentAccess((req) => String(req.query.sessionId ?? ""), true), (req, res) => res.json(listRows("releases", req)));
-  router.post("/releases", requirePermission("release:create"), requireIncidentAccess((req) => String(req.body?.sessionId ?? ""), true), (req, res) => {
-    const issue = demoReleaseMatchError(req.body ?? {});
-    if (issue) {
-      res.status(issue.status).json({ error: issue.error });
-      return;
-    }
-    const duplicate = releases.find((item) => item.sessionId === req.body.sessionId && item.matchId === req.body.matchId && item.status === "Prepared");
-    if (duplicate) {
-      res.status(409).json({ error: `An open release action already exists (${duplicate.operationalId})` });
-      return;
-    }
-    const match = matchingRecords.find((item) => item.id === req.body.matchId)!;
-    const row = createRow("releases", {
-      ...req.body,
-      status: "Prepared",
-      passengerRecordId: match.passengerRecordId,
-      familyRecordId: match.familyRecordId
-    }, req);
-    addAudit(req, "prepare_release", `${row.actionType} ${row.operationalId} prepared`, row.sessionId, undefined, "reunificationReleaseRecord", row.id);
-    res.status(201).json(row);
-  });
-  router.patch("/releases/:id", requirePermission("release:create"), requireIncidentAccess((req) => String(releases.find((item) => item.id === req.params.id)?.sessionId ?? req.body?.sessionId ?? ""), true), (req, res) => {
-    const existing = releases.find((item) => item.id === req.params.id);
-    if (!existing) {
-      res.status(404).json({ error: "Release/reunification record not found" });
-      return;
-    }
-    if (existing.status !== "Prepared") {
-      res.status(409).json({ error: "Completed or cancelled release actions are read-only" });
-      return;
-    }
-    const issue = demoReleaseMatchError(existing);
-    if (issue) {
-      res.status(issue.status).json({ error: issue.error });
-      return;
-    }
-    const { sessionId: _sessionId, matchId: _matchId, passengerRecordId: _passengerRecordId, familyRecordId: _familyRecordId, status: _status, ...updates } = req.body ?? {};
-    const row = updateRow("releases", existing.id, updates, req)!;
-    addAudit(req, "update_release", `${row.actionType} ${row.operationalId} updated`, row.sessionId, undefined, "reunificationReleaseRecord", row.id);
-    res.json(row);
-  });
-
-  router.post("/releases/:id/complete", requirePermission("release:complete"), requireIncidentAccess((req) => String(releases.find((item) => item.id === req.params.id)?.sessionId ?? req.body?.sessionId ?? ""), true), (req, res) => {
-    const note = demoDecisionNote(req.body?.notes);
-    if (!note) {
-      res.status(400).json({ error: "Decision note must contain at least 3 characters" });
-      return;
-    }
-    const existing = releases.find((item) => item.id === req.params.id);
-    if (!existing) {
-      res.status(404).json({ error: "Not found" });
-      return;
-    }
-    if (existing.status !== "Prepared") {
-      res.status(409).json({ error: "Only prepared release actions can be completed" });
-      return;
-    }
-    const matchIssue = demoReleaseMatchError(existing);
-    if (matchIssue) {
-      res.status(matchIssue.status).json({ error: matchIssue.error });
-      return;
-    }
-    if (!existing.identityChecked) {
-      res.status(409).json({ error: "Identity check must be confirmed before completion" });
-      return;
-    }
-    if (!existing.holdCleared) {
-      res.status(409).json({ error: "Hold cleared check must be confirmed before completion" });
-      return;
-    }
-    if (existing.actionType === "Release" && !existing.receivingParty) {
-      res.status(400).json({ error: "Receiving party is required for release" });
-      return;
-    }
-    const row = updateRow("releases", String(req.params.id), { status: "Completed", completedAt: now(), notes: note }, req)!;
-    const match = matchingRecords.find((item) => item.id === row.matchId);
-    addAudit(req, row.actionType === "Release" ? "release" : "reunite", `${row.actionType} ${row.operationalId} completed`, row.sessionId, { status: "Completed", actionType: row.actionType, decisionNotes: note }, "reunificationReleaseRecord", row.id);
-    addTimeline(req, {
-      sessionId: row.sessionId,
-      caseId: match?.caseId,
-      eventType: row.actionType === "Release" ? "release" : "reunification",
-      entityType: "reunificationReleaseRecord",
-      entityId: row.id,
-      title: `${row.actionType} ${row.operationalId} completed`,
-      body: note,
-      metadata: { status: "Completed", actionType: row.actionType }
-    });
-    res.json(row);
-  });
-  router.post("/releases/:id/cancel", requirePermission("release:cancel"), requireIncidentAccess((req) => String(releases.find((item) => item.id === req.params.id)?.sessionId ?? req.body?.sessionId ?? ""), true), (req, res) => {
-    const note = demoDecisionNote(req.body?.notes);
-    if (!note) {
-      res.status(400).json({ error: "Decision note must contain at least 3 characters" });
-      return;
-    }
-    const existing = releases.find((item) => item.id === req.params.id);
-    if (!existing) {
-      res.status(404).json({ error: "Not found" });
-      return;
-    }
-    if (existing.status !== "Prepared") {
-      res.status(409).json({ error: "Only prepared release actions can be cancelled" });
-      return;
-    }
-    const row = updateRow("releases", String(req.params.id), { status: "Cancelled", notes: note }, req)!;
-    const match = matchingRecords.find((item) => item.id === row.matchId);
-    addAudit(req, "cancel_release", `${row.actionType} ${row.operationalId} cancelled`, row.sessionId, { status: "Cancelled", actionType: row.actionType, decisionNotes: note }, "reunificationReleaseRecord", row.id);
-    addTimeline(req, {
-      sessionId: row.sessionId,
-      caseId: match?.caseId,
-      eventType: "release",
-      entityType: "reunificationReleaseRecord",
-      entityId: row.id,
-      title: `${row.actionType} ${row.operationalId} cancelled`,
-      body: note,
-      metadata: { status: "Cancelled", actionType: row.actionType }
-    });
-    res.json(row);
-  });
   router.post("/requests/:id/assign-to-me", requirePermission("request:assign"), (req, res) => res.json(updateRow("requests", String(req.params.id), { status: "Assigned", ownerAssignedTo: req.user?.displayName }, req)));
   router.post("/requests/:id/status", requirePermission("request:update"), (req, res) => {
     const status = String(req.body?.status ?? "");
