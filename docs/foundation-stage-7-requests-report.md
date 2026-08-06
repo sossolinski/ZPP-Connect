@@ -160,17 +160,17 @@ Integracja modularnego routera dodała dwa wiersze netto do `demo-router.ts`; le
 - Prisma validate: PASS.
 - Typecheck: PASS.
 - API unit/memory: PASS — 96/96.
-- Real PostgreSQL 16 fresh migration/seed, Stage 1–7: PASS — 44/44, zero skipped (niezależny lokalny gate uruchomiony podczas awarii hosted runners GitHub).
-- Pełny backfill rehearsal z pre-Stage-2 fixture do Stage 7: PASS lokalnie na PostgreSQL 16.
+- Real PostgreSQL 16 fresh migration/seed/startup, Stage 1–7: PASS — 44/44, zero skipped lokalnie oraz w zdalnym Foundation PostgreSQL Gate.
+- Pełny backfill rehearsal z pre-Stage-2 fixture do Stage 7: PASS lokalnie oraz w zdalnym Foundation PostgreSQL Gate.
 - Build: PASS (wyłącznie istniejące ostrzeżenie Vite o rozmiarze chunku).
 - Browser: PASS — 60/60.
 - Stage 7 PostgreSQL suite pokrywa migration assets/constraints/indexes/triggers, restart persistence, granular permissions, owner ≠ authorization, assign/reassign, FSM/bypass/no-delete, resolution/reopen/cancel, audit/timeline, concurrency, idempotent retry, EXERCISE/REAL isolation, pełny revoke, closed incident, wszystkie cztery same-incident references na service i DB, permission intersection, linked-domain independence i kolejkę 1000 rekordów.
 
 ## W. CI
 
-Branch: `agent/foundation-stage-7-requests`. Implementacja: `cac011dd63e408c556c35bdaf414e1f9965a0029`; poprawka wykryta przez real PostgreSQL: `92b828f`. Draft PR: #4. GitHub utworzył queued runy `31125285538`, `31125348532`, `31125704711` i `31125731731`, ale żaden job nie dostał hosted runnera. Dla bieżącego SHA webhook/run pozostaje opóźniony.
+Branch: `agent/foundation-stage-7-requests`. Implementacja: `cac011dd63e408c556c35bdaf414e1f9965a0029`; poprawka wykryta przez real PostgreSQL: `92b828f`. PR: #4. Po oficjalnej awarii GitHub Actions bieżący SHA `ebe7beb2c643142d0c254509ba22a307622df20d` otrzymał zdalny run `31129242894`.
 
-CI rozszerza Foundation PostgreSQL Gate do Stage 1–7: fresh migration, seed, startup, wszystkie real PostgreSQL suites bez skipped oraz backfill rehearsal. Quality uruchamia Typecheck, Unit, Build i Browser. Dependency Audit pozostaje niesuppressowany; dopuszczony jest wyłącznie `GHSA-qwww-vcr4-c8h2`. W chwili zamknięcia raportu GitHub Status oznacza Actions jako `major_outage`; remote wynik nie jest przedstawiany jako PASS.
+Foundation PostgreSQL Gate zakończył się PASS: fresh migration, seed, startup, wszystkie real PostgreSQL suites 44/44 bez skipped oraz backfill rehearsal. Quality zakończył się PASS: Typecheck, Unit 96/96, Build i Browser 60/60. Jedynym czerwonym jobem pozostał niesuppressowany Dependency Audit, a jego log zawiera wyłącznie zaakceptowany `GHSA-qwww-vcr4-c8h2`; nie pojawiły się nowe security findings ani regresje.
 
 ## X. Remaining split-brain
 
@@ -190,12 +190,13 @@ Nie istnieje drugi production Request command implementation ani production Requ
 5. Jednoznaczne mapowanie ownera po display name jest konserwatywne, ale historyczny label może pozostać bez FK, gdy nazwa jest niejednoznaczna.
 6. Queue zweryfikowano na 1000 rekordach; większa skala wymaga obserwacji query plans i ewentualnego indeksu tekstowego.
 7. `caseId` nie ma integralności relacyjnej, świadomie poza zakresem Stage 7.
-8. Bieżąca awaria GitHub Actions blokuje wyłącznie potwierdzenie remote CI; niezależne real PostgreSQL i pełne lokalne gate’y są zielone.
 
 ## Z. Next decision
 
 ```text
-NOT READY
+READY FOR NEXT FOUNDATION SLICE
 ```
 
-Jedyny brakujący warunek: bieżący head PR #4 musi uzyskać zdalny Foundation PostgreSQL Gate i Quality PASS, przy braku nowych findings poza zaakceptowanym advisory. Nie rozpoczęto kolejnego slice; po usunięciu tego blokera aktualny split-brain wskazuje Assignments jako następny kandydat do osobnej decyzji.
+Rekomendowany następny pionowy slice: **Assignments Persistence + Ownership + Controlled Workflow**.
+
+AssignmentTask jest najbliższym pozostałym incidentowym workflow, który nadal ma równoległe memory i old Prisma write paths. Jego migracja domknie kolejny autorytatywny obszar odpowiedzialności operacyjnej bez mieszania go z ukończonym Request ownership ani rozszerzania tego slice’a.
