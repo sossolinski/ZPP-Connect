@@ -22,6 +22,7 @@ import { ReadinessPage } from "./pages/ReadinessPage";
 import { SettingsPage } from "./pages/SettingsPage";
 import { SessionsPage } from "./pages/SessionsPage";
 import { RecordsPage } from "./pages/RecordsPage";
+import { RequestsPage } from "./pages/RequestsPage";
 import { MatchingPage } from "./pages/MatchingPage";
 import { ReleasePage } from "./pages/ReleasePage";
 import { TimelinePage } from "./pages/TimelinePage";
@@ -338,7 +339,7 @@ export function App() {
         element={protect(
           "requests",
           <WorkflowPage eyebrow="Welfare requests" title="Requests" description="Next: open urgent requests first, assign an owner, then update the status.">
-            <SessionDependentPage><RecordsPage kind="requests" /></SessionDependentPage>
+            <SessionDependentPage><RequestsPage /></SessionDependentPage>
           </WorkflowPage>
         )}
       />

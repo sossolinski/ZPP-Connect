@@ -1,5 +1,5 @@
 import { Fragment, useEffect, useMemo, useRef, useState } from "react";
-import { Check, CheckCircle2, ChevronLeft, ChevronRight, Clock3, CopyX, Eye, FilePlus2, Pencil, PlayCircle, Save, Search, Send, ShieldCheck, Siren, UserCheck, XCircle } from "lucide-react";
+import { Check, CheckCircle2, ChevronLeft, ChevronRight, CopyX, Eye, FilePlus2, Pencil, Save, Search, Send, ShieldCheck, Siren, UserCheck, XCircle } from "lucide-react";
 import { useSearchParams } from "react-router-dom";
 import { api } from "../lib/api";
 import { useApp } from "../lib/app-context";
@@ -44,15 +44,11 @@ const dateTimeFormatter = new Intl.DateTimeFormat("en-GB", {
 const controlledOptionsByKind: Record<string, Record<string, Set<string>>> = {
   enquiries: {
     status: new Set(["Sent to family assistance", "Duplicate suspected", "Urgent welfare", "Closed"])
-  },
-  requests: {
-    approvalStatus: new Set(["Approved", "Rejected"]),
-    status: new Set(["Assigned", "In progress", "Waiting", "Done", "Closed", "Cancelled"])
   }
 };
 type SortDirection = "asc" | "desc";
 type PendingDecision = {
-  action: "family-verify" | "family-reject" | "family-reopen" | "request-close" | "passenger-src" | "passenger-condition" | "passenger-hold";
+  action: "family-verify" | "family-reject" | "family-reopen" | "passenger-src" | "passenger-condition" | "passenger-hold";
   record: AnyRecord;
   note: string;
   value?: string;
@@ -162,33 +158,6 @@ const configs: Record<string, Config> = {
       { name: "source", label: "Source", type: "select", optionsKey: "passengerSources", required: true },
       { name: "travellingCompanions", label: "Travelling companions", type: "textarea" },
       { name: "sourceExternalId", label: "Source external ID" },
-      { name: "notes", label: "Notes", type: "textarea" }
-    ]
-  },
-  requests: {
-    resource: "requests",
-    title: "Welfare / Logistics Requests",
-    description: "Requests should be linked to a case, passenger, family record or enquiry where possible.",
-    readPermission: "request:read",
-    createPermission: "request:create",
-    updatePermission: "request:update",
-    columns: [
-      { key: "operationalId", label: "ID", className: "w-[148px]" },
-      { key: "category", label: "Category", className: "w-[148px]" },
-      { key: "priority", label: "Priority", status: true, className: "w-[104px]" },
-      { key: "ownerAssignedTo", label: "Owner", className: "w-[132px]" },
-      { key: "approvalStatus", label: "Approval", status: true, className: "w-[124px]" },
-      { key: "status", label: "Status", status: true, className: "w-[112px]" }
-    ],
-    fields: [
-      { name: "category", label: "Category", type: "select", optionsKey: "requestCategories", required: true },
-      { name: "priority", label: "Priority", type: "select", optionsKey: "requestPriorities" },
-      { name: "requester", label: "Requester" },
-      { name: "ownerAssignedTo", label: "Owner / assigned to" },
-      { name: "details", label: "Details", type: "textarea", required: true },
-      { name: "approvalStatus", label: "Approval status", type: "select", optionsKey: "approvalStatuses" },
-      { name: "status", label: "Status", type: "select", optionsKey: "requestStatuses" },
-      { name: "closureNote", label: "Closure note", type: "textarea" },
       { name: "notes", label: "Notes", type: "textarea" }
     ]
   }
@@ -780,17 +749,6 @@ export function RecordsPage({ kind }: { kind: keyof typeof configs }) {
     });
   }
 
-  function openRequestCloseDecision() {
-    if (!editing.id) return;
-    setPendingDecision({
-      action: "request-close",
-      record: editing,
-      note: String(editing.closureNote ?? ""),
-      error: "",
-      saving: false
-    });
-  }
-
   function openPassengerDecision(action: "passenger-src" | "passenger-condition" | "passenger-hold", value?: string) {
     if (!editing.id) return;
     setPendingDecision({ action, record: editing, value, note: "", error: "", saving: false });
@@ -804,7 +762,7 @@ export function RecordsPage({ kind }: { kind: keyof typeof configs }) {
     }
     const note = pendingDecision.note.trim();
     const isFamilyDecision = pendingDecision.action.startsWith("family-");
-    const noteLabel = isFamilyDecision ? "decision basis" : pendingDecision.action === "request-close" ? "closure note" : pendingDecision.action === "passenger-hold" ? "hold reason" : "decision basis";
+    const noteLabel = isFamilyDecision ? "decision basis" : pendingDecision.action === "passenger-hold" ? "hold reason" : "decision basis";
     if (pendingDecision.action !== "passenger-src" && note.length < 3) {
       setPendingDecision((current) => (current ? { ...current, error: `Enter a ${noteLabel} with at least 3 characters.` } : current));
       return;
@@ -820,8 +778,6 @@ export function RecordsPage({ kind }: { kind: keyof typeof configs }) {
           basis: note,
           verifiedRelationshipType: pendingDecision.action === "family-verify" ? pendingDecision.record.claimedRelationship : undefined
         });
-      } else if (pendingDecision.action === "request-close") {
-        await api.action(config.resource, pendingDecision.record.id, "status", { status: "Closed", closureNote: note });
       } else if (pendingDecision.action === "passenger-src") {
         await api.action(config.resource, pendingDecision.record.id, "mark-src-confirmed", { sessionId: pendingDecision.record.sessionId, version: pendingDecision.record.version, basis: note || undefined });
       } else if (pendingDecision.action === "passenger-condition") {
@@ -909,17 +865,6 @@ export function RecordsPage({ kind }: { kind: keyof typeof configs }) {
             </div>
           ) : null}
           {canUpdate ? <Button variant="ghost" onClick={() => setSourceCorrectionMode((current) => !current)}>{sourceCorrectionMode ? "Cancel source correction" : "Correct source facts"}</Button> : null}
-        </div>
-      );
-    }
-    if (kind === "requests") {
-      return (
-        <div className="grid gap-2 sm:grid-cols-2">
-          {activeSessionWritable && can("request:assign") ? <Button icon={UserCheck} variant="secondary" onClick={() => runEditorAction("assign-to-me")}>Assign to me</Button> : null}
-          {canUpdate ? <Button icon={PlayCircle} variant="secondary" onClick={() => runEditorAction("status", { status: "In progress" })}>In progress</Button> : null}
-          {canUpdate ? <Button icon={Clock3} variant="warning" onClick={() => runEditorAction("status", { status: "Waiting" })}>Waiting</Button> : null}
-          {(activeSessionWritable && can("request:close")) || canUpdate ? <Button icon={CheckCircle2} variant="success" onClick={openRequestCloseDecision}>Close</Button> : null}
-          {canUpdate ? <Button icon={XCircle} variant="danger" onClick={() => runEditorAction("status", { status: "Cancelled" })}>Cancel</Button> : null}
         </div>
       );
     }
@@ -1207,24 +1152,24 @@ export function RecordsPage({ kind }: { kind: keyof typeof configs }) {
 
       {pendingDecision ? (
         <DecisionDialog
-          title={pendingDecision.action === "family-verify" ? "Verify relationship claim" : pendingDecision.action === "family-reject" ? "Reject relationship claim" : pendingDecision.action === "family-reopen" ? "Reopen relationship claim" : pendingDecision.action === "request-close" ? "Close Request" : pendingDecision.action === "passenger-src" ? "Confirm SRC" : pendingDecision.action === "passenger-condition" ? "Change passenger condition" : "Change passenger hold"}
+          title={pendingDecision.action === "family-verify" ? "Verify relationship claim" : pendingDecision.action === "family-reject" ? "Reject relationship claim" : pendingDecision.action === "family-reopen" ? "Reopen relationship claim" : pendingDecision.action === "passenger-src" ? "Confirm SRC" : pendingDecision.action === "passenger-condition" ? "Change passenger condition" : "Change passenger hold"}
           description={
             pendingDecision.action.startsWith("family-")
               ? `${pendingDecision.record.operationalId ?? "This family record"}: the human relationship decision will be versioned and added to immutable operational history.`
-              : pendingDecision.action === "request-close" ? `${pendingDecision.record.operationalId ?? "This request"} will be closed and become a terminal workflow record. The closure is recorded in operational history.` : `${pendingDecision.record.operationalId ?? "This passenger record"} will be updated to ${pendingDecision.value ?? "SRC confirmed"}. The decision is versioned and added to operational history.`
+              : `${pendingDecision.record.operationalId ?? "This passenger record"} will be updated to ${pendingDecision.value ?? "SRC confirmed"}. The decision is versioned and added to operational history.`
           }
-          label={pendingDecision.action.startsWith("family-") ? "Decision basis / evidence summary" : pendingDecision.action === "request-close" ? "Closure note" : pendingDecision.action === "passenger-hold" ? "Hold reason" : "Decision basis"}
+          label={pendingDecision.action.startsWith("family-") ? "Decision basis / evidence summary" : pendingDecision.action === "passenger-hold" ? "Hold reason" : "Decision basis"}
           value={pendingDecision.note}
           onChange={(value) => setPendingDecision((current) => (current ? { ...current, note: value, error: "" } : current))}
           onCancel={() => setPendingDecision(null)}
           onConfirm={confirmDecision}
-          confirmLabel={pendingDecision.action === "family-verify" ? "Verify relationship" : pendingDecision.action === "family-reject" ? "Reject claim" : pendingDecision.action === "family-reopen" ? "Reopen for review" : pendingDecision.action === "request-close" ? "Close request" : "Apply decision"}
+          confirmLabel={pendingDecision.action === "family-verify" ? "Verify relationship" : pendingDecision.action === "family-reject" ? "Reject claim" : pendingDecision.action === "family-reopen" ? "Reopen for review" : "Apply decision"}
           confirmIcon={pendingDecision.action === "family-verify" ? UserCheck : CheckCircle2}
           confirmVariant={pendingDecision.action === "family-reject" ? "danger" : pendingDecision.action === "family-reopen" ? "warning" : "success"}
           error={pendingDecision.error}
           busy={pendingDecision.saving}
           required={pendingDecision.action !== "passenger-src"}
-          placeholder={pendingDecision.action.startsWith("family-") ? "Evidence reviewed, discrepancy, or reason for reopening" : pendingDecision.action === "request-close" ? "Reason for closing this request" : "Evidence or operational reason"}
+          placeholder={pendingDecision.action.startsWith("family-") ? "Evidence reviewed, discrepancy, or reason for reopening" : "Evidence or operational reason"}
         />
       ) : null}
     </div>

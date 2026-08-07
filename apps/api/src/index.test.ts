@@ -834,24 +834,25 @@ describe("ZPP Connect API", () => {
     const app = createApp();
     const closureNote = "Resolved with PFA support arranged.";
 
-    expect((await apiPost(app, "/api/requests/req-demo-1/status", "zpp@lot.pl").send({ status: "Closed", closureNote })).status).toBe(403);
-    const closed = await apiPost(app, "/api/requests/req-demo-1/status", "coordinator@lot.pl").send({ status: "Closed", closureNote });
+    const operationId = randomUUID();
+    expect((await apiPost(app, "/api/requests/req-demo-1/resolve", "zpp@lot.pl").send({ sessionId: "ses-demo-1", expectedVersion: 1, outcome: "PFA arranged", resolutionNote: closureNote, operationId })).status).toBe(403);
+    const closed = await apiPost(app, "/api/requests/req-demo-1/resolve", "coordinator@lot.pl").send({ sessionId: "ses-demo-1", expectedVersion: 1, outcome: "PFA arranged", resolutionNote: closureNote, operationId });
     expect(closed.status).toBe(200);
-    expect(closed.body.status).toBe("Closed");
+    expect(closed.body.status).toBe("RESOLVED");
 
     const audit = await apiGet(app, "/api/audit-logs").query({ sessionId: "ses-demo-1" });
     expect(audit.body.data[0]).toMatchObject({
-      action: "close_request",
+      action: "request_resolve",
       actorEmail: "coordinator@lot.pl",
       actorDisplayName: "ZPP Coordinator",
-      metadata: { status: "Closed", closureNote }
+      metadata: { previousStatus: "ASSIGNED", newStatus: "RESOLVED", outcome: "PFA arranged" }
     });
 
     const timeline = await apiGet(app, "/api/timeline").query({ sessionId: "ses-demo-1" });
     expect(timeline.body.data[0]).toMatchObject({
       eventType: "request",
       entityId: "req-demo-1",
-      title: "Request REQ-2026-000001 closed",
+      title: "Request REQ-2026-000001 resolved",
       body: closureNote,
       createdBy: { userId: demoIds.coordinator, displayName: "ZPP Coordinator" }
     });

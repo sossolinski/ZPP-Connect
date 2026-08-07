@@ -22,8 +22,6 @@ import {
   exerciseObservationSchema,
   idParam,
   listQuery,
-  requestSchema,
-  requestStatusUpdateSchema,
   sessionCloseSchema,
   sessionSchema,
   timelineSchema
@@ -48,6 +46,8 @@ import { createPrismaMatchingRepository } from "../modules/matching/prisma-match
 import type { MatchingRepository } from "../modules/matching/matching-repository.js";
 import { createPrismaReleaseRepository } from "../modules/releases/prisma-release-repository.js";
 import type { ReleaseRepository } from "../modules/releases/release-repository.js";
+import { createPrismaRequestRepository } from "../modules/requests/prisma-request-repository.js";
+import type { RequestRepository } from "../modules/requests/request-repository.js";
 
 type Delegate = {
   count(args: unknown): Promise<number>;
@@ -561,8 +561,8 @@ api.get(
       : [undefined, undefined, undefined, []];
     const [openRequests, requestStatus] = canReadRequests
       ? await Promise.all([
-          prisma.welfareRequest.count({ where: { sessionId, status: { notIn: terminalRequestStatusList } } }),
-          prisma.welfareRequest.groupBy({ by: ["status"], where: { sessionId }, _count: true })
+          prisma.request.count({ where: { incidentId: sessionId, status: { notIn: terminalRequestStatusList } } }),
+          prisma.request.groupBy({ by: ["status"], where: { incidentId: sessionId }, _count: true })
         ])
       : [undefined, []];
 
@@ -605,8 +605,8 @@ api.get(
       passengerName: displayName(row.passengerFirstName, row.passengerLastName)
     });
 
-    const urgentRequests = canReadRequests ? await prisma.welfareRequest.findMany({
-        where: { sessionId, priority: "Urgent", status: { notIn: terminalRequestStatusList } },
+    const urgentRequests = canReadRequests ? await prisma.request.findMany({
+      where: { incidentId: sessionId, priority: "Urgent", status: { notIn: terminalRequestStatusList } },
         ...(canReadLinkedContext ? { include: { relatedEnquiry: true, relatedFamilyRecord: true, relatedPassengerRecord: true } } : {}),
         take: 5,
         orderBy: { updatedAt: "desc" }
@@ -806,88 +806,6 @@ api.post(
   })
 );
 
-
-api.get(
-  "/requests",
-  requirePermission("request:read"),
-  asyncHandler((req, res) => listRecords(req, res, prisma.welfareRequest, ["operationalId", "category", "requester", "ownerAssignedTo", "details"]))
-);
-
-api.post(
-  "/requests",
-  requirePermission("request:create"),
-  asyncHandler(async (req, res) => {
-    const body = clean(requestSchema.parse(req.body));
-    const record = await withOperationalIdRetry(async () => prisma.welfareRequest.create({
-      data: { ...body, operationalId: await nextOperationalId("welfareRequest", "REQ"), createdById: actorId(req), updatedById: actorId(req) }
-    }));
-    await logAudit(req, { action: "create_request", entityType: "request", entityId: record.id, sessionId: record.sessionId, summary: `Request ${record.operationalId} created` });
-    await addTimelineEvent({ sessionId: record.sessionId, caseId: record.caseId, eventType: "request", entityType: "request", entityId: record.id, title: `Request ${record.operationalId} created`, body: record.details, createdById: actorId(req) });
-    res.status(201).json(record);
-  })
-);
-
-api.patch(
-  "/requests/:id",
-  requirePermission("request:update"),
-  asyncHandler(async (req, res) => {
-    const { id } = idParam.parse(req.params);
-    const body = clean(requestSchema.partial().parse(req.body));
-    const record = await prisma.welfareRequest.update({ where: { id }, data: { ...body, updatedById: actorId(req) } });
-    await logAudit(req, { action: "update_request", entityType: "request", entityId: id, sessionId: record.sessionId, summary: `Request ${record.operationalId} updated` });
-    res.json(record);
-  })
-);
-
-api.post(
-  "/requests/:id/assign-to-me",
-  requirePermission("request:assign"),
-  asyncHandler(async (req, res) => {
-    const { id } = idParam.parse(req.params);
-    const record = await prisma.welfareRequest.update({ where: { id }, data: { status: "Assigned", ownerAssignedTo: req.user?.displayName, updatedById: actorId(req) } });
-    await logAudit(req, { action: "assign_request", entityType: "request", entityId: id, sessionId: record.sessionId, summary: `Request ${record.operationalId} assigned to ${req.user?.displayName}` });
-    res.json(record);
-  })
-);
-
-api.post(
-  "/requests/:id/status",
-  requirePermission("request:update"),
-  asyncHandler(async (req, res) => {
-    const { id } = idParam.parse(req.params);
-    const decision = requestStatusUpdateSchema.parse(req.body);
-    const record = await prisma.welfareRequest.update({
-      where: { id },
-      data: {
-        status: decision.status,
-        closureNote: decision.closureNote,
-        updatedById: actorId(req)
-      }
-    });
-    await logAudit(req, {
-      action: decision.status === "Closed" ? "close_request" : "update_request_status",
-      entityType: "request",
-      entityId: id,
-      sessionId: record.sessionId,
-      summary: `Request ${record.operationalId} status changed to ${decision.status}`,
-      metadata: decision.status === "Closed" ? { status: decision.status, closureNote: decision.closureNote } : { status: decision.status }
-    });
-    if (decision.status === "Closed") {
-      await addTimelineEvent({
-        sessionId: record.sessionId,
-        caseId: record.caseId,
-        eventType: "request",
-        entityType: "request",
-        entityId: id,
-        title: `Request ${record.operationalId} closed`,
-        body: decision.closureNote,
-        metadata: { status: decision.status },
-        createdById: actorId(req)
-      });
-    }
-    res.json(record);
-  })
-);
 
 api.get(
   "/assignments",
@@ -1261,14 +1179,6 @@ type ImportValidationResult = {
   previewRows: ImportPreviewRow[];
 };
 
-function cell(row: Record<string, unknown>, ...keys: string[]) {
-  for (const key of keys) {
-    const value = row[key];
-    if (value !== undefined && value !== null && value !== "") return value;
-  }
-  return undefined;
-}
-
 function importErrorMessage(error: unknown) {
   if (error && typeof error === "object" && "issues" in error && Array.isArray((error as { issues?: unknown[] }).issues)) {
     return (error as { issues: Array<{ path?: Array<string | number>; message: string }> }).issues
@@ -1282,35 +1192,9 @@ function importErrorMessage(error: unknown) {
 }
 
 function parseImportRow(type: string, sessionId: string | undefined, rawRow: Record<string, unknown>) {
-  if (!sessionId) throw new Error("sessionId is required");
-  const row = normalizeRow(rawRow);
-
-  if (type === "request") {
-    return {
-      model: "welfareRequest" as const,
-      prefix: "REQ",
-      data: clean(
-        requestSchema.parse({
-          sessionId,
-          caseId: cell(row, "caseId", "case_id"),
-          relatedEnquiryId: cell(row, "relatedEnquiryId", "related_enquiry_id"),
-          relatedFamilyRecordId: cell(row, "relatedFamilyRecordId", "related_family_record_id"),
-          relatedPassengerRecordId: cell(row, "relatedPassengerRecordId", "related_passenger_record_id"),
-          category: cell(row, "category") || "Other",
-          priority: cell(row, "priority") || "Normal",
-          requester: cell(row, "requester"),
-          ownerAssignedTo: cell(row, "ownerAssignedTo", "owner_assigned_to"),
-          details: cell(row, "details"),
-          approvalStatus: cell(row, "approvalStatus", "approval_status") || "Not required",
-          status: cell(row, "status") || "Open",
-          closureNote: cell(row, "closureNote", "closure_note"),
-          notes: cell(row, "notes")
-        })
-      )
-    };
-  }
-
-  throw new Error(`Unsupported import type: ${type}`);
+  void sessionId;
+  void rawRow;
+  throw new Error(`Legacy ${type} import is unavailable; use the modular domain importer`);
 }
 
 function validateImportRows(type: string, sessionId: string | undefined, rows: Array<Record<string, unknown>>): ImportValidationResult {
@@ -1342,17 +1226,9 @@ function validateImportRows(type: string, sessionId: string | undefined, rows: A
 }
 
 async function createImportedRecord(req: Request, parsed: ReturnType<typeof parseImportRow>) {
-  const baseData = {
-    ...parsed.data,
-    createdById: actorId(req),
-    updatedById: actorId(req)
-  };
-  const data = async () => ({
-    ...baseData,
-    operationalId: await nextOperationalId(parsed.model, parsed.prefix)
-  });
-
-  await withOperationalIdRetry(async () => prisma.welfareRequest.create({ data: (await data()) as Prisma.WelfareRequestUncheckedCreateInput }));
+  void req;
+  void parsed;
+  throw new HttpError(410, "Legacy Request import writes were removed; use RequestService");
 }
 
 async function commitImportRows(req: Request, type: string, sessionId: string | undefined, rows: Array<Record<string, unknown>>) {
@@ -1512,7 +1388,7 @@ api.get(
       prisma.familyRecord.findMany({ where: { sessionId } }),
       prisma.passengerRecord.findMany({ where: { sessionId } }),
       prisma.matchingRecord.findMany({ where: { sessionId } }),
-      prisma.welfareRequest.findMany({ where: { sessionId } }),
+      prisma.request.findMany({ where: { incidentId: sessionId } }),
       prisma.auditLog.findMany({ where: { sessionId }, orderBy: { createdAt: "desc" }, take: 1000 })
     ]);
 
@@ -1635,10 +1511,10 @@ api.get(
         prisma.familyRecord.count({ where: { sessionId } }),
         prisma.passengerRecord.count({ where: { sessionId } }),
         prisma.matchingRecord.count({ where: { sessionId } }),
-        prisma.welfareRequest.count({ where: { sessionId } })
+        prisma.request.count({ where: { incidentId: sessionId } })
       ]),
       prisma.matchingRecord.findMany({ where: { sessionId, holdCheck: { not: "No hold" } }, take: 20 }),
-      prisma.welfareRequest.findMany({ where: { sessionId, priority: "Urgent", status: { notIn: terminalRequestStatusList } }, take: 20 })
+      prisma.request.findMany({ where: { incidentId: sessionId, priority: "Urgent", status: { notIn: terminalRequestStatusList } }, take: 20 })
     ]);
     res.json({ session, counts: { enquiries: kpis[0], families: kpis[1], passengers: kpis[2], matches: kpis[3], requests: kpis[4] }, holds, urgentRequests });
   })
@@ -1781,8 +1657,9 @@ export function registerRoutes(app: Express, options: {
   familyRepository?: FamilyRepository;
   matchingRepository?: MatchingRepository;
   releaseRepository?: ReleaseRepository;
+  requestRepository?: RequestRepository;
 } = {}) {
-  const usePostgres = config.persistenceMode === "postgres" || options.incidentRepository?.kind === "postgres" || options.enquiryRepository?.kind === "postgres" || options.passengerRepository?.kind === "postgres" || options.familyRepository?.kind === "postgres" || options.matchingRepository?.kind === "postgres" || options.releaseRepository?.kind === "postgres";
+  const usePostgres = config.persistenceMode === "postgres" || options.incidentRepository?.kind === "postgres" || options.enquiryRepository?.kind === "postgres" || options.passengerRepository?.kind === "postgres" || options.familyRepository?.kind === "postgres" || options.matchingRepository?.kind === "postgres" || options.releaseRepository?.kind === "postgres" || options.requestRepository?.kind === "postgres";
   const incidentRepository = options.incidentRepository ?? (
     usePostgres ? createPrismaIncidentRepository(prisma) : undefined
   );
@@ -1807,5 +1684,8 @@ export function registerRoutes(app: Express, options: {
   const releaseRepository = options.releaseRepository ?? (
     usePostgres ? createPrismaReleaseRepository(prisma) : undefined
   );
-  app.use("/api", createDemoRouter({ incidentRepository, enquiryRepository, incidentAccessRepository, incidentAssignmentRepository, passengerRepository, familyRepository, matchingRepository, releaseRepository }));
+  const requestRepository = options.requestRepository ?? (
+    usePostgres ? createPrismaRequestRepository(prisma) : undefined
+  );
+  app.use("/api", createDemoRouter({ incidentRepository, enquiryRepository, incidentAccessRepository, incidentAssignmentRepository, passengerRepository, familyRepository, matchingRepository, releaseRepository, requestRepository }));
 }

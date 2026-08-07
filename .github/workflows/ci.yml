@@ -82,7 +82,7 @@ jobs:
           kill "$api_pid"
           wait "$api_pid" || true
 
-      - name: PostgreSQL Foundation Stage 1, 2, 2.5, 3, 4, 5 and 6 integration tests
+      - name: PostgreSQL Foundation Stage 1, 2, 2.5, 3, 4, 5, 6 and 7 integration tests
         run: npm run test:postgres
 
       - name: Rehearse IncidentAssignment backfill from pre-Stage-2 data
@@ -171,6 +171,47 @@ jobs:
           DATABASE_URL="$BACKFILL_DATABASE_URL" npx prisma migrate deploy --schema "$migration_workspace/schema.prisma"
           release_backfill=$(psql "$BACKFILL_PSQL_URL" --tuples-only --no-align --command='SELECT count(*) FROM "ReleaseAction" action WHERE action."id" = '\''60000000-0000-4000-8000-000000000001'\'' AND action."status" = '\''COMPLETED'\'' AND action."actionType" = '\''RELEASE'\'' AND action."legacyImported" = true AND action."verificationEvidenceUnavailable" = true AND action."preparedById" = '\''10000000-0000-4000-8000-000000000001'\'' AND NOT EXISTS (SELECT 1 FROM "ReleaseCheck" check_record WHERE check_record."releaseActionId" = action."id");')
           test "$release_backfill" = "1"
+          psql "$BACKFILL_PSQL_URL" --set=ON_ERROR_STOP=1 <<'SQL'
+          INSERT INTO "Session" ("id", "operationalId", "mode", "status", "eventType", "createdById", "updatedAt")
+          VALUES ('20000000-0000-4000-8000-000000000002', 'BACKFILL-002', 'REAL', 'Draft', 'Cross-incident backfill test', '10000000-0000-4000-8000-000000000001', CURRENT_TIMESTAMP);
+          INSERT INTO "PassengerRecord" (
+            "id", "operationalId", "sessionId", "personType", "firstName", "lastName", "source",
+            "conditionStatus", "holdStatus", "srcConfirmed", "createdById", "updatedById", "updatedAt"
+          ) VALUES (
+            '30000000-0000-4000-8000-000000000002', 'PAX-BACKFILL-002',
+            '20000000-0000-4000-8000-000000000002', 'Passenger', 'Cross', 'Incident', 'Manifest',
+            'Unknown', 'No hold', false, '10000000-0000-4000-8000-000000000001',
+            '10000000-0000-4000-8000-000000000001', CURRENT_TIMESTAMP
+          );
+          INSERT INTO "WelfareRequest" (
+            "id", "operationalId", "sessionId", "caseId", "relatedEnquiryId", "relatedFamilyRecordId",
+            "relatedPassengerRecordId", "category", "priority", "requester", "ownerAssignedTo", "details",
+            "approvalStatus", "status", "closureNote", "notes", "createdById", "updatedById", "createdAt", "updatedAt"
+          ) VALUES (
+            '70000000-0000-4000-8000-000000000001', 'REQ-BACKFILL-001',
+            '20000000-0000-4000-8000-000000000001', 'CASE-BACKFILL', NULL,
+            '40000000-0000-4000-8000-000000000001', '30000000-0000-4000-8000-000000000001',
+            'Transport', 'Urgent', 'Historical requester', 'Unknown historical owner',
+            'Historical transport need', 'Not required', 'Closed', 'Historical closure note',
+            'No transition history existed', '10000000-0000-4000-8000-000000000001',
+            '10000000-0000-4000-8000-000000000001', CURRENT_TIMESTAMP - INTERVAL '2 days', CURRENT_TIMESTAMP - INTERVAL '1 day'
+          );
+          INSERT INTO "WelfareRequest" (
+            "id", "operationalId", "sessionId", "relatedPassengerRecordId", "category", "priority",
+            "details", "approvalStatus", "status", "createdById", "updatedById", "updatedAt"
+          ) VALUES (
+            '70000000-0000-4000-8000-000000000002', 'REQ-BACKFILL-002',
+            '20000000-0000-4000-8000-000000000001', '30000000-0000-4000-8000-000000000002',
+            'Other', 'Normal', 'Legacy cross-incident reference', 'Not required', 'Open',
+            '10000000-0000-4000-8000-000000000001', '10000000-0000-4000-8000-000000000001', CURRENT_TIMESTAMP
+          );
+          SQL
+          cp -R apps/api/prisma/migrations/20260806020000_requests_foundation "$migration_workspace/migrations/"
+          DATABASE_URL="$BACKFILL_DATABASE_URL" npx prisma migrate deploy --schema "$migration_workspace/schema.prisma"
+          request_backfill=$(psql "$BACKFILL_PSQL_URL" --tuples-only --no-align --command='SELECT count(*) FROM "WelfareRequest" request WHERE request."id" = '\''70000000-0000-4000-8000-000000000001'\'' AND request."status" = '\''RESOLVED'\'' AND request."priority" = '\''Urgent'\'' AND request."ownerUserId" IS NULL AND request."ownerAssignedTo" = '\''Unknown historical owner'\'' AND request."relatedFamilyRecordId" = '\''40000000-0000-4000-8000-000000000001'\'' AND request."relatedPassengerRecordId" = '\''30000000-0000-4000-8000-000000000001'\'' AND request."legacyImported" = true AND request."resolvedAt" = request."updatedAt" AND request."legacyMetadata"->>'\''transitionHistoryUnavailable'\'' = '\''true'\'' AND NOT EXISTS (SELECT 1 FROM "RequestOperation" operation WHERE operation."requestRecordId" = request."id");')
+          test "$request_backfill" = "1"
+          request_cross_incident=$(psql "$BACKFILL_PSQL_URL" --tuples-only --no-align --command='SELECT count(*) FROM "WelfareRequest" request WHERE request."id" = '\''70000000-0000-4000-8000-000000000002'\'' AND request."relatedPassengerRecordId" IS NULL AND request."legacyMetadata"->>'\''legacyRelatedPassengerRecordId'\'' = '\''30000000-0000-4000-8000-000000000002'\'' AND request."legacyMetadata"->>'\''crossIncidentPassengerLinkRemoved'\'' = '\''true'\'';')
+          test "$request_cross_incident" = "1"
 
   quality:
     name: Typecheck, Unit, Build and Browser
