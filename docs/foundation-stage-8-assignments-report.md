@@ -137,7 +137,7 @@ AssignmentsPage.tsx after:    1212
 - Typecheck: PASS.
 - API unit/memory: PASS — 96/96 (PostgreSQL suites są celowo skipped bez `TEST_DATABASE_URL`).
 - Fresh PostgreSQL 16 migration + seed: PASS.
-- Stage 1–8 real PostgreSQL: PASS — 53/53, zero skipped.
+- Stage 1–8 real PostgreSQL: PASS — 56/56, zero skipped (po closure generatorów operational ID).
 - Exact legacy backfill rehearsal: PASS.
 - Build: PASS; wyłącznie istniejące ostrzeżenie Vite o rozmiarze chunku.
 - Browser: PASS — 61/61, w tym create, manager assign, self-claim, reassign, lifecycle/complete, 409 stale claim, revoked-assignee warning, candidate exclusion, closed Incident, role/access i mobile/focus parity.
@@ -189,3 +189,20 @@ Member Profiles + Groups Persistence and Membership Integrity
 ```
 
 To jeden następny pionowy slice, ponieważ Member profiles i Groups są obecnie wspólnym in-memory źródłem struktury zespołów dla kilku nadal niemigrowanych workflowów. Utrwalenie canonical User membership, group ownership i incident-safe relationships usuwa najbardziej centralny remaining split-brain przed migracją zależnych Rostering/Availability, Training, Documents i Readiness. Żaden kolejny slice nie został rozpoczęty.
+
+## AD. Operational ID concurrency closure
+
+Pierwszy remote Stage 8 PostgreSQL gate ujawnił kolizję `TEC-YYYY-NNNNNN`: Enquiry generowało kandydat przez `count + 1` i wykonywało najwyżej pięć retry po `P2002`. Sekwencyjne uruchamianie plików testowych usuwało wyścig pomiędzy suite'ami, ale nie zapewniało bezpieczeństwa produkcyjnego. Closure zastąpił ten mechanizm atomowym PostgreSQL `nextval` z globalnej `Enquiry_operational_seq`. Rok pozostaje czytelną częścią formatu, natomiast licznik jest globalny i nie resetuje się rocznie, ponieważ kontrakt nie definiował annual reset semantics.
+
+Audyt wszystkich aktywnych generatorów w zmigrowanych repozytoriach Stage 1–8 wykrył ten sam problem również dla `Session`: `SES-YYYY-NNN` powstawał przez `count + 1` z limitem pięciu retry. Został zastąpiony `Session_operational_seq`; stary helper Session w niemontowanym generic routerze również korzysta teraz z tej sekwencji. Passenger, Family/NOK, Matching, Release, Requests i Assignments już przed closure używały atomowych sekwencji PostgreSQL i nie wymagały zmiany. W aktywnych Stage 1–8 production repositories nie pozostał generator oparty na `count + 1`, `max + 1` ani skończonej pętli retry. Generic helper dla niemontowanych legacy ImportBatch/StoredFile/ExerciseInject/Observation pozostaje poza zmigrowanymi domenami i poza aktywną production route; nie stanowi alternatywnego write path Stage 8.
+
+Migracja `20260809010000_operational_id_concurrency_closure` tworzy obie sekwencje i inicjalizuje je ponad najwyższym poprawnym historycznym suffixem. Seed synchronizuje je po fixture inserts. Exact CI legacy rehearsal stosuje migrację i potwierdza istnienie obu sekwencji.
+
+Real PostgreSQL coverage po closure:
+
+- 25 równoległych create Enquiry dla jednego Incident: wszystkie sukcesy, 25 unikalnych globalnych TEC ID; rekordy pozostają po utworzeniu nowej instancji aplikacji, a kolejny create ma wyższy suffix.
+- 24 równoległe create Enquiry rozłożone pomiędzy EXERCISE, REAL i TRAINING: wszystkie sukcesy, brak cross-incident/cross-mode kolizji, globalna unikalność.
+- 20 równoległych create Session: wszystkie sukcesy, unikalne SES ID i trwałość po restarcie aplikacji.
+- Pełny Stage 1–8 PostgreSQL: 56/56 PASS, zero skipped; fresh migration, seed, startup i exact legacy backfill rehearsal: PASS.
+
+Closure implementation: `e397f050274aace09fefa4b81462ebdc450e91d3`. Lokalnie: Prisma validate/generate, Typecheck, Unit 96/96, Build, Browser 61/61 i production dependency audit z zero findings — PASS. Remote PR run [31336703500](https://github.com/sossolinski/ZPP-Connect/actions/runs/31336703500) na tym samym SHA przeszedł wszystkie trzy joby. Push run [31336701190](https://github.com/sossolinski/ZPP-Connect/actions/runs/31336701190) przeszedł PostgreSQL i audit; jego pierwszy Browser attempt miał pojedynczą, niezwiązaną z operational ID flake przy zmianie persony, podczas gdy identyczny PR run miał 61/61. Retry wyłącznie nieudanego joba na tym samym SHA przeszedł Typecheck, Unit, Build i Browser w całości. Nie wprowadzono sztucznej zmiany produktu w odpowiedzi na flake.
