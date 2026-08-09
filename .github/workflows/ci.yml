@@ -245,6 +245,10 @@ jobs:
           test "$assignment_unknown_enums" = "1"
           assignment_synthetic_operations=$(psql "$BACKFILL_PSQL_URL" --tuples-only --no-align --command='SELECT count(*) FROM "AssignmentOperation" WHERE "assignmentTaskId" IN ('\''80000000-0000-4000-8000-000000000001'\'', '\''80000000-0000-4000-8000-000000000002'\'', '\''80000000-0000-4000-8000-000000000003'\'', '\''80000000-0000-4000-8000-000000000004'\'');')
           test "$assignment_synthetic_operations" = "0"
+          cp -R apps/api/prisma/migrations/20260809010000_operational_id_concurrency_closure "$migration_workspace/migrations/"
+          DATABASE_URL="$BACKFILL_DATABASE_URL" npx prisma migrate deploy --schema "$migration_workspace/schema.prisma"
+          operational_id_sequences=$(psql "$BACKFILL_PSQL_URL" --tuples-only --no-align --command='SELECT count(*) FROM pg_class WHERE relkind = '\''S'\'' AND relname IN ('\''Session_operational_seq'\'', '\''Enquiry_operational_seq'\'');')
+          test "$operational_id_sequences" = "2"
 
   quality:
     name: Typecheck, Unit, Build and Browser

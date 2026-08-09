@@ -11,8 +11,11 @@ import type {
 
 const terminalStatuses = ["Closed", "Archived"];
 
-function isOperationalIdConflict(error: unknown) {
-  return error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002";
+async function nextOperationalId(tx: Prisma.TransactionClient) {
+  const [row] = await tx.$queryRaw<Array<{ value: bigint }>>`
+    SELECT nextval('"Session_operational_seq"') AS value
+  `;
+  return `SES-${new Date().getFullYear()}-${String(row!.value).padStart(3, "0")}`;
 }
 
 function sessionCreateData(input: IncidentCreateInput): Prisma.SessionUncheckedCreateInput {
@@ -85,68 +88,55 @@ export function createPrismaIncidentRepository(client: PrismaClient): IncidentRe
     },
 
     async create(input: IncidentCreateInput, actor: IncidentActor) {
-      let lastError: unknown;
-      for (let attempt = 0; attempt < 5; attempt += 1) {
-        try {
-          return await client.$transaction(async (tx) => {
-            const year = new Date().getFullYear();
-            const stem = `SES-${year}-`;
-            const count = await tx.session.count({ where: { operationalId: { startsWith: stem } } });
-            const operationalId = `${stem}${String(count + 1).padStart(3, "0")}`;
-            const actorId = await actorIdForEmail(tx, actor);
-            if (!actorId) throw new HttpError(403, "Authenticated user is not registered in the canonical user directory");
-            const data = sessionCreateData(input);
-            data.operationalId = operationalId;
-            data.createdById = actorId;
-            const record = await tx.session.create({ data });
-            const assignment = await tx.incidentAssignment.create({
-              data: {
-                incidentId: record.id,
-                userId: actorId,
-                function: "Incident creator",
-                scope: "OPERATIONAL",
-                createdById: actorId
-              }
-            });
-            await tx.auditLog.create({
-              data: {
-                action: "incident_assignment_assigned",
-                entityType: "incident_assignment",
-                entityId: assignment.id,
-                sessionId: record.id,
-                actorId,
-                actorEmail: actor.email,
-                summary: `Incident access assigned for user ${actorId}`,
-                metadata: {
-                  targetUserId: actorId,
-                  incidentId: record.id,
-                  action: "ASSIGNED",
-                  requestId: actor.requestId ?? null,
-                  previous: { exists: false },
-                  next: { active: true, scope: "OPERATIONAL", function: "Incident creator" },
-                  reason: "Incident creator auto-assignment"
-                }
-              }
-            });
-            await tx.auditLog.create({
-              data: {
-                action: "create_session",
-                entityType: "session",
-                entityId: record.id,
-                sessionId: record.id,
-                actorId,
-                actorEmail: actor.email,
-                summary: `Session ${record.operationalId} created`
-              }
-            });
-            return record as IncidentRecord;
-          });
-        } catch (error) {
-          if (!isOperationalIdConflict(error)) throw error;
-          lastError = error;
-        }
-      }
-      throw lastError;
+      return client.$transaction(async (tx) => {
+        const actorId = await actorIdForEmail(tx, actor);
+        if (!actorId) throw new HttpError(403, "Authenticated user is not registered in the canonical user directory");
+        const data = sessionCreateData(input);
+        data.operationalId = await nextOperationalId(tx);
+        data.createdById = actorId;
+        const record = await tx.session.create({ data });
+        const assignment = await tx.incidentAssignment.create({
+          data: {
+            incidentId: record.id,
+            userId: actorId,
+            function: "Incident creator",
+            scope: "OPERATIONAL",
+            createdById: actorId
+          }
+        });
+        await tx.auditLog.create({
+          data: {
+            action: "incident_assignment_assigned",
+            entityType: "incident_assignment",
+            entityId: assignment.id,
+            sessionId: record.id,
+            actorId,
+            actorEmail: actor.email,
+            summary: `Incident access assigned for user ${actorId}`,
+            metadata: {
+              targetUserId: actorId,
+              incidentId: record.id,
+              action: "ASSIGNED",
+              requestId: actor.requestId ?? null,
+              previous: { exists: false },
+              next: { active: true, scope: "OPERATIONAL", function: "Incident creator" },
+              reason: "Incident creator auto-assignment"
+            }
+          }
+        });
+        await tx.auditLog.create({
+          data: {
+            action: "create_session",
+            entityType: "session",
+            entityId: record.id,
+            sessionId: record.id,
+            actorId,
+            actorEmail: actor.email,
+            summary: `Session ${record.operationalId} created`
+          }
+        });
+        return record as IncidentRecord;
+      });
     },
 
     async update(id: string, input: IncidentUpdateInput, actor: IncidentActor) {

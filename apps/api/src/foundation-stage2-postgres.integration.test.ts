@@ -28,6 +28,7 @@ function application() {
 postgresDescribe("Foundation Stage 2 PostgreSQL Enquiry isolation", () => {
   let incidentA: string;
   let incidentB: string;
+  let incidentC: string;
   let passengerB: string;
 
   beforeAll(async () => {
@@ -38,13 +39,15 @@ postgresDescribe("Foundation Stage 2 PostgreSQL Enquiry isolation", () => {
       prisma!.user.findUniqueOrThrow({ where: { email: "viewer@lot.pl" } })
     ]);
     const marker = Date.now();
-    const [exercise, real] = await Promise.all([
+    const [exercise, real, training] = await Promise.all([
       prisma!.session.create({ data: { operationalId: `F2-EX-${marker}`, mode: "EXERCISE", status: "Active", eventType: "Stage 2 isolation", createdById: admin.id } }),
-      prisma!.session.create({ data: { operationalId: `F2-REAL-${marker}`, mode: "REAL", status: "Draft", eventType: "Stage 2 cross-mode", createdById: admin.id } })
+      prisma!.session.create({ data: { operationalId: `F2-REAL-${marker}`, mode: "REAL", status: "Draft", eventType: "Stage 2 cross-mode", createdById: admin.id } }),
+      prisma!.session.create({ data: { operationalId: `F2-TRAINING-${marker}`, mode: "TRAINING", status: "Active", eventType: "Stage 2 cross-mode", createdById: admin.id } })
     ]);
     incidentA = exercise.id;
     incidentB = real.id;
-    incidentIds.push(exercise.id, real.id);
+    incidentC = training.id;
+    incidentIds.push(exercise.id, real.id, training.id);
     await prisma!.incidentAssignment.createMany({
       data: [
         { incidentId: incidentA, userId: tec.id, function: "TEC operator", createdById: admin.id },
@@ -129,6 +132,70 @@ postgresDescribe("Foundation Stage 2 PostgreSQL Enquiry isolation", () => {
       version: 1,
       callerName: "No permission"
     })).status).toBe(403);
+  });
+
+  it("creates 25 Enquiries concurrently in one Incident and continues safely after restart", async () => {
+    const marker = `TEC-BURST-${Date.now()}`;
+    const responses = await Promise.all(Array.from({ length: 25 }, (_, index) =>
+      request(application()).post("/api/enquiries").set(as("tec@lot.pl")).send({
+        sessionId: incidentA,
+        contactChannel: "Phone",
+        callerName: `${marker}-${index}`,
+        enquiryType: "Information request",
+        urgency: "Normal",
+        status: "New"
+      })
+    ));
+
+    expect(responses.map(({ status }) => status)).toEqual(Array(25).fill(201));
+    const operationalIds = responses.map(({ body }) => body.operationalId as string);
+    expect(new Set(operationalIds).size).toBe(25);
+    expect(operationalIds.every((value) => /^TEC-[0-9]{4}-[0-9]{6,}$/.test(value))).toBe(true);
+    enquiryIds.push(...responses.map(({ body }) => body.id as string));
+
+    const restarted = application();
+    const persisted = await request(restarted).get("/api/enquiries").query({ sessionId: incidentA, search: marker, limit: 50 }).set(as("tec@lot.pl"));
+    expect(persisted.status).toBe(200);
+    expect(persisted.body).toMatchObject({ total: 25 });
+    expect(new Set(persisted.body.data.map((row: { operationalId: string }) => row.operationalId)).size).toBe(25);
+
+    const priorMaximum = Math.max(...operationalIds.map((value) => Number(value.split("-").at(-1))));
+    const afterRestart = await request(restarted).post("/api/enquiries").set(as("tec@lot.pl")).send({
+      sessionId: incidentA,
+      contactChannel: "Email",
+      callerName: `${marker}-after-restart`,
+      enquiryType: "Information request",
+      urgency: "Normal",
+      status: "New"
+    });
+    expect(afterRestart.status).toBe(201);
+    expect(Number(String(afterRestart.body.operationalId).split("-").at(-1))).toBeGreaterThan(priorMaximum);
+    enquiryIds.push(afterRestart.body.id);
+  });
+
+  it("keeps concurrent Enquiry IDs globally unique across REAL, EXERCISE and TRAINING Incidents", async () => {
+    const marker = `TEC-CROSS-${Date.now()}`;
+    const incidents = [incidentA, incidentB, incidentC];
+    const responses = await Promise.all(Array.from({ length: 24 }, (_, index) =>
+      request(application()).post("/api/enquiries").set(as("admin@lot.pl")).send({
+        sessionId: incidents[index % incidents.length],
+        contactChannel: index % 2 ? "Phone" : "Email",
+        callerName: `${marker}-${index}`,
+        enquiryType: "Information request",
+        urgency: "Normal",
+        status: "New"
+      })
+    ));
+
+    expect(responses.map(({ status }) => status)).toEqual(Array(24).fill(201));
+    const operationalIds = responses.map(({ body }) => body.operationalId as string);
+    expect(new Set(operationalIds).size).toBe(24);
+    enquiryIds.push(...responses.map(({ body }) => body.id as string));
+
+    const persisted = await prisma!.enquiry.findMany({ where: { id: { in: responses.map(({ body }) => body.id) } }, select: { operationalId: true, sessionId: true } });
+    expect(persisted).toHaveLength(24);
+    expect(new Set(persisted.map(({ operationalId }) => operationalId)).size).toBe(24);
+    expect(new Set(persisted.map(({ sessionId }) => sessionId))).toEqual(new Set(incidents));
   });
 
   it("enforces relation scope, protected transitions, concurrency, audit and closed incidents", async () => {

@@ -256,6 +256,36 @@ async function seedOperationalData() {
     }
   });
 
+  await prisma.$queryRaw`
+    SELECT setval(
+      '"Session_operational_seq"',
+      GREATEST(
+        COALESCE((
+          SELECT MAX(substring("operationalId" FROM '([0-9]+)$')::BIGINT)
+          FROM "Session"
+          WHERE "operationalId" ~ '^SES-[0-9]{4}-[0-9]+$'
+        ), 0) + 1,
+        1
+      ),
+      false
+    )
+  `;
+
+  await prisma.$queryRaw`
+    SELECT setval(
+      '"Enquiry_operational_seq"',
+      GREATEST(
+        COALESCE((
+          SELECT MAX(substring("operationalId" FROM '([0-9]+)$')::BIGINT)
+          FROM "Enquiry"
+          WHERE "operationalId" ~ '^TEC-[0-9]{4}-[0-9]+$'
+        ), 0) + 1,
+        1
+      ),
+      false
+    )
+  `;
+
   const family1 = await prisma.familyRecord.upsert({
     where: { operationalId: "FAM-2026-000001" },
     update: {},

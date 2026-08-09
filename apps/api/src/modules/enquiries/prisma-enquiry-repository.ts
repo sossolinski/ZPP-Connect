@@ -10,12 +10,15 @@ const transitionValues: Record<EnquiryTransition, { status: string; urgency?: st
   close: { status: "Closed", title: "Enquiry closed", action: "close_enquiry" }
 };
 
-function isOperationalIdConflict(error: unknown) {
-  return error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002";
-}
-
 function jsonMetadata(value: Record<string, unknown>): Prisma.InputJsonValue {
   return Object.fromEntries(Object.entries(value).filter(([, item]) => item !== undefined)) as Prisma.InputJsonObject;
+}
+
+async function nextOperationalId(tx: Prisma.TransactionClient) {
+  const [row] = await tx.$queryRaw<Array<{ value: bigint }>>`
+    SELECT nextval('"Enquiry_operational_seq"') AS value
+  `;
+  return `TEC-${new Date().getFullYear()}-${String(row!.value).padStart(6, "0")}`;
 }
 
 function createData(input: EnquiryCreateInput, operationalId: string, actorId: string): Prisma.EnquiryUncheckedCreateInput {
@@ -100,60 +103,47 @@ export function createPrismaEnquiryRepository(client: PrismaClient): EnquiryRepo
     },
 
     async create(context, input, actor) {
-      let lastError: unknown;
-      for (let attempt = 0; attempt < 5; attempt += 1) {
-        try {
-          return await client.$transaction(async (tx) => {
-            const writableIncident = await tx.session.count({
-              where: { id: context.incidentId, status: { notIn: ["Closed", "Archived"] } }
-            });
-            if (writableIncident !== 1) throw new HttpError(409, "Enquiries in a closed incident are read-only");
-            if (input.passengerRecordId) {
-              const linkedPassenger = await tx.passengerRecord.count({
-                where: { id: input.passengerRecordId, sessionId: context.incidentId }
-              });
-              if (linkedPassenger !== 1) throw new HttpError(409, "Passenger record must belong to the same incident");
-            }
-            const year = new Date().getFullYear();
-            const stem = `TEC-${year}-`;
-            const count = await tx.enquiry.count({ where: { operationalId: { startsWith: stem } } });
-            const operationalId = `${stem}${String(count + 1).padStart(6, "0")}`;
-            const record = await tx.enquiry.create({
-              data: createData({ ...input, sessionId: context.incidentId }, operationalId, context.actorId)
-            });
-            await tx.auditLog.create({
-              data: {
-                action: "create_enquiry",
-                entityType: "enquiry",
-                entityId: record.id,
-                sessionId: context.incidentId,
-                actorId: context.actorId,
-                actorEmail: actor.email,
-                summary: `Enquiry ${record.operationalId} created`,
-                metadata: jsonMetadata({ status: record.status, version: record.version, requestId: actor.requestId })
-              }
-            });
-            await tx.caseTimelineEvent.create({
-              data: {
-                sessionId: context.incidentId,
-                caseId: record.caseId,
-                eventType: "enquiry",
-                entityType: "enquiry",
-                entityId: record.id,
-                title: `Enquiry ${record.operationalId} created`,
-                body: record.notes,
-                metadata: { status: record.status, version: record.version },
-                createdById: context.actorId
-              }
-            });
-            return record as EnquiryRecord;
+      return client.$transaction(async (tx) => {
+        const writableIncident = await tx.session.count({
+          where: { id: context.incidentId, status: { notIn: ["Closed", "Archived"] } }
+        });
+        if (writableIncident !== 1) throw new HttpError(409, "Enquiries in a closed incident are read-only");
+        if (input.passengerRecordId) {
+          const linkedPassenger = await tx.passengerRecord.count({
+            where: { id: input.passengerRecordId, sessionId: context.incidentId }
           });
-        } catch (error) {
-          if (!isOperationalIdConflict(error)) throw error;
-          lastError = error;
+          if (linkedPassenger !== 1) throw new HttpError(409, "Passenger record must belong to the same incident");
         }
-      }
-      throw lastError;
+        const record = await tx.enquiry.create({
+          data: createData({ ...input, sessionId: context.incidentId }, await nextOperationalId(tx), context.actorId)
+        });
+        await tx.auditLog.create({
+          data: {
+            action: "create_enquiry",
+            entityType: "enquiry",
+            entityId: record.id,
+            sessionId: context.incidentId,
+            actorId: context.actorId,
+            actorEmail: actor.email,
+            summary: `Enquiry ${record.operationalId} created`,
+            metadata: jsonMetadata({ status: record.status, version: record.version, requestId: actor.requestId })
+          }
+        });
+        await tx.caseTimelineEvent.create({
+          data: {
+            sessionId: context.incidentId,
+            caseId: record.caseId,
+            eventType: "enquiry",
+            entityType: "enquiry",
+            entityId: record.id,
+            title: `Enquiry ${record.operationalId} created`,
+            body: record.notes,
+            metadata: { status: record.status, version: record.version },
+            createdById: context.actorId
+          }
+        });
+        return record as EnquiryRecord;
+      });
     },
 
     async update(context, enquiryId, input, expectedVersion, actor) {
