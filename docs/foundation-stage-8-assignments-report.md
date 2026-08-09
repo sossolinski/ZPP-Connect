@@ -141,11 +141,19 @@ AssignmentsPage.tsx after:    1212
 - Exact legacy backfill rehearsal: PASS.
 - Build: PASS; wyłącznie istniejące ostrzeżenie Vite o rozmiarze chunku.
 - Browser: PASS — 61/61, w tym create, manager assign, self-claim, reassign, lifecycle/complete, 409 stale claim, revoked-assignee warning, candidate exclusion, closed Incident, role/access i mobile/focus parity.
-- Production Dependency Audit: PASS lokalnie — zero findings.
+- Production Dependency Audit: PASS lokalnie i zdalnie — zero findings.
 
 ## Z. CI
 
-Branch: `agent/foundation-stage-8-assignments`. Commit, Draft PR i remote run IDs zostaną wpisane po publikacji finalnego local-gate commita. Workflow `Foundation PostgreSQL Gate` obejmuje fresh migration, seed, startup, Stage 1–8 (53 real PostgreSQL tests, zero skipped) i dokładny backfill rehearsal. Quality obejmuje Typecheck, Unit, Build i Browser. Dependency Audit pozostaje niesuppressowany; lokalny run ma zero findings, a `GHSA-qwww-vcr4-c8h2` jest jedynym advisory dopuszczonym przez brief, gdyby runner nadal je raportował.
+Branch: `agent/foundation-stage-8-assignments`. Implementacja: `a2480713a611b38836fde92932b2d179eebacd4f`; stabilizacja izolacji współdzielonej bazy w gate: `b143fdedb841773e631f2e4e93b18800984565fb`; Draft PR: [#5](https://github.com/sossolinski/ZPP-Connect/pull/5).
+
+Remote CI dla code-bearing SHA `b143fde` — run [31333870220](https://github.com/sossolinski/ZPP-Connect/actions/runs/31333870220):
+
+- `Foundation PostgreSQL Gate`: PASS — fresh migration, seed, startup, Stage 1–8 53/53 zero skipped i exact legacy backfill rehearsal.
+- `Typecheck, Unit, Build and Browser`: PASS — Typecheck, 96/96 Unit, Build i 61/61 Browser.
+- `Production Dependency Audit`: PASS — zero findings; `GHSA-qwww-vcr4-c8h2` nie wystąpił w aktualnym lockfile/audicie.
+
+Pierwszy remote run wykrył nondeterministyczną kolizję globalnego Enquiry operational ID pomiędzy równolegle uruchamianymi plikami Stage 2 i 3. Oficjalny PostgreSQL gate uruchamia odtąd współdzielące jedną bazę pliki sekwencyjnie, zachowując równoległe scenariusze concurrency wewnątrz testów. Dwa kolejne pełne local reruns oraz remote run powyżej przeszły 53/53.
 
 ## AA. Remaining split-brain
 
@@ -171,7 +179,13 @@ Nie istnieje drugi production Assignment command implementation ani production A
 ## AC. Next decision
 
 ```text
-NOT READY
+READY FOR NEXT FOUNDATION SLICE
 ```
 
-Jedynym otwartym gate’em jest pełny finalny local rerun oraz rzeczywisty remote GitHub CI dla finalnego SHA. Po ich przejściu raport zostanie zmieniony na `READY FOR NEXT FOUNDATION SLICE` i wskaże dokładnie jeden kolejny pionowy slice. Żaden kolejny slice nie został rozpoczęty.
+## Recommended next slice
+
+```text
+Member Profiles + Groups Persistence and Membership Integrity
+```
+
+To jeden następny pionowy slice, ponieważ Member profiles i Groups są obecnie wspólnym in-memory źródłem struktury zespołów dla kilku nadal niemigrowanych workflowów. Utrwalenie canonical User membership, group ownership i incident-safe relationships usuwa najbardziej centralny remaining split-brain przed migracją zależnych Rostering/Availability, Training, Documents i Readiness. Żaden kolejny slice nie został rozpoczęty.
