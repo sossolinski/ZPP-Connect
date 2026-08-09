@@ -147,8 +147,8 @@ describe("Stage 3G1 security containment", () => {
     const assignments = await apiGet(app, "/api/assignments", "zpp@lot.pl").query({ sessionId: "ses-demo-1", limit: 200 });
     expect(assignments.status).toBe(200);
     expect(ids(assignments)).toContain("asn-demo-1");
-    expect(ids(assignments)).not.toEqual(expect.arrayContaining(["asn-demo-2", "asn-demo-3", "asn-demo-4"]));
-    expect((await apiPatch(app, "/api/assignments/asn-demo-2", "zpp@lot.pl").send({ details: "Cross-group mutation" })).status).toBe(403);
+    expect(ids(assignments)).toEqual(expect.arrayContaining(["asn-demo-2", "asn-demo-3", "asn-demo-4"]));
+    expect((await apiPatch(app, "/api/assignments/asn-demo-2", "zpp@lot.pl").send({ sessionId: "ses-demo-1", expectedVersion: 1, details: "Incident-scoped management" })).status).toBe(200);
 
     expect((await apiGet(app, "/api/roster-shifts/rst-2026-000003")).status).toBe(200);
     expect((await apiGet(app, "/api/training/records/trn-2026-000004")).status).toBe(200);

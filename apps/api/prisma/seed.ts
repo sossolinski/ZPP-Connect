@@ -256,6 +256,36 @@ async function seedOperationalData() {
     }
   });
 
+  await prisma.$queryRaw`
+    SELECT setval(
+      '"Session_operational_seq"',
+      GREATEST(
+        COALESCE((
+          SELECT MAX(substring("operationalId" FROM '([0-9]+)$')::BIGINT)
+          FROM "Session"
+          WHERE "operationalId" ~ '^SES-[0-9]{4}-[0-9]+$'
+        ), 0) + 1,
+        1
+      ),
+      false
+    )
+  `;
+
+  await prisma.$queryRaw`
+    SELECT setval(
+      '"Enquiry_operational_seq"',
+      GREATEST(
+        COALESCE((
+          SELECT MAX(substring("operationalId" FROM '([0-9]+)$')::BIGINT)
+          FROM "Enquiry"
+          WHERE "operationalId" ~ '^TEC-[0-9]{4}-[0-9]+$'
+        ), 0) + 1,
+        1
+      ),
+      false
+    )
+  `;
+
   const family1 = await prisma.familyRecord.upsert({
     where: { operationalId: "FAM-2026-000001" },
     update: {},
@@ -560,7 +590,7 @@ async function seedOperationalData() {
       status: "Open",
       priority: "Normal",
       assignedUserEmail: volunteer.email,
-      ownerAssignedTo: "ZPP Member 01",
+      legacyAssigneeLabel: null,
       relatedFunction: "Welfare Support",
       linkedRecord: "ERP-2026-001",
       caseId: "CASE-2026-0001",
@@ -573,7 +603,7 @@ async function seedOperationalData() {
       status: "In Progress",
       priority: "Urgent",
       assignedUserEmail: null,
-      ownerAssignedTo: "Leader Bravo",
+      legacyAssigneeLabel: "Leader Bravo",
       relatedFunction: "Telephone Enquiry Center",
       linkedRecord: "RST-002",
       dueAt: new Date("2026-06-21T13:00:00.000Z")
@@ -585,7 +615,7 @@ async function seedOperationalData() {
       status: "Escalated",
       priority: "Critical",
       assignedUserEmail: coordinator.email,
-      ownerAssignedTo: "ZPP Coordinator",
+      legacyAssigneeLabel: null,
       relatedFunction: "Family Assistance",
       linkedRecord: "NOK-2026-001",
       caseId: "CASE-2026-0001",
@@ -598,7 +628,7 @@ async function seedOperationalData() {
       status: "Completed",
       priority: "Normal",
       assignedUserEmail: admin.email,
-      ownerAssignedTo: "System Admin",
+      legacyAssigneeLabel: null,
       relatedFunction: "Documentation",
       linkedRecord: "DOC-ROLE-004",
       dueAt: new Date("2026-06-21T16:00:00.000Z")
@@ -608,22 +638,31 @@ async function seedOperationalData() {
   for (const assignment of assignments) {
     const { assignedUserEmail, ...assignmentData } = assignment;
     const assignee = assignedUserEmail ? await prisma.user.findUnique({ where: { email: assignedUserEmail } }) : null;
-    const identityData = {
-      assignedUserId: assignee?.id ?? null,
-      assignedUserDisplayName: assignment.ownerAssignedTo
-    };
+    const identityData = { assignedUserId: assignee?.id ?? null };
+    const terminalData = assignment.status === "Completed"
+      ? { completedById: admin.id, completedAt: new Date("2026-06-21T09:00:00.000Z") }
+      : {};
     await prisma.assignmentTask.upsert({
       where: { operationalId: assignment.operationalId },
-      update: identityData,
+      update: { ...identityData, ...terminalData },
       create: {
         ...assignmentData,
         ...identityData,
+        ...terminalData,
         sessionId: session.id,
         createdById: zpp.id,
         updatedById: assignment.status === "Escalated" ? coordinator.id : zpp.id
       }
     });
   }
+
+  await prisma.$queryRaw`
+    SELECT setval(
+      '"AssignmentTask_operational_seq"',
+      GREATEST(COALESCE((SELECT MAX(substring("operationalId" FROM '([0-9]+)$')::BIGINT) FROM "AssignmentTask"), 0) + 1, 1),
+      false
+    )
+  `;
 
   await prisma.exerciseInject.upsert({
     where: { sessionId_injectNumber: { sessionId: session.id, injectNumber: 1 } },

@@ -18,6 +18,7 @@ import type { FamilyRepository } from "./modules/families/family-repository.js";
 import type { MatchingRepository } from "./modules/matching/matching-repository.js";
 import type { ReleaseRepository } from "./modules/releases/release-repository.js";
 import type { RequestRepository } from "./modules/requests/request-repository.js";
+import type { AssignmentRepository } from "./modules/assignments/assignment-repository.js";
 
 export function createApp(options: {
   incidentRepository?: IncidentRepository;
@@ -29,6 +30,8 @@ export function createApp(options: {
   matchingRepository?: MatchingRepository;
   releaseRepository?: ReleaseRepository;
   requestRepository?: RequestRepository;
+  assignmentRepository?: AssignmentRepository;
+  assignmentNotificationHook?: (record: Record<string, unknown>, command: string) => void;
   skipRuntimeValidation?: boolean;
 } = {}) {
   if (!options.skipRuntimeValidation) validateRuntimeConfig(config);
@@ -68,7 +71,9 @@ export function createApp(options: {
     familyRepository: options.familyRepository,
     matchingRepository: options.matchingRepository,
     releaseRepository: options.releaseRepository,
-    requestRepository: options.requestRepository
+    requestRepository: options.requestRepository,
+    assignmentRepository: options.assignmentRepository,
+    assignmentNotificationHook: options.assignmentNotificationHook
   });
 
   app.use(notFound);

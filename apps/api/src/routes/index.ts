@@ -12,12 +12,8 @@ import { addTimelineEvent, logAudit } from "../audit.js";
 import { asyncHandler, HttpError } from "../errors.js";
 import { nextOperationalId, nextSessionId, withOperationalIdRetry } from "../ids.js";
 import { redactForUser } from "../redaction.js";
-import { hasRole, requirePermission } from "../rbac.js";
+import { requirePermission } from "../rbac.js";
 import {
-  assignmentAssignSchema,
-  assignmentReassignSchema,
-  assignmentSchema,
-  assignmentStatusUpdateSchema,
   exerciseInjectSchema,
   exerciseObservationSchema,
   idParam,
@@ -48,6 +44,8 @@ import { createPrismaReleaseRepository } from "../modules/releases/prisma-releas
 import type { ReleaseRepository } from "../modules/releases/release-repository.js";
 import { createPrismaRequestRepository } from "../modules/requests/prisma-request-repository.js";
 import type { RequestRepository } from "../modules/requests/request-repository.js";
+import { createPrismaAssignmentRepository } from "../modules/assignments/prisma-assignment-repository.js";
+import type { AssignmentRepository } from "../modules/assignments/assignment-repository.js";
 
 type Delegate = {
   count(args: unknown): Promise<number>;
@@ -269,64 +267,6 @@ function actorSummary(user?: { id: string; email: string; displayName: string | 
     displayName: user.displayName ?? user.email,
     roles: user.roles?.map((item) => item.role.displayName || item.role.name) ?? []
   } : null;
-}
-
-function assignmentManager(req: Request) {
-  return hasRole(req, "zpp-coordinator") || hasRole(req, "tec-coordinator") || hasRole(req, "zpp-group-leader") || hasRole(req, "tec-group-leader");
-}
-
-function rolePermissions(role: { name: string; permissions: Prisma.JsonValue }) {
-  return Array.isArray(role.permissions) ? role.permissions.map(String) : [];
-}
-
-function userCanReceiveAssignments(user: { status?: string | null; roles: Array<{ role: { name: string; permissions: Prisma.JsonValue } }> }) {
-  if (user.status && user.status !== "active") return false;
-  return user.roles.some((item) => rolePermissions(item.role).includes("assignment:read"));
-}
-
-function assignmentUserSummary(user?: { id: string; email: string; displayName: string | null; roles?: Array<{ role: { name: string; displayName: string } }> } | null) {
-  return user
-    ? {
-        id: user.id,
-        userId: user.id,
-        email: user.email,
-        displayName: user.displayName ?? user.email,
-        roles: user.roles?.map((item) => item.role.name) ?? [],
-        roleLabels: user.roles?.map((item) => item.role.displayName || item.role.name) ?? []
-      }
-    : null;
-}
-
-function assignmentResponse(record: Record<string, unknown>) {
-  const assignedUser = assignmentUserSummary(record.assignedUser as Parameters<typeof assignmentUserSummary>[0]);
-  const displayName = String(record.assignedUserDisplayName ?? assignedUser?.displayName ?? record.ownerAssignedTo ?? "").trim();
-  const legacyText = !record.assignedUserId && record.ownerAssignedTo ? String(record.ownerAssignedTo) : "";
-  return {
-    ...record,
-    assignedUser,
-    assignedUserId: record.assignedUserId ?? assignedUser?.id ?? null,
-    assignedUserDisplayName: displayName || null,
-    ownerAssignedTo: displayName || null,
-    legacyAssignee: legacyText ? { displayName: legacyText, label: `Legacy/unresolved assignee: ${legacyText}` } : null
-  };
-}
-
-async function listAssignmentAssignees() {
-  const users = await prisma.user.findMany({
-    where: { status: "active" },
-    orderBy: { displayName: "asc" },
-    include: { roles: { include: { role: true } } }
-  });
-  return users.filter(userCanReceiveAssignments).map((user) => assignmentUserSummary(user)!);
-}
-
-async function findAssignmentAssignee(userId: string) {
-  const user = await prisma.user.findUnique({
-    where: { id: userId },
-    include: { roles: { include: { role: true } } }
-  });
-  if (!user || !userCanReceiveAssignments(user)) throw new HttpError(404, "Assignee not found");
-  return user;
 }
 
 async function attachActorMetadata(records: unknown[]) {
@@ -806,310 +746,6 @@ api.post(
   })
 );
 
-
-api.get(
-  "/assignments",
-  requirePermission("assignment:read"),
-  asyncHandler(async (req, res) => {
-    const query = listQuery.parse(req.query);
-    const where: Prisma.AssignmentTaskWhereInput = {};
-    if (query.sessionId) where.sessionId = query.sessionId;
-    if (query.status) where.status = query.status;
-    if (query.search) {
-      where.OR = ["operationalId", "caseId", "title", "ownerAssignedTo", "assignedUserDisplayName", "relatedFunction", "linkedRecord"].map((field) => ({
-        [field]: { contains: query.search, mode: "insensitive" }
-      }));
-    }
-    const [total, records] = await Promise.all([
-      prisma.assignmentTask.count({ where }),
-      prisma.assignmentTask.findMany({
-        where,
-        take: query.limit,
-        skip: query.offset,
-        orderBy: { updatedAt: "desc" },
-        include: { assignedUser: { include: { roles: { include: { role: true } } } } }
-      })
-    ]);
-    const data = (await attachActorMetadata(records)).map(assignmentResponse);
-    sendRedacted(req, res, { total, data });
-  })
-);
-
-api.get(
-  "/assignment-assignees",
-  requirePermission("assignment:assign"),
-  asyncHandler(async (req, res) => {
-    if (!assignmentManager(req)) throw new HttpError(403, "Only a Leader, Coordinator or Administrator can assign work to others");
-    const data = await listAssignmentAssignees();
-    res.json({ total: data.length, data });
-  })
-);
-
-api.post(
-  "/assignments",
-  requirePermission("assignment:create"),
-  asyncHandler(async (req, res) => {
-    const body = clean(assignmentSchema.parse(req.body));
-    const session = await prisma.session.findUnique({ where: { id: body.sessionId } });
-    if (!session) throw new HttpError(404, "Session not found");
-    if (["Closed", "Archived"].includes(session.status)) throw new HttpError(409, "Assignments cannot be changed in a closed session");
-    const { assignedUserId: _assignedUserId, assignedUserDisplayName: _assignedUserDisplayName, ownerAssignedTo: _ownerAssignedTo, ...createBody } = body;
-    const record = await withOperationalIdRetry(async () =>
-      prisma.assignmentTask.create({
-        data: {
-          ...createBody,
-          status: "Open",
-          ownerAssignedTo: null,
-          assignedUserId: null,
-          assignedUserDisplayName: null,
-          operationalId: await nextOperationalId("assignmentTask", "ASN"),
-          createdById: actorId(req),
-          updatedById: actorId(req)
-        }
-      })
-    );
-    await logAudit(req, {
-      action: "create_assignment",
-      entityType: "assignmentTask",
-      entityId: record.id,
-      sessionId: record.sessionId,
-      summary: `Assignment ${record.operationalId} created`
-    });
-    await addTimelineEvent({
-      sessionId: record.sessionId,
-      caseId: record.caseId,
-      eventType: "assignment",
-      entityType: "assignmentTask",
-      entityId: record.id,
-      title: `Assignment ${record.operationalId} created`,
-      body: record.title,
-      metadata: { status: record.status, priority: record.priority, assignedUserId: null, assignedUserDisplayName: null, ownerAssignedTo: null },
-      createdById: actorId(req)
-    });
-    res.status(201).json(assignmentResponse(record));
-  })
-);
-
-api.patch(
-  "/assignments/:id",
-  requirePermission("assignment:update"),
-  asyncHandler(async (req, res) => {
-    const { id } = idParam.parse(req.params);
-    const body = clean(assignmentSchema.partial().parse(req.body));
-    const existing = await prisma.assignmentTask.findUnique({ where: { id }, include: { session: true } });
-    if (!existing) throw new HttpError(404, "Assignment not found");
-    if (["Closed", "Archived"].includes(existing.session.status)) throw new HttpError(409, "Assignments cannot be changed in a closed session");
-    if (["Completed", "Cancelled"].includes(existing.status)) throw new HttpError(409, "Terminal assignments are read-only");
-    const { status: _status, ownerAssignedTo: _ownerAssignedTo, assignedUserId: _assignedUserId, assignedUserDisplayName: _assignedUserDisplayName, sessionId: _sessionId, ...editable } = body;
-    const record = await prisma.assignmentTask.update({
-      where: { id },
-      data: { ...editable, updatedById: actorId(req) },
-      include: { assignedUser: { include: { roles: { include: { role: true } } } } }
-    });
-    await logAudit(req, {
-      action: "update_assignment",
-      entityType: "assignmentTask",
-      entityId: id,
-      sessionId: record.sessionId,
-      summary: `Assignment ${record.operationalId} updated`
-    });
-    res.json(assignmentResponse(record));
-  })
-);
-
-api.post(
-  "/assignments/:id/assign",
-  requirePermission("assignment:assign"),
-  asyncHandler(async (req, res) => {
-    if (!assignmentManager(req)) throw new HttpError(403, "Only a Leader, Coordinator or Administrator can assign work to others");
-    const { id } = idParam.parse(req.params);
-    const decision = assignmentAssignSchema.parse(req.body);
-    const [existing, assignee] = await Promise.all([
-      prisma.assignmentTask.findUnique({ where: { id }, include: { session: true } }),
-      findAssignmentAssignee(decision.assignedUserId)
-    ]);
-    if (!existing) throw new HttpError(404, "Assignment not found");
-    if (["Closed", "Archived"].includes(existing.session.status)) throw new HttpError(409, "Assignments cannot be changed in a closed session");
-    if (existing.status !== "Open" || existing.assignedUserId || existing.ownerAssignedTo) throw new HttpError(409, "Only an unassigned open assignment can be assigned");
-    const assigneeName = assignee.displayName ?? assignee.email;
-    const changed = await prisma.assignmentTask.updateMany({
-      where: { id, status: "Open", assignedUserId: null, ownerAssignedTo: null },
-      data: { assignedUserId: assignee.id, assignedUserDisplayName: assigneeName, ownerAssignedTo: assigneeName, updatedById: actorId(req) }
-    });
-    if (changed.count !== 1) throw new HttpError(409, "This assignment was claimed or changed by another user");
-    const record = await prisma.assignmentTask.findUniqueOrThrow({ where: { id }, include: { assignedUser: { include: { roles: { include: { role: true } } } } } });
-    const metadata = {
-      previousAssigneeId: null,
-      previousAssigneeDisplayName: null,
-      newAssigneeId: assignee.id,
-      newAssigneeDisplayName: assigneeName,
-      oldState: existing.status,
-      newState: existing.status
-    };
-    await logAudit(req, {
-      action: "assign_assignment",
-      entityType: "assignmentTask",
-      entityId: id,
-      sessionId: record.sessionId,
-      summary: `Assignment ${record.operationalId} assigned to ${assigneeName}`,
-      metadata
-    });
-    await addTimelineEvent({
-      sessionId: record.sessionId,
-      caseId: record.caseId,
-      eventType: "assignment",
-      entityType: "assignmentTask",
-      entityId: id,
-      title: `Assignment ${record.operationalId} assigned to ${assigneeName}`,
-      metadata,
-      createdById: actorId(req)
-    });
-    res.json(assignmentResponse(record));
-  })
-);
-
-api.post(
-  "/assignments/:id/assign-to-me",
-  requirePermission("assignment:update"),
-  asyncHandler(async (req, res) => {
-    const { id } = idParam.parse(req.params);
-    const assigneeId = req.user?.userId ?? req.user?.id;
-    const ownerAssignedTo = req.user?.displayName ?? req.user?.email ?? "Current user";
-    if (!assigneeId) throw new HttpError(401, "Authentication required");
-    const existing = await prisma.assignmentTask.findUnique({ where: { id }, include: { session: true } });
-    if (!existing) throw new HttpError(404, "Assignment not found");
-    if (["Closed", "Archived"].includes(existing.session.status)) throw new HttpError(409, "Assignments cannot be changed in a closed session");
-    if (existing.status !== "Open" || existing.assignedUserId || existing.ownerAssignedTo) throw new HttpError(409, "This assignment is no longer available to claim");
-    const changed = await prisma.assignmentTask.updateMany({
-      where: { id, status: "Open", assignedUserId: null, ownerAssignedTo: null },
-      data: { assignedUserId: assigneeId, assignedUserDisplayName: ownerAssignedTo, ownerAssignedTo, updatedById: actorId(req) }
-    });
-    if (changed.count !== 1) throw new HttpError(409, "This assignment was claimed by another user");
-    const record = await prisma.assignmentTask.findUniqueOrThrow({ where: { id }, include: { assignedUser: { include: { roles: { include: { role: true } } } } } });
-    const metadata = {
-      previousAssigneeId: null,
-      previousAssigneeDisplayName: null,
-      newAssigneeId: assigneeId,
-      newAssigneeDisplayName: ownerAssignedTo,
-      oldState: existing.status,
-      newState: record.status
-    };
-    await logAudit(req, {
-      action: "claim_assignment",
-      entityType: "assignmentTask",
-      entityId: id,
-      sessionId: record.sessionId,
-      summary: `Assignment ${record.operationalId} assigned to ${ownerAssignedTo}`,
-      metadata
-    });
-    await addTimelineEvent({
-      sessionId: record.sessionId,
-      caseId: record.caseId,
-      eventType: "assignment",
-      entityType: "assignmentTask",
-      entityId: id,
-      title: `Assignment ${record.operationalId} claimed by ${ownerAssignedTo}`,
-      metadata,
-      createdById: actorId(req)
-    });
-    res.json(assignmentResponse(record));
-  })
-);
-
-api.post(
-  "/assignments/:id/reassign",
-  requirePermission("assignment:assign"),
-  asyncHandler(async (req, res) => {
-    if (!assignmentManager(req)) throw new HttpError(403, "Only a Leader, Coordinator or Administrator can reassign work");
-    const { id } = idParam.parse(req.params);
-    const decision = assignmentReassignSchema.parse(req.body);
-    const [existing, assignee] = await Promise.all([
-      prisma.assignmentTask.findUnique({ where: { id }, include: { session: true } }),
-      findAssignmentAssignee(decision.assignedUserId)
-    ]);
-    if (!existing) throw new HttpError(404, "Assignment not found");
-    if (["Closed", "Archived"].includes(existing.session.status)) throw new HttpError(409, "Assignments cannot be changed in a closed session");
-    if (["Completed", "Cancelled"].includes(existing.status)) throw new HttpError(409, "Terminal assignments are read-only");
-    if (!existing.assignedUserId && !existing.ownerAssignedTo) throw new HttpError(409, "Use Assign or Claim for unassigned work");
-    if (existing.assignedUserId === assignee.id) throw new HttpError(409, "Select a different assignee");
-    const previousAssigneeDisplayName = existing.assignedUserDisplayName ?? existing.ownerAssignedTo ?? null;
-    const assigneeName = assignee.displayName ?? assignee.email;
-    const changed = await prisma.assignmentTask.updateMany({
-      where: { id, status: existing.status, assignedUserId: existing.assignedUserId, ownerAssignedTo: existing.ownerAssignedTo },
-      data: { assignedUserId: assignee.id, assignedUserDisplayName: assigneeName, ownerAssignedTo: assigneeName, updatedById: actorId(req) }
-    });
-    if (changed.count !== 1) throw new HttpError(409, "This assignment changed before reassignment could be saved");
-    const record = await prisma.assignmentTask.findUniqueOrThrow({ where: { id }, include: { assignedUser: { include: { roles: { include: { role: true } } } } } });
-    const metadata = {
-      previousAssigneeId: existing.assignedUserId ?? null,
-      previousAssigneeDisplayName,
-      newAssigneeId: assignee.id,
-      newAssigneeDisplayName: assigneeName,
-      reason: decision.reason,
-      oldState: existing.status,
-      newState: existing.status
-    };
-    await logAudit(req, { action: "reassign_assignment", entityType: "assignmentTask", entityId: id, sessionId: record.sessionId, summary: `Assignment ${record.operationalId} reassigned from ${previousAssigneeDisplayName ?? "unassigned"} to ${assigneeName}`, metadata });
-    await addTimelineEvent({ sessionId: record.sessionId, caseId: record.caseId, eventType: "assignment", entityType: "assignmentTask", entityId: id, title: `Assignment ${record.operationalId} reassigned`, body: decision.reason, metadata, createdById: actorId(req) });
-    res.json(assignmentResponse(record));
-  })
-);
-
-api.post(
-  "/assignments/:id/status",
-  requirePermission("assignment:update"),
-  asyncHandler(async (req, res) => {
-    const { id } = idParam.parse(req.params);
-    const decision = assignmentStatusUpdateSchema.parse(req.body);
-    const existing = await prisma.assignmentTask.findUnique({ where: { id }, include: { session: true } });
-    if (!existing) throw new HttpError(404, "Assignment not found");
-    if (["Closed", "Archived"].includes(existing.session.status)) throw new HttpError(409, "Assignments cannot be changed in a closed session");
-    if (["Completed", "Cancelled"].includes(existing.status)) throw new HttpError(409, "Terminal assignments are read-only");
-    const transitions: Record<string, string[]> = { Open: ["In Progress", "Cancelled"], "In Progress": ["Escalated", "Completed", "Cancelled"], Escalated: ["In Progress", "Cancelled"] };
-    if (!transitions[existing.status]?.includes(decision.status)) throw new HttpError(409, `Invalid assignment transition from ${existing.status} to ${decision.status}`);
-    if (!existing.assignedUserId && !existing.ownerAssignedTo) throw new HttpError(409, "Assign or claim this work before changing its status");
-    const manager = assignmentManager(req);
-    const currentUserId = req.user?.userId ?? req.user?.id;
-    if (!manager && (!currentUserId || existing.assignedUserId !== currentUserId)) throw new HttpError(409, "Only the current assignee or a Coordinator can change this status");
-    const changed = await prisma.assignmentTask.updateMany({ where: { id, status: existing.status, assignedUserId: existing.assignedUserId, ownerAssignedTo: existing.ownerAssignedTo }, data: { status: decision.status, updatedById: actorId(req) } });
-    if (changed.count !== 1) throw new HttpError(409, "This assignment changed before the transition could be saved");
-    const record = await prisma.assignmentTask.findUniqueOrThrow({ where: { id }, include: { assignedUser: { include: { roles: { include: { role: true } } } } } });
-    await logAudit(req, {
-      action: "update_assignment_status",
-      entityType: "assignmentTask",
-      entityId: id,
-      sessionId: record.sessionId,
-      summary: `Assignment ${record.operationalId} status changed to ${decision.status}`,
-      metadata: {
-        oldState: existing.status,
-        newState: decision.status,
-        status: decision.status,
-        reason: decision.reason,
-        assignedUserId: existing.assignedUserId ?? null,
-        assignedUserDisplayName: existing.assignedUserDisplayName ?? existing.ownerAssignedTo ?? null
-      }
-    });
-    await addTimelineEvent({
-      sessionId: record.sessionId,
-      caseId: record.caseId,
-      eventType: "assignment",
-      entityType: "assignmentTask",
-      entityId: id,
-      title: `Assignment ${record.operationalId} moved to ${decision.status}`,
-      body: decision.reason ?? record.title,
-      metadata: {
-        oldState: existing.status,
-        newState: decision.status,
-        status: decision.status,
-        reason: decision.reason,
-        assignedUserId: existing.assignedUserId ?? null,
-        assignedUserDisplayName: existing.assignedUserDisplayName ?? existing.ownerAssignedTo ?? null
-      },
-      createdById: actorId(req)
-    });
-    res.json(assignmentResponse(record));
-  })
-);
 
 api.get(
   "/timeline",
@@ -1658,8 +1294,10 @@ export function registerRoutes(app: Express, options: {
   matchingRepository?: MatchingRepository;
   releaseRepository?: ReleaseRepository;
   requestRepository?: RequestRepository;
+  assignmentRepository?: AssignmentRepository;
+  assignmentNotificationHook?: (record: Record<string, unknown>, command: string) => void;
 } = {}) {
-  const usePostgres = config.persistenceMode === "postgres" || options.incidentRepository?.kind === "postgres" || options.enquiryRepository?.kind === "postgres" || options.passengerRepository?.kind === "postgres" || options.familyRepository?.kind === "postgres" || options.matchingRepository?.kind === "postgres" || options.releaseRepository?.kind === "postgres" || options.requestRepository?.kind === "postgres";
+  const usePostgres = config.persistenceMode === "postgres" || options.incidentRepository?.kind === "postgres" || options.enquiryRepository?.kind === "postgres" || options.passengerRepository?.kind === "postgres" || options.familyRepository?.kind === "postgres" || options.matchingRepository?.kind === "postgres" || options.releaseRepository?.kind === "postgres" || options.requestRepository?.kind === "postgres" || options.assignmentRepository?.kind === "postgres";
   const incidentRepository = options.incidentRepository ?? (
     usePostgres ? createPrismaIncidentRepository(prisma) : undefined
   );
@@ -1687,5 +1325,8 @@ export function registerRoutes(app: Express, options: {
   const requestRepository = options.requestRepository ?? (
     usePostgres ? createPrismaRequestRepository(prisma) : undefined
   );
-  app.use("/api", createDemoRouter({ incidentRepository, enquiryRepository, incidentAccessRepository, incidentAssignmentRepository, passengerRepository, familyRepository, matchingRepository, releaseRepository, requestRepository }));
+  const assignmentRepository = options.assignmentRepository ?? (
+    usePostgres ? createPrismaAssignmentRepository(prisma) : undefined
+  );
+  app.use("/api", createDemoRouter({ incidentRepository, enquiryRepository, incidentAccessRepository, incidentAssignmentRepository, passengerRepository, familyRepository, matchingRepository, releaseRepository, requestRepository, assignmentRepository, assignmentNotificationHook: options.assignmentNotificationHook }));
 }

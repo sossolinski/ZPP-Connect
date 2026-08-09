@@ -26,7 +26,10 @@ export async function nextOperationalId(model: DelegateName, prefix: string, dig
 }
 
 export async function nextSessionId() {
-  return nextOperationalId("session", "SES", 3);
+  const [row] = await prisma.$queryRaw<Array<{ value: bigint }>>`
+    SELECT nextval('"Session_operational_seq"') AS value
+  `;
+  return `SES-${new Date().getFullYear()}-${String(row!.value).padStart(3, "0")}`;
 }
 
 function isOperationalIdConflict(error: unknown) {

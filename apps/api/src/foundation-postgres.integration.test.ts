@@ -70,6 +70,31 @@ postgresDescribe("Foundation Stage 1 PostgreSQL vertical slice", () => {
     expect(timeline).toEqual([expect.objectContaining({ eventType: "session", entityId: created.body.id })]);
   });
 
+  it("allocates globally unique Session operational IDs during a burst larger than the former retry limit", async () => {
+    const app = createApp({ incidentRepository: createPrismaIncidentRepository(prisma!) });
+    const marker = `F1-BURST-${Date.now()}`;
+    const responses = await Promise.all(Array.from({ length: 20 }, (_, index) =>
+      asAdmin(request(app).post("/api/sessions")).send({
+        mode: index % 2 ? "EXERCISE" : "TRAINING",
+        status: "Draft",
+        eventType: marker,
+        description: `Concurrent Session ${index}`
+      })
+    ));
+
+    expect(responses.map(({ status }) => status)).toEqual(Array(20).fill(201));
+    const operationalIds = responses.map(({ body }) => body.operationalId as string);
+    expect(new Set(operationalIds).size).toBe(20);
+    expect(operationalIds.every((value) => /^SES-[0-9]{4}-[0-9]{3,}$/.test(value))).toBe(true);
+    createdIncidentIds.push(...responses.map(({ body }) => body.id as string));
+
+    const restartedApp = createApp({ incidentRepository: createPrismaIncidentRepository(prisma!) });
+    const persisted = await asAdmin(request(restartedApp).get("/api/sessions")).query({ search: marker, limit: 50 });
+    expect(persisted.status).toBe(200);
+    expect(persisted.body).toMatchObject({ total: 20 });
+    expect(new Set(persisted.body.data.map((row: { operationalId: string }) => row.operationalId)).size).toBe(20);
+  });
+
   it("enforces backend authorization for session mutations", async () => {
     const app = createApp({ incidentRepository: createPrismaIncidentRepository(prisma!) });
     const payload = { mode: "TRAINING", status: "Draft", eventType: "Training" };

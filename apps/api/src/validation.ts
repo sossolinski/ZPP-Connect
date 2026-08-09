@@ -1,29 +1,10 @@
 import { z } from "zod";
 import { dictionaries } from "@zpp/shared";
 
-const assignmentStatuses = dictionaries.assignmentStatuses;
-const assignmentPriorities = dictionaries.assignmentPriorities;
-
 export const operationalNoteSchema = z.string().trim().min(3);
 
 export const sessionCloseSchema = z.object({
   notes: operationalNoteSchema
-});
-
-export const assignmentStatusUpdateSchema = z.object({
-  status: z.enum(assignmentStatuses),
-  reason: operationalNoteSchema.optional()
-});
-
-export const assignmentAssignSchema = z.object({
-  assignedUserId: z.string().uuid(),
-  ownerAssignedTo: z.string().trim().min(1).optional()
-});
-
-export const assignmentReassignSchema = z.object({
-  assignedUserId: z.string().uuid(),
-  ownerAssignedTo: z.string().trim().min(1).optional(),
-  reason: operationalNoteSchema
 });
 
 export const idParam = z.object({ id: z.string().uuid() });
@@ -75,21 +56,6 @@ export const enquirySchema = z.object({
   urgency: z.enum(dictionaries.enquiryUrgencies).default("Normal"),
   notes: z.string().optional().nullable(),
   status: z.enum(dictionaries.enquiryStatuses).default("New")
-});
-
-export const assignmentSchema = z.object({
-  sessionId: z.string().uuid(),
-  caseId: z.string().optional().nullable(),
-  title: z.string().trim().min(1),
-  details: z.string().optional().nullable(),
-  status: z.enum(assignmentStatuses).default("Open"),
-  priority: z.enum(assignmentPriorities).default("Normal"),
-  ownerAssignedTo: z.string().optional().nullable(),
-  assignedUserId: z.string().uuid().optional().nullable(),
-  assignedUserDisplayName: z.string().optional().nullable(),
-  relatedFunction: z.string().optional().nullable(),
-  linkedRecord: z.string().optional().nullable(),
-  dueAt: z.coerce.date().optional().nullable()
 });
 
 export const timelineSchema = z.object({

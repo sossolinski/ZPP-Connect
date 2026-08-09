@@ -86,6 +86,10 @@ import { createRequestRouter } from "./modules/requests/request-router.js";
 import { createRequestService } from "./modules/requests/request-service.js";
 import { createMemoryRequestRepository } from "./modules/requests/memory-request-repository.js";
 import type { RequestRepository } from "./modules/requests/request-repository.js";
+import { createAssignmentRouter } from "./modules/assignments/assignment-router.js";
+import { createAssignmentService } from "./modules/assignments/assignment-service.js";
+import { createMemoryAssignmentRepository } from "./modules/assignments/memory-assignment-repository.js";
+import type { AssignmentRepository } from "./modules/assignments/assignment-repository.js";
 import { hydrateReadOnlyProjection, mergeProjectionPage, syncProjectionRow } from "./modules/compatibility/read-only-projection.js";
 
 type Row = Record<string, any>;
@@ -1240,10 +1244,8 @@ function listRows(resource: string, req: Request) {
   const offset = Math.max(Number(req.query.offset ?? 0) || 0, 0);
   const rows = resources[resource] ?? [];
   const filtered = rows
-    .filter((row) => (!sessionId || row.sessionId === sessionId || row.id === sessionId) && (!status || row.status === status))
-    .filter((row) => resource !== "assignments" || canAccessAssignment(req, row, "assignment:read"));
+    .filter((row) => (!sessionId || row.sessionId === sessionId || row.id === sessionId) && (!status || row.status === status));
   const data = filtered.slice(offset, offset + limit).map((row) => {
-    if (resource === "assignments") return assignmentResponse(row, req);
     const output = withActorMetadata(resource, row, req);
     if (resource !== "files") return output;
     const batch = importBatches.find((item) => item.id === row.importBatchId);
@@ -1280,97 +1282,6 @@ function withActorMetadata(resource: string, row: Row, req: Request) {
     ...row,
     createdBy: createdBy ? actorSummary(createdBy) : null,
     updatedBy: updatedBy ? actorSummary(updatedBy) : null
-  };
-}
-
-function isAssignmentManager(req: Request) {
-  const roleNames = req.user?.roles ?? [];
-  return roleNames.some((roleName) => ["zpp-coordinator", "tec-coordinator", "zpp-group-leader", "tec-group-leader"].includes(canonicalRoleName(roleName)));
-}
-
-function canReceiveAssignment(user: DemoUserAccount) {
-  return user.status === "Active" && permissionsForRoleNames(user.roles, roles).includes("assignment:read");
-}
-
-function assignmentUserSummary(user?: DemoUserAccount | null) {
-  return user
-    ? {
-        id: user.id,
-        userId: user.id,
-        email: user.email,
-        displayName: user.displayName,
-        roles: user.roles,
-        roleLabels: user.roles.map((roleName) => roleDisplayName(roleName, roles))
-      }
-    : null;
-}
-
-function assignmentActorGroupIds(req: Request, permission: string) {
-  const groups = new Set(permissionScope(directoryActor(req), permission).groupIds);
-  const user = users.find((item) => item.id === currentUser(req).userId);
-  if (user?.linkedMemberProfileId) {
-    for (const groupId of memberDirectoryForAdmin?.groupIdsForMember(user.linkedMemberProfileId) ?? []) groups.add(groupId);
-  }
-  return groups;
-}
-
-function assignmentRecordGroupIds(row: Row) {
-  const groups = new Set<string>();
-  if (row.groupId) groups.add(String(row.groupId));
-  const assignedUser = row.assignedUserId ? users.find((item) => item.id === row.assignedUserId) : undefined;
-  if (assignedUser?.linkedMemberProfileId) {
-    for (const groupId of memberDirectoryForAdmin?.groupIdsForMember(assignedUser.linkedMemberProfileId) ?? []) groups.add(groupId);
-  }
-  return groups;
-}
-
-function canAccessAssignment(req: Request, row: Row, permission: string) {
-  const actor = currentUser(req);
-  if (row.assignedUserId === actor.userId) return true;
-  const scope = permissionScope(directoryActor(req), permission);
-  if (!scope.allowed) return false;
-  if (scope.global && isAssignmentManager(req)) return true;
-  const allowedGroups = assignmentActorGroupIds(req, permission);
-  return [...assignmentRecordGroupIds(row)].some((groupId) => allowedGroups.has(groupId));
-}
-
-function findAssignmentAssignee(req: Request, userId: string) {
-  const user = users.find((item) => item.id === userId);
-  if (!user || !canReceiveAssignment(user)) return undefined;
-  const scope = permissionScope(directoryActor(req), "assignment:assign");
-  if (scope.global && isAssignmentManager(req)) return user;
-  if (!user.linkedMemberProfileId) return undefined;
-  const allowedGroups = assignmentActorGroupIds(req, "assignment:assign");
-  return (memberDirectoryForAdmin?.groupIdsForMember(user.linkedMemberProfileId) ?? []).some((groupId) => allowedGroups.has(groupId)) ? user : undefined;
-}
-
-function assigneeMatchesAssignment(row: Row, user: DemoUserAccount) {
-  const assignmentGroups = assignmentRecordGroupIds(row);
-  if (assignmentGroups.size === 0) return true;
-  if (!user.linkedMemberProfileId) return false;
-  return (memberDirectoryForAdmin?.groupIdsForMember(user.linkedMemberProfileId) ?? []).some((groupId) => assignmentGroups.has(groupId));
-}
-
-function listAssignmentAssignees(req: Request) {
-  return users
-    .filter((user) => Boolean(findAssignmentAssignee(req, user.id)))
-    .sort((first, second) => first.displayName.localeCompare(second.displayName))
-    .map((user) => assignmentUserSummary(user)!);
-}
-
-function assignmentResponse(row: Row, req: Request) {
-  const withActors = withActorMetadata("assignments", row, req);
-  const assignedUser = row.assignedUserId ? users.find((user) => user.id === row.assignedUserId) : undefined;
-  const assignedSummary = assignmentUserSummary(assignedUser);
-  const displayName = String(row.assignedUserDisplayName ?? assignedSummary?.displayName ?? row.ownerAssignedTo ?? "").trim();
-  const legacyText = !row.assignedUserId && row.ownerAssignedTo ? String(row.ownerAssignedTo) : "";
-  return {
-    ...withActors,
-    assignedUser: assignedSummary,
-    assignedUserId: row.assignedUserId ?? assignedSummary?.id ?? null,
-    assignedUserDisplayName: displayName || null,
-    ownerAssignedTo: displayName || null,
-    legacyAssignee: legacyText ? { displayName: legacyText, label: `Legacy/unresolved assignee: ${legacyText}` } : null
   };
 }
 
@@ -2021,6 +1932,8 @@ export function createDemoRouter(options: {
   matchingRepository?: MatchingRepository;
   releaseRepository?: ReleaseRepository;
   requestRepository?: RequestRepository;
+  assignmentRepository?: AssignmentRepository;
+  assignmentNotificationHook?: (record: Record<string, unknown>, command: string) => void;
 } = {}) {
   const router = Router();
   const memoryIncidentAssignments: MemoryIncidentAssignment[] = sessions.flatMap((incident) =>
@@ -2123,12 +2036,22 @@ export function createDemoRouter(options: {
     now
   });
   const requestService = createRequestService(requestRepository, incidentAccessService);
+  const assignmentRepository = options.assignmentRepository ?? createMemoryAssignmentRepository({
+    assignments,
+    users,
+    incidentAssignments: memoryIncidentAssignments,
+    auditLogs,
+    timeline,
+    now
+  });
+  const assignmentService = createAssignmentService(assignmentRepository, incidentAccessService);
   if (enquiryRepository.kind === "postgres") enquiries.splice(0, enquiries.length);
   if (passengerRepository.kind === "postgres") passengerRecords.splice(0, passengerRecords.length);
   if (familyRepository.kind === "postgres") familyRecords.splice(0, familyRecords.length);
   if (matchingRepository.kind === "postgres") matchingRecords.splice(0, matchingRecords.length);
   if (releaseRepository.kind === "postgres") releases.splice(0, releases.length);
   if (requestRepository.kind === "postgres") requests.splice(0, requests.length);
+  if (assignmentRepository.kind === "postgres") assignments.splice(0, assignments.length);
   const syncIncident = (record: Record<string, unknown>) => {
     const index = sessions.findIndex((item) => item.id === record.id);
     if (index >= 0) sessions[index] = { ...record };
@@ -2151,6 +2074,9 @@ export function createDemoRouter(options: {
   };
   const syncRequest = (record: Record<string, unknown>) => {
     syncProjectionRow(requests, record);
+  };
+  const syncAssignment = (record: Record<string, unknown>) => {
+    syncProjectionRow(assignments, record);
   };
   const memberDirectory = createMemberDirectoryRepository(users.map((user) => ({ id: user.id, email: user.email, displayName: user.displayName, roles: user.roles })));
   memberDirectoryForAdmin = memberDirectory;
@@ -2343,6 +2269,18 @@ export function createDemoRouter(options: {
       : undefined,
     onChange: requestService.kind === "postgres" ? syncRequest : undefined
   }));
+  router.use(createAssignmentRouter(assignmentService, {
+    onList: assignmentService.kind === "postgres"
+      ? (records, incidentId, offset) => mergeProjectionPage(assignments, incidentId, records, offset)
+      : undefined,
+    onChange: assignmentService.kind === "postgres" ? syncAssignment : undefined,
+    onCommitted: (record, command) => {
+      if (["assign", "claim", "reassign"].includes(command)) notifications.notifyAssignmentAssigned(record);
+      if (command === "cancel") notifications.notifyAssignmentCancelled(record);
+      if (command === "complete") notifications.resolveSource("assignment", record.id, "Source completed");
+      options.assignmentNotificationHook?.(record, command);
+    }
+  }));
   const requireIncidentAccess = (resolveIncidentId: (req: Request) => string, hydrateEnquiryCompatibility = false, requireWritable = false) => (req: Request, _res: any, next: NextFunction) => {
     const incidentId = resolveIncidentId(req);
     if (!req.user || !incidentId) {
@@ -2377,6 +2315,9 @@ export function createDemoRouter(options: {
       }
       if (hydrateEnquiryCompatibility && requestService.kind === "postgres" && can(req, "request:read")) {
         await hydrateReadOnlyProjection(requests, incidentId, (offset) => requestService.listCompatibility({ ...accessActor, displayName: req.user!.displayName, permissions: req.user!.permissions, requestId: req.requestId }, incidentId, { limit: 200, offset, sortBy: "updatedAt", sortDirection: "desc" }));
+      }
+      if (hydrateEnquiryCompatibility && assignmentService.kind === "postgres" && can(req, "assignment:read")) {
+        await hydrateReadOnlyProjection(assignments, incidentId, (offset) => assignmentService.listCompatibility({ ...accessActor, displayName: req.user!.displayName, permissions: req.user!.permissions, requestId: req.requestId }, incidentId, { limit: 200, offset, sortBy: "updatedAt", sortDirection: "desc" }));
       }
       next();
     })().catch(next);
@@ -2872,247 +2813,6 @@ export function createDemoRouter(options: {
   });
   router.get("/audit-logs", requirePermission("audit:read"), (req, res) => res.json(listRows("audit-logs", req)));
 
-  router.get("/assignments", requirePermission("assignment:read"), (req, res) => res.json(listRows("assignments", req)));
-  router.get("/assignment-assignees", requirePermission("assignment:assign"), (req, res) => {
-    if (!isAssignmentManager(req)) {
-      res.status(403).json({ error: "Only a Leader, Coordinator or Administrator can assign work to others" });
-      return;
-    }
-    const data = listAssignmentAssignees(req);
-    res.json({ total: data.length, data });
-  });
-  router.post("/assignments", requirePermission("assignment:create"), (req, res) => {
-    const session = sessions.find((item) => item.id === req.body?.sessionId);
-    if (!session) {
-      res.status(404).json({ error: "Session not found" });
-      return;
-    }
-    if (["Closed", "Archived"].includes(String(session.status))) {
-      res.status(409).json({ error: "Assignments cannot be changed in a closed session" });
-      return;
-    }
-    if (!String(req.body?.title ?? "").trim()) {
-      res.status(400).json({ error: "Title is required" });
-      return;
-    }
-    const { status: _status, ownerAssignedTo: _owner, assignedUserId: _assignedUserId, assignedUserDisplayName: _assignedUserDisplayName, ...input } = req.body ?? {};
-    const scope = permissionScope(directoryActor(req), "assignment:create");
-    let groupId = String(input.groupId ?? "").trim() || undefined;
-    if (!(scope.global && isAssignmentManager(req))) {
-      const allowedGroups = assignmentActorGroupIds(req, "assignment:create");
-      if (!groupId && allowedGroups.size === 1) groupId = [...allowedGroups][0];
-      if (!groupId || !allowedGroups.has(groupId)) {
-        res.status(403).json({ error: "Assignment must belong to an authorized group" });
-        return;
-      }
-    }
-    const row = createRow("assignments", { ...input, groupId, title: String(input.title).trim(), status: "Open", ownerAssignedTo: null, assignedUserId: null, assignedUserDisplayName: null }, req);
-    addAudit(req, "create_assignment", `Assignment ${row.operationalId} created`, row.sessionId, undefined, "assignmentTask", row.id);
-    addTimeline(req, { sessionId: row.sessionId, caseId: row.caseId, eventType: "assignment", entityType: "assignmentTask", entityId: row.id, title: `Assignment ${row.operationalId} created`, body: row.title, metadata: { status: "Open", priority: row.priority, assignedUserId: null, assignedUserDisplayName: null, ownerAssignedTo: null } });
-    res.status(201).json(assignmentResponse(row, req));
-  });
-  router.patch("/assignments/:id", requirePermission("assignment:update"), (req, res) => {
-    const existing = assignments.find((item) => item.id === req.params.id);
-    if (!existing) {
-      res.status(404).json({ error: "Assignment not found" });
-      return;
-    }
-    if (!canAccessAssignment(req, existing, "assignment:update")) {
-      res.status(403).json({ error: "Forbidden" });
-      return;
-    }
-    const session = sessions.find((item) => item.id === existing.sessionId);
-    if (!session || ["Closed", "Archived"].includes(String(session.status))) {
-      res.status(409).json({ error: "Assignments cannot be changed in a closed session" });
-      return;
-    }
-    if (["Completed", "Cancelled"].includes(String(existing.status))) {
-      res.status(409).json({ error: "Terminal assignments are read-only" });
-      return;
-    }
-    const { status: _status, ownerAssignedTo: _owner, assignedUserId: _assignedUserId, assignedUserDisplayName: _assignedUserDisplayName, sessionId: _sessionId, ...updates } = req.body ?? {};
-    const row = updateRow("assignments", existing.id, updates, req)!;
-    addAudit(req, "update_assignment", `Assignment ${row.operationalId} updated`, row.sessionId, undefined, "assignmentTask", row.id);
-    res.json(assignmentResponse(row, req));
-  });
-
-  router.post("/assignments/:id/assign", requirePermission("assignment:assign"), (req, res) => {
-    if (!isAssignmentManager(req)) {
-      res.status(403).json({ error: "Only a Leader, Coordinator or Administrator can assign work to others" });
-      return;
-    }
-    const assignedUserId = String(req.body?.assignedUserId ?? "").trim();
-    const assignee = findAssignmentAssignee(req, assignedUserId);
-    if (!assignee) {
-      res.status(404).json({ error: "Assignee not found" });
-      return;
-    }
-    const existing = assignments.find((item) => item.id === req.params.id);
-    if (!existing) {
-      res.status(404).json({ error: "Assignment not found" });
-      return;
-    }
-    if (!canAccessAssignment(req, existing, "assignment:assign")) {
-      res.status(403).json({ error: "Forbidden" });
-      return;
-    }
-    if (!assigneeMatchesAssignment(existing, assignee)) {
-      res.status(403).json({ error: "Assignee is outside this assignment group" });
-      return;
-    }
-    const session = sessions.find((item) => item.id === existing.sessionId);
-    if (!session || ["Closed", "Archived"].includes(String(session.status))) {
-      res.status(409).json({ error: "Assignments cannot be changed in a closed session" });
-      return;
-    }
-    if (existing.status !== "Open" || existing.assignedUserId || existing.ownerAssignedTo) {
-      res.status(409).json({ error: "Only an unassigned open assignment can be assigned" });
-      return;
-    }
-    const row = updateRow("assignments", existing.id, { assignedUserId: assignee.id, assignedUserDisplayName: assignee.displayName, ownerAssignedTo: assignee.displayName }, req)!;
-    const metadata = { previousAssigneeId: null, previousAssigneeDisplayName: null, newAssigneeId: assignee.id, newAssigneeDisplayName: assignee.displayName, oldState: "Open", newState: "Open" };
-    addAudit(req, "assign_assignment", `Assignment ${row.operationalId} assigned to ${assignee.displayName}`, row.sessionId, metadata, "assignmentTask", row.id);
-    addTimeline(req, { sessionId: row.sessionId, caseId: row.caseId, eventType: "assignment", entityType: "assignmentTask", entityId: row.id, title: `Assignment ${row.operationalId} assigned to ${assignee.displayName}`, metadata });
-    notifySafely(() => notifications.notifyAssignmentAssigned(row));
-    res.json(assignmentResponse(row, req));
-  });
-  router.post("/assignments/:id/assign-to-me", requirePermission("assignment:update"), (req, res) => {
-    const actor = currentUser(req);
-    const existing = assignments.find((item) => item.id === req.params.id);
-    if (!existing) {
-      res.status(404).json({ error: "Assignment not found" });
-      return;
-    }
-    if (!canAccessAssignment(req, existing, "assignment:update")) {
-      res.status(403).json({ error: "Forbidden" });
-      return;
-    }
-    const session = sessions.find((item) => item.id === existing.sessionId);
-    if (!session || ["Closed", "Archived"].includes(String(session.status))) {
-      res.status(409).json({ error: "Assignments cannot be changed in a closed session" });
-      return;
-    }
-    if (existing.status !== "Open" || existing.assignedUserId || existing.ownerAssignedTo) {
-      res.status(409).json({ error: "This assignment is no longer available to claim" });
-      return;
-    }
-    const row = updateRow("assignments", existing.id, { assignedUserId: actor.userId, assignedUserDisplayName: actor.displayName, ownerAssignedTo: actor.displayName }, req)!;
-    const metadata = { previousAssigneeId: null, previousAssigneeDisplayName: null, newAssigneeId: actor.userId, newAssigneeDisplayName: actor.displayName, oldState: "Open", newState: "Open" };
-    addAudit(req, "claim_assignment", `Assignment ${row.operationalId} claimed by ${actor.displayName}`, row.sessionId, metadata, "assignmentTask", row.id);
-    addTimeline(req, { sessionId: row.sessionId, caseId: row.caseId, eventType: "assignment", entityType: "assignmentTask", entityId: row.id, title: `Assignment ${row.operationalId} claimed by ${actor.displayName}`, metadata });
-    notifySafely(() => notifications.notifyAssignmentAssigned(row));
-    res.json(assignmentResponse(row, req));
-  });
-  router.post("/assignments/:id/reassign", requirePermission("assignment:assign"), (req, res) => {
-    if (!isAssignmentManager(req)) {
-      res.status(403).json({ error: "Only a Leader, Coordinator or Administrator can reassign work" });
-      return;
-    }
-    const assignedUserId = String(req.body?.assignedUserId ?? "").trim();
-    const assignee = findAssignmentAssignee(req, assignedUserId);
-    const reason = String(req.body?.reason ?? "").trim();
-    if (!assignee || reason.length < 3) {
-      res.status(400).json({ error: "A new assignee and handover reason are required" });
-      return;
-    }
-    const existing = assignments.find((item) => item.id === req.params.id);
-    if (!existing) {
-      res.status(404).json({ error: "Assignment not found" });
-      return;
-    }
-    if (!canAccessAssignment(req, existing, "assignment:assign")) {
-      res.status(403).json({ error: "Forbidden" });
-      return;
-    }
-    if (!assigneeMatchesAssignment(existing, assignee)) {
-      res.status(403).json({ error: "Assignee is outside this assignment group" });
-      return;
-    }
-    const session = sessions.find((item) => item.id === existing.sessionId);
-    if (!session || ["Closed", "Archived"].includes(String(session.status))) {
-      res.status(409).json({ error: "Assignments cannot be changed in a closed session" });
-      return;
-    }
-    if (["Completed", "Cancelled"].includes(String(existing.status))) {
-      res.status(409).json({ error: "Terminal assignments are read-only" });
-      return;
-    }
-    if (!existing.assignedUserId && !existing.ownerAssignedTo) {
-      res.status(409).json({ error: "Use Assign or Claim for unassigned work" });
-      return;
-    }
-    if (existing.assignedUserId === assignee.id) {
-      res.status(409).json({ error: "Select a different assignee" });
-      return;
-    }
-    const previousAssigneeId = existing.assignedUserId ?? null;
-    const previousAssigneeDisplayName = existing.assignedUserDisplayName ?? existing.ownerAssignedTo ?? null;
-    const row = updateRow("assignments", existing.id, { assignedUserId: assignee.id, assignedUserDisplayName: assignee.displayName, ownerAssignedTo: assignee.displayName }, req)!;
-    const metadata = { previousAssigneeId, previousAssigneeDisplayName, newAssigneeId: assignee.id, newAssigneeDisplayName: assignee.displayName, reason, oldState: row.status, newState: row.status };
-    addAudit(req, "reassign_assignment", `Assignment ${row.operationalId} reassigned from ${previousAssigneeDisplayName ?? "unassigned"} to ${assignee.displayName}`, row.sessionId, metadata, "assignmentTask", row.id);
-    addTimeline(req, { sessionId: row.sessionId, caseId: row.caseId, eventType: "assignment", entityType: "assignmentTask", entityId: row.id, title: `Assignment ${row.operationalId} reassigned`, body: reason, metadata });
-    notifySafely(() => notifications.notifyAssignmentAssigned(row));
-    res.json(assignmentResponse(row, req));
-  });
-  router.post("/assignments/:id/status", requirePermission("assignment:update"), (req, res) => {
-    const status = String(req.body?.status ?? "");
-    if (!(dictionaries.assignmentStatuses as readonly string[]).includes(status)) {
-      res.status(400).json({ error: "Invalid assignment status" });
-      return;
-    }
-    const existing = assignments.find((item) => item.id === req.params.id);
-    if (!existing) {
-      res.status(404).json({ error: "Assignment not found" });
-      return;
-    }
-    if (!canAccessAssignment(req, existing, "assignment:update")) {
-      res.status(403).json({ error: "Forbidden" });
-      return;
-    }
-    const session = sessions.find((item) => item.id === existing.sessionId);
-    if (!session || ["Closed", "Archived"].includes(String(session.status))) {
-      res.status(409).json({ error: "Assignments cannot be changed in a closed session" });
-      return;
-    }
-    if (["Completed", "Cancelled"].includes(String(existing.status))) {
-      res.status(409).json({ error: "Terminal assignments are read-only" });
-      return;
-    }
-    const transitions: Record<string, string[]> = { Open: ["In Progress", "Cancelled"], "In Progress": ["Escalated", "Completed", "Cancelled"], Escalated: ["In Progress", "Cancelled"] };
-    if (!transitions[String(existing.status)]?.includes(status)) {
-      res.status(409).json({ error: `Invalid assignment transition from ${existing.status} to ${status}` });
-      return;
-    }
-    if (!existing.assignedUserId && !existing.ownerAssignedTo) {
-      res.status(409).json({ error: "Assign or claim this work before changing its status" });
-      return;
-    }
-    const actor = currentUser(req);
-    const manager = isAssignmentManager(req);
-    if (!manager && existing.assignedUserId !== actor.userId) {
-      res.status(409).json({ error: "Only the current assignee or a Coordinator can change this status" });
-      return;
-    }
-    const previousStatus = existing.status;
-    const row = updateRow("assignments", existing.id, { status }, req)!;
-    const metadata = { oldState: previousStatus, newState: status, status, reason: req.body?.reason, assignedUserId: existing.assignedUserId ?? null, assignedUserDisplayName: existing.assignedUserDisplayName ?? existing.ownerAssignedTo ?? null };
-    addAudit(req, "update_assignment_status", `Assignment ${row.operationalId} status changed to ${status}`, row.sessionId, metadata, "assignmentTask", row.id);
-    addTimeline(req, {
-      sessionId: row.sessionId,
-      caseId: row.caseId,
-      eventType: "assignment",
-      entityType: "assignmentTask",
-      entityId: row.id,
-      title: `Assignment ${row.operationalId} moved to ${status}`,
-      body: req.body?.reason || row.title,
-      metadata
-    });
-    notifySafely(() => {
-      if (status === "Completed") notifications.resolveSource("assignment", row.id, "Source completed");
-      if (status === "Cancelled") notifications.notifyAssignmentCancelled(row);
-    });
-    res.json(assignmentResponse(row, req));
-  });
   router.post("/exercise/injects/:id/release", requirePermission("exercise:manage"), (req, res) => res.json(updateRow("exercise/injects", String(req.params.id), { status: "Released", releasedAt: now() }, req)));
   router.post("/exercise/injects/:id/complete", requirePermission("exercise:manage"), (req, res) => res.json(updateRow("exercise/injects", String(req.params.id), { status: "Completed" }, req)));
 

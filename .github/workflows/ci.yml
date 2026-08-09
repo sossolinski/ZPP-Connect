@@ -82,7 +82,7 @@ jobs:
           kill "$api_pid"
           wait "$api_pid" || true
 
-      - name: PostgreSQL Foundation Stage 1, 2, 2.5, 3, 4, 5, 6 and 7 integration tests
+      - name: PostgreSQL Foundation Stage 1, 2, 2.5, 3, 4, 5, 6, 7 and 8 integration tests
         run: npm run test:postgres
 
       - name: Rehearse IncidentAssignment backfill from pre-Stage-2 data
@@ -212,6 +212,43 @@ jobs:
           test "$request_backfill" = "1"
           request_cross_incident=$(psql "$BACKFILL_PSQL_URL" --tuples-only --no-align --command='SELECT count(*) FROM "WelfareRequest" request WHERE request."id" = '\''70000000-0000-4000-8000-000000000002'\'' AND request."relatedPassengerRecordId" IS NULL AND request."legacyMetadata"->>'\''legacyRelatedPassengerRecordId'\'' = '\''30000000-0000-4000-8000-000000000002'\'' AND request."legacyMetadata"->>'\''crossIncidentPassengerLinkRemoved'\'' = '\''true'\'';')
           test "$request_cross_incident" = "1"
+          psql "$BACKFILL_PSQL_URL" --set=ON_ERROR_STOP=1 <<'SQL'
+          INSERT INTO "User" ("id", "email", "displayName", "status", "updatedAt") VALUES
+            ('10000000-0000-4000-8000-000000000002', 'ambiguous-one@example.test', 'Ambiguous Legacy', 'active', CURRENT_TIMESTAMP),
+            ('10000000-0000-4000-8000-000000000003', 'ambiguous-two@example.test', 'Ambiguous Legacy', 'active', CURRENT_TIMESTAMP);
+          INSERT INTO "AssignmentTask" (
+            "id", "operationalId", "sessionId", "title", "status", "priority", "ownerAssignedTo",
+            "assignedUserDisplayName", "assignedUserId", "createdById", "updatedById", "updatedAt"
+          ) VALUES
+            ('80000000-0000-4000-8000-000000000001', 'ASN-BACKFILL-001', '20000000-0000-4000-8000-000000000001',
+             'Unique historical owner', 'In Progress', 'Urgent', 'Backfill Test', 'Backfill Test', NULL,
+             '10000000-0000-4000-8000-000000000001', '10000000-0000-4000-8000-000000000001', CURRENT_TIMESTAMP - INTERVAL '3 hours'),
+            ('80000000-0000-4000-8000-000000000002', 'ASN-BACKFILL-002', '20000000-0000-4000-8000-000000000001',
+             'Ambiguous historical owner', 'Open', 'Normal', 'Ambiguous Legacy', 'Ambiguous Legacy', NULL,
+             '10000000-0000-4000-8000-000000000001', '10000000-0000-4000-8000-000000000001', CURRENT_TIMESTAMP - INTERVAL '2 hours'),
+            ('80000000-0000-4000-8000-000000000003', 'ASN-BACKFILL-003', '20000000-0000-4000-8000-000000000001',
+             'Historical terminal task', 'Completed', 'Critical', 'Backfill Test', 'Backfill Test', '10000000-0000-4000-8000-000000000001',
+             '10000000-0000-4000-8000-000000000001', '10000000-0000-4000-8000-000000000001', CURRENT_TIMESTAMP - INTERVAL '1 hour'),
+            ('80000000-0000-4000-8000-000000000004', 'ASN-BACKFILL-004', '20000000-0000-4000-8000-000000000001',
+             'Unknown historical enums', 'Legacy status', 'Legacy priority', NULL, NULL, NULL,
+             '10000000-0000-4000-8000-000000000001', '10000000-0000-4000-8000-000000000001', CURRENT_TIMESTAMP);
+          SQL
+          cp -R apps/api/prisma/migrations/20260809000000_assignment_tasks_foundation "$migration_workspace/migrations/"
+          DATABASE_URL="$BACKFILL_DATABASE_URL" npx prisma migrate deploy --schema "$migration_workspace/schema.prisma"
+          assignment_unique_owner=$(psql "$BACKFILL_PSQL_URL" --tuples-only --no-align --command='SELECT count(*) FROM "AssignmentTask" WHERE "id" = '\''80000000-0000-4000-8000-000000000001'\'' AND "assignedUserId" = '\''10000000-0000-4000-8000-000000000001'\'' AND "legacyAssigneeLabel" IS NULL AND "legacyImported" = true AND "version" = 1;')
+          test "$assignment_unique_owner" = "1"
+          assignment_ambiguous_owner=$(psql "$BACKFILL_PSQL_URL" --tuples-only --no-align --command='SELECT count(*) FROM "AssignmentTask" WHERE "id" = '\''80000000-0000-4000-8000-000000000002'\'' AND "assignedUserId" IS NULL AND "legacyAssigneeLabel" = '\''Ambiguous Legacy'\'' AND "legacyImported" = true;')
+          test "$assignment_ambiguous_owner" = "1"
+          assignment_terminal=$(psql "$BACKFILL_PSQL_URL" --tuples-only --no-align --command='SELECT count(*) FROM "AssignmentTask" WHERE "id" = '\''80000000-0000-4000-8000-000000000003'\'' AND "status" = '\''Completed'\'' AND "completedAt" = "updatedAt" AND "completedById" IS NULL AND "legacyMetadata"->>'\''terminalTimestampDerivedFromUpdatedAt'\'' = '\''true'\'';')
+          test "$assignment_terminal" = "1"
+          assignment_unknown_enums=$(psql "$BACKFILL_PSQL_URL" --tuples-only --no-align --command='SELECT count(*) FROM "AssignmentTask" WHERE "id" = '\''80000000-0000-4000-8000-000000000004'\'' AND "status" = '\''Open'\'' AND "priority" = '\''Normal'\'' AND "legacyMetadata"->>'\''historicalStatus'\'' = '\''Legacy status'\'' AND "legacyMetadata"->>'\''historicalPriority'\'' = '\''Legacy priority'\'';')
+          test "$assignment_unknown_enums" = "1"
+          assignment_synthetic_operations=$(psql "$BACKFILL_PSQL_URL" --tuples-only --no-align --command='SELECT count(*) FROM "AssignmentOperation" WHERE "assignmentTaskId" IN ('\''80000000-0000-4000-8000-000000000001'\'', '\''80000000-0000-4000-8000-000000000002'\'', '\''80000000-0000-4000-8000-000000000003'\'', '\''80000000-0000-4000-8000-000000000004'\'');')
+          test "$assignment_synthetic_operations" = "0"
+          cp -R apps/api/prisma/migrations/20260809010000_operational_id_concurrency_closure "$migration_workspace/migrations/"
+          DATABASE_URL="$BACKFILL_DATABASE_URL" npx prisma migrate deploy --schema "$migration_workspace/schema.prisma"
+          operational_id_sequences=$(psql "$BACKFILL_PSQL_URL" --tuples-only --no-align --command='SELECT count(*) FROM pg_class WHERE relkind = '\''S'\'' AND relname IN ('\''Session_operational_seq'\'', '\''Enquiry_operational_seq'\'');')
+          test "$operational_id_sequences" = "2"
 
   quality:
     name: Typecheck, Unit, Build and Browser
