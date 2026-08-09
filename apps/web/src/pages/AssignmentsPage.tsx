@@ -3,7 +3,7 @@ import { clsx } from "clsx";
 import { CheckCircle2, Columns3, FilePlus2, FilterX, ListTodo, Pencil, PlayCircle, Save, Search, Siren, UserCheck, XCircle } from "lucide-react";
 import { useSearchParams } from "react-router-dom";
 import { Badge, PageIntro, Panel, PanelBody, PriorityBadge, SectionHeader, StatusBadge } from "../components/portal";
-import { AlertBox, Button, ConfirmDialog, EmptyState, ErrorSummary, Field, Input, Loading, Select, Textarea } from "../components/ui";
+import { AlertBox, Button, ConfirmDialog, DecisionDialog, EmptyState, ErrorSummary, Field, Input, Loading, Select, Textarea } from "../components/ui";
 import { api } from "../lib/api";
 import { useApp } from "../lib/app-context";
 import { isSessionWriteContextCurrent } from "../lib/session-safety";
@@ -33,6 +33,17 @@ type AssignmentTask = AnyRecord & {
   linkedRecord?: string | null;
   dueAt?: string | null;
   updatedAt?: string | null;
+  version: number;
+  overdue?: boolean;
+  assigneeEligible?: boolean | null;
+  assigneeEligibilityMessage?: string | null;
+  availableActions?: string[];
+  completedBy?: { id: string; displayName: string } | null;
+  completedAt?: string | null;
+  completionNote?: string | null;
+  cancelledBy?: { id: string; displayName: string } | null;
+  cancelledAt?: string | null;
+  cancelReason?: string | null;
 };
 type AssignmentAssignee = {
   id: string;
@@ -63,6 +74,7 @@ const ownerMine = "__mine__";
 const ownerUnassigned = "__unassigned__";
 const terminalStatuses = new Set<AssignmentStatus>(["Completed", "Cancelled"]);
 const boardColumnLimit = 10;
+const queuePageSize = 100;
 
 const dueFormatter = new Intl.DateTimeFormat("en-GB", {
   day: "2-digit",
@@ -96,7 +108,8 @@ function emptyAssignment(sessionId?: string): AssignmentTask {
     relatedFunction: "",
     linkedRecord: "",
     caseId: "",
-    dueAt: ""
+    dueAt: "",
+    version: 1
   };
 }
 
@@ -140,6 +153,12 @@ function formatDue(value?: string | null) {
   if (!value) return "No due time";
   const date = new Date(value);
   return Number.isNaN(date.getTime()) ? "No due time" : dueFormatter.format(date);
+}
+
+function formatUpdated(value?: string | null) {
+  if (!value) return "Not recorded";
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? "Not recorded" : dueFormatter.format(date);
 }
 
 function isOverdue(task: AssignmentTask) {
@@ -192,10 +211,6 @@ function matchesQuery(task: AssignmentTask, query: string) {
     .some((value) => String(value).toLowerCase().includes(needle));
 }
 
-function sameAssignmentOwner(left: AssignmentTask, right: AssignmentTask) {
-  return ownerUserId(left) === ownerUserId(right) && ownerLabel(left) === ownerLabel(right);
-}
-
 function compareText(left: string, right: string) {
   return left.localeCompare(right, undefined, { sensitivity: "base" });
 }
@@ -237,7 +252,10 @@ export function AssignmentsPage() {
   const [searchParams] = useSearchParams();
   const focusAssignmentId = searchParams.get("assignmentId") ?? searchParams.get("focus") ?? "";
   const handledFocusRef = useRef("");
+  const operationIdsRef = useRef(new Map<string, string>());
   const [tasks, setTasks] = useState<AssignmentTask[]>([]);
+  const [total, setTotal] = useState(0);
+  const [page, setPage] = useState(0);
   const [assignees, setAssignees] = useState<AssignmentAssignee[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -262,17 +280,31 @@ export function AssignmentsPage() {
   const [ownerAction, setOwnerAction] = useState<OwnerAction | null>(null);
   const [editorBaseline, setEditorBaseline] = useState("");
   const [terminalTarget, setTerminalTarget] = useState<{ task: AssignmentTask; status: "Completed" | "Cancelled" } | null>(null);
+  const [reasonTarget, setReasonTarget] = useState<{ task: AssignmentTask; action: "escalate" | "cancel" } | null>(null);
+  const [decisionNote, setDecisionNote] = useState("");
 
   const canCreate = activeSessionWritable && can("assignment:create");
   const canUpdate = activeSessionWritable && can("assignment:update");
   const canAssign = activeSessionWritable && can("assignment:assign");
-  const canManageOwners = activeSessionWritable && canAssign && Boolean(user?.roles?.some((role) => ["zpp-coordinator", "tec-coordinator", "zpp-group-leader", "tec-group-leader"].includes(role)));
+  const canManageOwners = activeSessionWritable && canAssign;
   const ownsTask = (task: AssignmentTask) => Boolean(assignmentUserId && ownerUserId(task) === assignmentUserId);
   const canEditTask = (task: AssignmentTask) => canUpdate && !terminalStatuses.has(task.status) && (canManageOwners || ownsTask(task));
   const canSaveCurrent = editing.id ? canEditTask(editing) : canCreate;
   const statusOptions = selectLabels(dictionaries.assignmentStatuses, fallbackStatuses) as AssignmentStatus[];
   const priorityOptions = selectLabels(dictionaries.assignmentPriorities, fallbackPriorities) as AssignmentPriority[];
   const functionOptions = selectLabels(dictionaries.assignmentFunctions, fallbackFunctions);
+
+  function operationIdFor(key: string) {
+    const current = operationIdsRef.current.get(key);
+    if (current) return current;
+    const created = crypto.randomUUID();
+    operationIdsRef.current.set(key, created);
+    return created;
+  }
+
+  function finishOperation(key: string) {
+    operationIdsRef.current.delete(key);
+  }
 
   const load = useCallback(async () => {
     if (!activeSession) {
@@ -284,21 +316,37 @@ export function AssignmentsPage() {
     setLoading(true);
     setError("");
     try {
+      const ownerUser = ownerFilter.startsWith("user:") ? ownerFilter.slice(5) : undefined;
+      const sortMap: Record<SortMode, string> = { priority: "priority", due: "dueAt", status: "status", owner: "assignee", updated: "updatedAt" };
       const [result, assigneeResult] = await Promise.all([
-        api.listAll<AssignmentTask>("assignments", { sessionId: activeSession.id }),
-        canManageOwners ? api.assignmentAssignees().catch(() => ({ data: [] })) : Promise.resolve({ data: [] })
+        api.assignmentQueue<AssignmentTask>({
+          sessionId: activeSession.id,
+          search: query.trim() || undefined,
+          status: statusFilter === "all" ? undefined : statusFilter,
+          priority: priorityFilter === "all" ? undefined : priorityFilter,
+          assignedUserId: ownerUser,
+          unassigned: ownerFilter === ownerUnassigned ? true : undefined,
+          mine: ownerFilter === ownerMine ? true : undefined,
+          due: dueFilter === "all" ? undefined : dueFilter,
+          relatedFunction: functionFilter === "all" ? undefined : functionFilter,
+          sortBy: sortMap[sortBy],
+          sortDirection: sortBy === "updated" ? "desc" : "asc",
+          limit: queuePageSize,
+          offset: page * queuePageSize
+        }),
+        canManageOwners ? api.assignmentAssignees({ sessionId: activeSession.id, limit: 200, offset: 0 }).catch(() => ({ data: [] })) : Promise.resolve({ data: [] })
       ]);
       setTasks(result.data);
+      setTotal(result.total ?? result.data.length);
       setAssignees((assigneeResult.data as AssignmentAssignee[]) ?? []);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Unable to load assignments");
     } finally {
       setLoading(false);
     }
-  }, [activeSession?.id, canManageOwners]);
+  }, [activeSession?.id, canManageOwners, dueFilter, functionFilter, ownerFilter, page, priorityFilter, query, sortBy, statusFilter]);
 
   useEffect(() => {
-    void load();
     if (!editorOpen && !ownerAction) {
       setEditing(emptyAssignment(activeSession?.id));
       setQuery("");
@@ -307,7 +355,11 @@ export function AssignmentsPage() {
       setFeedback("");
       setOwnerFilter(memberSelfView ? ownerMine : "all");
     }
-  }, [activeSession?.id, load, memberSelfView]);
+  }, [activeSession?.id, memberSelfView]);
+
+  useEffect(() => { void load(); }, [load]);
+
+  useEffect(() => { setPage(0); }, [dueFilter, functionFilter, ownerFilter, priorityFilter, query, sortBy, statusFilter]);
 
   useEffect(() => {
     const focus = focusAssignmentId.trim().toLowerCase();
@@ -419,15 +471,13 @@ export function AssignmentsPage() {
     setEditorError("");
     try {
       if (editing.id) {
-        const fresh = (await api.listAll<AssignmentTask>("assignments", { sessionId: activeSession.id })).data.find((item) => item.id === editing.id);
-        if (!fresh || fresh.status !== editing.status || !sameAssignmentOwner(fresh, editing) || terminalStatuses.has(fresh.status)) {
-          setEditorError("This assignment changed while the drawer was open. Review the current record before retrying.");
-          await load();
-          return;
-        }
-        await api.update("assignments", editing.id, payload);
+        await api.update("assignments", editing.id, { ...payload, expectedVersion: editing.version });
       }
-      else await api.create("assignments", payload);
+      else {
+        const operationKey = `create:${activeSession.id}:${payload.title}`;
+        await api.create("assignments", { ...payload, operationId: operationIdFor(operationKey) });
+        finishOperation(operationKey);
+      }
       setFeedback(editing.id ? "Assignment details updated." : "New assignment created in Open state.");
       setEditorOpen(false);
       setEditorBaseline("");
@@ -449,9 +499,14 @@ export function AssignmentsPage() {
     setBusyKey(key);
     setActionError("");
     try {
-      const fresh = (await api.listAll<AssignmentTask>("assignments", { sessionId: task.sessionId })).data.find((item) => item.id === task.id);
-      if (!fresh || fresh.status !== task.status || !sameAssignmentOwner(fresh, task)) throw new Error("This assignment changed before the action was confirmed. Refresh and review it.");
-      await api.action("assignments", task.id, "status", { status });
+      const action = status === "In Progress" ? (task.status === "Escalated" ? "resume" : "start") : status === "Completed" ? "complete" : status === "Cancelled" ? "cancel" : "escalate";
+      const operationKey = `${action}:${task.id}:${task.version}`;
+      await api.action("assignments", task.id!, action, {
+        sessionId: task.sessionId,
+        expectedVersion: task.version,
+        ...(["complete", "cancel"].includes(action) ? { operationId: operationIdFor(operationKey) } : {})
+      });
+      if (["complete", "cancel"].includes(action)) finishOperation(operationKey);
       setFeedback(`${task.operationalId ?? "Assignment"} moved from ${task.status} to ${status}.`);
       await refreshAfterChange();
       return true;
@@ -465,16 +520,16 @@ export function AssignmentsPage() {
 
   async function assignToMe(task: AssignmentTask) {
     const key = `claim:${task.id}`;
-    if (!task.id || busyKey || !canAssign || task.status !== "Open" || ownerLabel(task) !== "Unassigned" || !isSessionWriteContextCurrent(activeSession, task.sessionId) || !(await verifyActiveSessionWrite(task.sessionId))) {
+    if (!task.id || busyKey || !canUpdate || task.status !== "Open" || ownerLabel(task) !== "Unassigned" || !isSessionWriteContextCurrent(activeSession, task.sessionId) || !(await verifyActiveSessionWrite(task.sessionId))) {
       setActionError("Only currently unassigned open work can be claimed.");
       return;
     }
     setBusyKey(key);
     setActionError("");
     try {
-      const fresh = (await api.listAll<AssignmentTask>("assignments", { sessionId: task.sessionId })).data.find((item) => item.id === task.id);
-      if (!fresh || fresh.status !== "Open" || ownerLabel(fresh) !== "Unassigned") throw new Error("Another user claimed or changed this assignment. Your view was not changed.");
-      await api.action("assignments", task.id, "assign-to-me");
+      const operationKey = `claim:${task.id}:${task.version}`;
+      await api.action("assignments", task.id, "claim", { sessionId: task.sessionId, expectedVersion: task.version, operationId: operationIdFor(operationKey) });
+      finishOperation(operationKey);
       setFeedback(`${task.operationalId ?? "Assignment"} claimed by ${assignmentIdentity}.`);
       await refreshAfterChange();
     } catch (err) {
@@ -485,16 +540,16 @@ export function AssignmentsPage() {
   }
 
   async function assignEditingToMe() {
-    if (!editing.id || !canAssign || !isSessionWriteContextCurrent(activeSession, editing.sessionId) || !(await verifyActiveSessionWrite(editing.sessionId))) {
+    if (!editing.id || !canUpdate || !isSessionWriteContextCurrent(activeSession, editing.sessionId) || !(await verifyActiveSessionWrite(editing.sessionId))) {
       setEditorError("The session changed or is closed. The assignment was not claimed.");
       return;
     }
     setSaving(true);
     setEditorError("");
     try {
-      const fresh = (await api.listAll<AssignmentTask>("assignments", { sessionId: editing.sessionId })).data.find((item) => item.id === editing.id);
-      if (!fresh || fresh.status !== "Open" || ownerLabel(fresh) !== "Unassigned") throw new Error("Another user claimed or changed this assignment. Review the current record.");
-      const record = await api.action<AssignmentTask>("assignments", editing.id, "assign-to-me");
+      const operationKey = `claim:${editing.id}:${editing.version}`;
+      const record = await api.action<AssignmentTask>("assignments", editing.id, "claim", { sessionId: editing.sessionId, expectedVersion: editing.version, operationId: operationIdFor(operationKey) });
+      finishOperation(operationKey);
       setEditing({ ...record, dueAt: dateTimeInput(record.dueAt) });
       await refreshAfterChange();
     } catch (err) {
@@ -524,14 +579,54 @@ export function AssignmentsPage() {
     setBusyKey(`${ownerAction.mode}:${ownerAction.task.id}`);
     setOwnerAction((current) => current ? { ...current, error: "" } : current);
     try {
-      const fresh = (await api.listAll<AssignmentTask>("assignments", { sessionId: ownerAction.task.sessionId })).data.find((item) => item.id === ownerAction.task.id);
-      if (!fresh || fresh.status !== ownerAction.task.status || !sameAssignmentOwner(fresh, ownerAction.task)) throw new Error("This assignment changed before ownership could be updated.");
-      await api.action("assignments", ownerAction.task.id, ownerAction.mode === "assign" ? "assign" : "reassign", { assignedUserId: assignee.id, reason });
+      const operationKey = `${ownerAction.mode}:${ownerAction.task.id}:${ownerAction.task.version}`;
+      await api.action("assignments", ownerAction.task.id, ownerAction.mode, {
+        sessionId: ownerAction.task.sessionId,
+        expectedVersion: ownerAction.task.version,
+        operationId: operationIdFor(operationKey),
+        assignedUserId: assignee.id,
+        reason: reason || undefined
+      });
+      finishOperation(operationKey);
       setFeedback(`${ownerAction.task.operationalId ?? "Assignment"} ${ownerAction.mode === "assign" ? "assigned" : "reassigned"} to ${assignee.displayName}.`);
       setOwnerAction(null);
       await refreshAfterChange();
     } catch (err) {
       setOwnerAction((current) => current ? { ...current, error: err instanceof Error ? err.message : "Unable to change assignment owner" } : current);
+    } finally {
+      setBusyKey("");
+    }
+  }
+
+  async function confirmReasonAction() {
+    if (!reasonTarget?.task.id || busyKey) return;
+    const reason = decisionNote.trim();
+    if (reason.length < 3) {
+      setActionError("Enter a reason of at least 3 characters.");
+      return;
+    }
+    const { task, action } = reasonTarget;
+    if (!isSessionWriteContextCurrent(activeSession, task.sessionId) || !(await verifyActiveSessionWrite(task.sessionId))) {
+      setActionError("The session changed or is closed. The workflow action was not applied.");
+      return;
+    }
+    setBusyKey(`${action}:${task.id}`);
+    setActionError("");
+    try {
+      const operationKey = `${action}:${task.id}:${task.version}`;
+      await api.action("assignments", task.id!, action, {
+        sessionId: task.sessionId,
+        expectedVersion: task.version,
+        reason,
+        ...(action === "cancel" ? { operationId: operationIdFor(operationKey) } : {})
+      });
+      if (action === "cancel") finishOperation(operationKey);
+      setFeedback(`${task.operationalId ?? "Assignment"} ${action === "cancel" ? "cancelled" : "escalated"}.`);
+      setReasonTarget(null);
+      setDecisionNote("");
+      await refreshAfterChange();
+    } catch (err) {
+      setActionError(err instanceof Error ? err.message : "Unable to update assignment workflow");
     } finally {
       setBusyKey("");
     }
@@ -545,21 +640,21 @@ export function AssignmentsPage() {
         <Button icon={canEditTask(task) ? Pencil : Search} size="sm" variant="secondary" onClick={() => openTask(task)}>
           {canEditTask(task) ? "Edit" : "View"}
         </Button>
-        {canAssign && task.status === "Open" && ownerLabel(task) === "Unassigned" ? (
+        {canUpdate && task.status === "Open" && ownerLabel(task) === "Unassigned" ? (
           <Button aria-label="Claim" icon={UserCheck} size="sm" variant="ghost" disabled={Boolean(busyKey)} onClick={() => assignToMe(task)}>
             Claim
           </Button>
         ) : null}
         {canManageOwners && task.status === "Open" && ownerLabel(task) === "Unassigned" ? <Button size="sm" variant="secondary" disabled={Boolean(busyKey)} onClick={() => setOwnerAction({ mode: "assign", task, assigneeUserId: "", reason: "", error: "" })}>Assign</Button> : null}
         {canManageOwners && !terminalStatuses.has(task.status) && ownerLabel(task) !== "Unassigned" ? <Button size="sm" variant="secondary" disabled={Boolean(busyKey)} onClick={() => setOwnerAction({ mode: "reassign", task, assigneeUserId: "", reason: "", error: "" })}>Reassign</Button> : null}
-        {canUpdate && ownerLabel(task) !== "Unassigned" && (canManageOwners || ownsTask(task))
+        {canUpdate && task.assigneeEligible !== false && ownerLabel(task) !== "Unassigned" && (canManageOwners || ownsTask(task))
           ? nextActions(task.status).map((action) => (
-              <Button key={action.status} icon={action.icon} size="sm" variant={action.variant} disabled={Boolean(busyKey)} onClick={() => action.status === "Completed" ? setTerminalTarget({ task, status: "Completed" }) : void updateStatus(task, action.status)}>
+              <Button key={action.status} icon={action.icon} size="sm" variant={action.variant} disabled={Boolean(busyKey)} onClick={() => action.status === "Completed" ? setTerminalTarget({ task, status: "Completed" }) : action.status === "Escalated" ? (setDecisionNote(""), setReasonTarget({ task, action: "escalate" })) : void updateStatus(task, action.status)}>
                 {busyKey === `status:${task.id}:${action.status}` ? "Working" : action.label}
               </Button>
             ))
           : null}
-        {canManageOwners && !terminalStatuses.has(task.status) && ownerLabel(task) !== "Unassigned" ? <Button icon={XCircle} size="sm" variant="ghost" disabled={Boolean(busyKey)} onClick={() => setTerminalTarget({ task, status: "Cancelled" })}>Cancel</Button> : null}
+        {canManageOwners && !terminalStatuses.has(task.status) && ownerLabel(task) !== "Unassigned" ? <Button icon={XCircle} size="sm" variant="ghost" disabled={Boolean(busyKey)} onClick={() => { setDecisionNote(""); setReasonTarget({ task, action: "cancel" }); }}>Cancel</Button> : null}
       </div>
     );
   }
@@ -573,7 +668,7 @@ export function AssignmentsPage() {
             description="Start with Assigned to me. If it is empty, claim one unassigned task you can safely handle, then update its status."
             action={
               <div className="flex flex-wrap gap-1.5">
-                <Badge tone="navy">{sortedTasks.length} shown</Badge>
+                <Badge tone="navy">{sortedTasks.length} of {total}</Badge>
                 <Badge tone={activeCount ? "petrol" : "neutral"}>{activeCount} active</Badge>
                 {overdueCount ? <Badge tone="danger">{overdueCount} overdue</Badge> : null}
                 {unassignedCount ? <Badge tone="warning">{unassignedCount} unassigned</Badge> : null}
@@ -586,12 +681,13 @@ export function AssignmentsPage() {
             <div role="rowgroup" className="hidden border-b border-slate-200 bg-slate-50 xl:block">
               <div
                 role="row"
-                className="grid grid-cols-[minmax(20rem,1.55fr)_minmax(8rem,0.55fr)_minmax(8rem,0.6fr)_minmax(7.5rem,0.5fr)_minmax(15rem,0.9fr)] gap-3 px-3 py-2 text-xs font-black uppercase tracking-wide text-slate-500"
+                className="grid grid-cols-[minmax(20rem,1.5fr)_minmax(8rem,0.55fr)_minmax(8rem,0.6fr)_minmax(7.5rem,0.5fr)_minmax(7.5rem,0.5fr)_minmax(15rem,0.9fr)] gap-3 px-3 py-2 text-xs font-black uppercase tracking-wide text-slate-500"
               >
                 <span role="columnheader">Task</span>
                 <span role="columnheader">State</span>
                 <span role="columnheader">Owner</span>
                 <span role="columnheader">Due</span>
+                <span role="columnheader">Updated</span>
                 <span role="columnheader" className="text-right">Next action</span>
               </div>
             </div>
@@ -602,7 +698,7 @@ export function AssignmentsPage() {
                   <div
                     key={task.id ?? task.operationalId ?? task.title}
                     role="row"
-                    className="grid gap-3 px-3 py-3 transition hover:bg-blue-50/40 xl:grid-cols-[minmax(20rem,1.55fr)_minmax(8rem,0.55fr)_minmax(8rem,0.6fr)_minmax(7.5rem,0.5fr)_minmax(15rem,0.9fr)] xl:items-center"
+                    className="grid gap-3 px-3 py-3 transition hover:bg-blue-50/40 xl:grid-cols-[minmax(20rem,1.5fr)_minmax(8rem,0.55fr)_minmax(8rem,0.6fr)_minmax(7.5rem,0.5fr)_minmax(7.5rem,0.5fr)_minmax(15rem,0.9fr)] xl:items-center"
                   >
                     <div role="cell" className="min-w-0">
                       <div className="flex min-w-0 flex-wrap items-center gap-1.5">
@@ -630,7 +726,10 @@ export function AssignmentsPage() {
                       {ownerLabel(task) === "Unassigned" ? (
                         <Badge tone="warning">Unassigned</Badge>
                       ) : (
-                        <span className="block truncate text-sm font-bold text-slate-700">{ownerDisplayLabel(task)}</span>
+                        <>
+                          <span className="block truncate text-sm font-bold text-slate-700">{ownerDisplayLabel(task)}</span>
+                          {task.assigneeEligible === false ? <Badge tone="danger">Access revoked</Badge> : null}
+                        </>
                       )}
                     </div>
 
@@ -643,6 +742,11 @@ export function AssignmentsPage() {
                       )}
                     </div>
 
+                    <div role="cell" className="min-w-0">
+                      <p className="mb-1 text-[10px] font-black uppercase tracking-wide text-slate-400 xl:hidden">Updated</p>
+                      <span className="block truncate text-sm font-bold text-slate-700">{formatUpdated(task.updatedAt)}</span>
+                    </div>
+
                     <div role="cell" className="min-w-0 xl:justify-self-end">
                       {renderActions(task, "queue")}
                     </div>
@@ -650,6 +754,15 @@ export function AssignmentsPage() {
                 );
               })}
             </div>
+            {total > queuePageSize ? (
+              <div className="flex items-center justify-between border-t border-slate-200 px-3 py-2">
+                <span className="text-xs font-bold text-slate-500">Page {page + 1} of {Math.ceil(total / queuePageSize)}</span>
+                <div className="flex gap-2">
+                  <Button size="sm" variant="secondary" disabled={page === 0 || loading} onClick={() => setPage((current) => Math.max(0, current - 1))}>Previous</Button>
+                  <Button size="sm" variant="secondary" disabled={(page + 1) * queuePageSize >= total || loading} onClick={() => setPage((current) => current + 1)}>Next</Button>
+                </div>
+              </div>
+            ) : null}
           </div>
         ) : (
           <div className="p-3">
@@ -888,6 +1001,20 @@ export function AssignmentsPage() {
                   Required fields are marked. Generic editing cannot change assignment ownership or workflow status.
                 </div>
 
+                {editing.assigneeEligibilityMessage ? <AlertBox tone="warning" dismissible={false}>{editing.assigneeEligibilityMessage}</AlertBox> : null}
+
+                {terminalStatuses.has(editing.status) ? (
+                  <div className="rounded-md border border-slate-200 bg-slate-50 p-3 text-sm">
+                    <p className="font-black text-slate-900">Terminal decision provenance</p>
+                    <dl className="mt-2 grid grid-cols-[auto_minmax(0,1fr)] gap-x-3 gap-y-1 text-xs font-semibold text-slate-600">
+                      <dt>Decision</dt><dd className="text-right text-slate-900">{editing.status}</dd>
+                      <dt>Actor</dt><dd className="text-right text-slate-900">{editing.completedBy?.displayName ?? editing.cancelledBy?.displayName ?? "Historical actor unavailable"}</dd>
+                      <dt>Time</dt><dd className="text-right text-slate-900">{formatUpdated(editing.completedAt ?? editing.cancelledAt)}</dd>
+                      <dt>Reason / note</dt><dd className="break-words text-right text-slate-900">{editing.completionNote ?? editing.cancelReason ?? "Not recorded"}</dd>
+                    </dl>
+                  </div>
+                ) : null}
+
                 <ErrorSummary title="Assignment could not be saved" errors={editorError ? [{ message: editorError, fieldId: !String(editing.title ?? "").trim() ? "assignment-title" : undefined }] : []} />
 
                 {!canSaveCurrent ? (
@@ -988,7 +1115,7 @@ export function AssignmentsPage() {
                   />
                 </Field>
 
-                {editing.id && canAssign && editing.status === "Open" && ownerLabel(editing) === "Unassigned" ? (
+                {editing.id && canUpdate && editing.status === "Open" && ownerLabel(editing) === "Unassigned" ? (
                   <Button type="button" icon={UserCheck} variant="secondary" disabled={saving} onClick={assignEditingToMe}>
                     Claim
                   </Button>
@@ -1060,6 +1187,24 @@ export function AssignmentsPage() {
           error={actionError}
           onCancel={() => setTerminalTarget(null)}
           onConfirm={async () => { if (await updateStatus(terminalTarget.task, terminalTarget.status)) setTerminalTarget(null); }}
+        />
+      ) : null}
+      {reasonTarget ? (
+        <DecisionDialog
+          title={reasonTarget.action === "cancel" ? "Cancel assignment?" : "Escalate assignment?"}
+          description={`${reasonTarget.task.operationalId ?? "Assignment"} · ${reasonTarget.task.title}. The reason is written to the audit and incident timeline.`}
+          label={reasonTarget.action === "cancel" ? "Cancellation reason" : "Escalation reason"}
+          value={decisionNote}
+          onChange={(value) => { setDecisionNote(value); setActionError(""); }}
+          onCancel={() => { setReasonTarget(null); setDecisionNote(""); setActionError(""); }}
+          onConfirm={confirmReasonAction}
+          confirmLabel={reasonTarget.action === "cancel" ? "Cancel assignment" : "Escalate assignment"}
+          confirmIcon={reasonTarget.action === "cancel" ? XCircle : Siren}
+          confirmVariant={reasonTarget.action === "cancel" ? "danger" : "warning"}
+          error={actionError}
+          busy={Boolean(busyKey)}
+          required
+          placeholder="Give operational context for this decision"
         />
       ) : null}
     </>

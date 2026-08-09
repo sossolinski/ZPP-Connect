@@ -8,42 +8,46 @@ datasource db {
 }
 
 model User {
-  id                            String                             @id @default(uuid()) @db.Uuid
-  email                         String                             @unique
-  displayName                   String
-  department                    String?
-  organizationId                String?                            @db.Uuid
-  status                        String                             @default("active")
-  createdAt                     DateTime                           @default(now())
-  updatedAt                     DateTime                           @updatedAt
-  organization                  Organization?                      @relation(fields: [organizationId], references: [id], onDelete: SetNull)
-  roles                         UserRole[]
-  createdSessions               Session[]                          @relation("SessionCreatedBy")
-  closedSessions                Session[]                          @relation("SessionClosedBy")
-  approvedMatches               MatchingRecord[]                   @relation("MatchApprovedBy")
-  preparedReleaseActions        ReleaseAction[]                    @relation("ReleasePreparedBy")
-  authorizedReleaseActions      ReleaseAction[]                    @relation("ReleaseAuthorizedBy")
-  completedReleaseActions       ReleaseAction[]                    @relation("ReleaseCompletedBy")
-  cancelledReleaseActions       ReleaseAction[]                    @relation("ReleaseCancelledBy")
-  releaseChecks                 ReleaseCheck[]                     @relation("ReleaseCheckActor")
-  assignedAssignments           AssignmentTask[]                   @relation("AssignmentAssignedTo")
-  incidentAssignments           IncidentAssignment[]               @relation("IncidentAssignedUser")
-  createdIncidentAssignments    IncidentAssignment[]               @relation("IncidentAssignmentCreator")
-  revokedIncidentAssignments    IncidentAssignment[]               @relation("IncidentAssignmentRevoker")
-  passengerSrcConfirmations     PassengerRecord[]                  @relation("PassengerSrcConfirmedBy")
-  passengerConditionUpdates     PassengerRecord[]                  @relation("PassengerConditionUpdatedBy")
-  passengerHoldUpdates          PassengerRecord[]                  @relation("PassengerHoldUpdatedBy")
-  familyClaimsCreated           RelationshipClaim[]                @relation("RelationshipClaimCreatedBy")
-  familyVerificationDecisions   RelationshipVerificationDecision[] @relation("RelationshipDecisionBy")
-  familyVerificationProjections FamilyRecord[]                     @relation("FamilyVerificationProjectionBy")
-  matchDecisions                MatchDecision[]                    @relation("MatchDecisionBy")
-  ownedRequests                 Request[]                          @relation("RequestOwner")
-  createdRequests               Request[]                          @relation("RequestCreatedBy")
-  updatedRequests               Request[]                          @relation("RequestUpdatedBy")
-  resolvedRequests              Request[]                          @relation("RequestResolvedBy")
-  reopenedRequests              Request[]                          @relation("RequestReopenedBy")
-  cancelledRequests             Request[]                          @relation("RequestCancelledBy")
-  auditLogs                     AuditLog[]                         @relation("ActorAudit")
+  id                              String                             @id @default(uuid()) @db.Uuid
+  email                           String                             @unique
+  displayName                     String
+  department                      String?
+  organizationId                  String?                            @db.Uuid
+  status                          String                             @default("active")
+  createdAt                       DateTime                           @default(now())
+  updatedAt                       DateTime                           @updatedAt
+  organization                    Organization?                      @relation(fields: [organizationId], references: [id], onDelete: SetNull)
+  roles                           UserRole[]
+  createdSessions                 Session[]                          @relation("SessionCreatedBy")
+  closedSessions                  Session[]                          @relation("SessionClosedBy")
+  approvedMatches                 MatchingRecord[]                   @relation("MatchApprovedBy")
+  preparedReleaseActions          ReleaseAction[]                    @relation("ReleasePreparedBy")
+  authorizedReleaseActions        ReleaseAction[]                    @relation("ReleaseAuthorizedBy")
+  completedReleaseActions         ReleaseAction[]                    @relation("ReleaseCompletedBy")
+  cancelledReleaseActions         ReleaseAction[]                    @relation("ReleaseCancelledBy")
+  releaseChecks                   ReleaseCheck[]                     @relation("ReleaseCheckActor")
+  assignedAssignments             AssignmentTask[]                   @relation("AssignmentAssignedTo")
+  createdOperationalAssignments   AssignmentTask[]                   @relation("AssignmentCreatedBy")
+  updatedOperationalAssignments   AssignmentTask[]                   @relation("AssignmentUpdatedBy")
+  completedOperationalAssignments AssignmentTask[]                   @relation("AssignmentCompletedBy")
+  cancelledOperationalAssignments AssignmentTask[]                   @relation("AssignmentCancelledBy")
+  incidentAssignments             IncidentAssignment[]               @relation("IncidentAssignedUser")
+  createdIncidentAssignments      IncidentAssignment[]               @relation("IncidentAssignmentCreator")
+  revokedIncidentAssignments      IncidentAssignment[]               @relation("IncidentAssignmentRevoker")
+  passengerSrcConfirmations       PassengerRecord[]                  @relation("PassengerSrcConfirmedBy")
+  passengerConditionUpdates       PassengerRecord[]                  @relation("PassengerConditionUpdatedBy")
+  passengerHoldUpdates            PassengerRecord[]                  @relation("PassengerHoldUpdatedBy")
+  familyClaimsCreated             RelationshipClaim[]                @relation("RelationshipClaimCreatedBy")
+  familyVerificationDecisions     RelationshipVerificationDecision[] @relation("RelationshipDecisionBy")
+  familyVerificationProjections   FamilyRecord[]                     @relation("FamilyVerificationProjectionBy")
+  matchDecisions                  MatchDecision[]                    @relation("MatchDecisionBy")
+  ownedRequests                   Request[]                          @relation("RequestOwner")
+  createdRequests                 Request[]                          @relation("RequestCreatedBy")
+  updatedRequests                 Request[]                          @relation("RequestUpdatedBy")
+  resolvedRequests                Request[]                          @relation("RequestResolvedBy")
+  reopenedRequests                Request[]                          @relation("RequestReopenedBy")
+  cancelledRequests               Request[]                          @relation("RequestCancelledBy")
+  auditLogs                       AuditLog[]                         @relation("ActorAudit")
 
   @@index([organizationId])
 }
@@ -119,6 +123,7 @@ model Session {
   requests              Request[]
   requestOperations     RequestOperation[]
   assignments           AssignmentTask[]
+  assignmentOperations  AssignmentOperation[]
   timelineEvents        CaseTimelineEvent[]
   importBatches         ImportBatch[]
   files                 StoredFile[]
@@ -645,31 +650,63 @@ model RequestOperation {
 }
 
 model AssignmentTask {
-  id                      String    @id @default(uuid()) @db.Uuid
-  operationalId           String    @unique
-  sessionId               String    @db.Uuid
-  caseId                  String?
-  title                   String
-  details                 String?
-  status                  String    @default("Open")
-  priority                String    @default("Normal")
-  ownerAssignedTo         String?
-  assignedUserId          String?   @db.Uuid
-  assignedUserDisplayName String?
-  relatedFunction         String?
-  linkedRecord            String?
-  dueAt                   DateTime?
-  createdById             String?   @db.Uuid
-  updatedById             String?   @db.Uuid
-  createdAt               DateTime  @default(now())
-  updatedAt               DateTime  @updatedAt
-  session                 Session   @relation(fields: [sessionId], references: [id], onDelete: Cascade)
-  assignedUser            User?     @relation("AssignmentAssignedTo", fields: [assignedUserId], references: [id], onDelete: SetNull)
+  id                  String                @id @default(uuid()) @db.Uuid
+  operationalId       String                @unique
+  sessionId           String                @db.Uuid
+  caseId              String?
+  title               String
+  details             String?
+  status              String                @default("Open")
+  priority            String                @default("Normal")
+  assignedUserId      String?               @db.Uuid
+  legacyAssigneeLabel String?
+  relatedFunction     String?
+  linkedRecord        String?
+  dueAt               DateTime?
+  completedById       String?               @db.Uuid
+  completedAt         DateTime?
+  completionNote      String?
+  cancelledById       String?               @db.Uuid
+  cancelledAt         DateTime?
+  cancelReason        String?
+  version             Int                   @default(1)
+  legacyImported      Boolean               @default(false)
+  legacyMetadata      Json?
+  createdById         String?               @db.Uuid
+  updatedById         String?               @db.Uuid
+  createdAt           DateTime              @default(now())
+  updatedAt           DateTime              @updatedAt
+  session             Session               @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  assignedUser        User?                 @relation("AssignmentAssignedTo", fields: [assignedUserId], references: [id], onDelete: Restrict)
+  createdBy           User?                 @relation("AssignmentCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
+  updatedBy           User?                 @relation("AssignmentUpdatedBy", fields: [updatedById], references: [id], onDelete: SetNull)
+  completedBy         User?                 @relation("AssignmentCompletedBy", fields: [completedById], references: [id], onDelete: Restrict)
+  cancelledBy         User?                 @relation("AssignmentCancelledBy", fields: [cancelledById], references: [id], onDelete: Restrict)
+  operations          AssignmentOperation[]
 
-  @@index([sessionId, status])
+  @@index([sessionId, status, updatedAt(sort: Desc)])
+  @@index([sessionId, assignedUserId, status])
+  @@index([sessionId, priority, status])
+  @@index([sessionId, dueAt])
+  @@index([sessionId, relatedFunction])
   @@index([caseId])
-  @@index([ownerAssignedTo])
-  @@index([assignedUserId])
+}
+
+model AssignmentOperation {
+  id                 String         @id @default(uuid()) @db.Uuid
+  incidentId         String         @db.Uuid
+  assignmentTaskId   String         @db.Uuid
+  operationId        String         @db.Uuid
+  command            String
+  commandFingerprint String
+  resultVersion      Int
+  requestId          String?
+  createdAt          DateTime       @default(now())
+  incident           Session        @relation(fields: [incidentId], references: [id], onDelete: Cascade)
+  assignment         AssignmentTask @relation(fields: [assignmentTaskId], references: [id], onDelete: Cascade)
+
+  @@unique([incidentId, operationId])
+  @@index([assignmentTaskId, createdAt])
 }
 
 model CaseTimelineEvent {

@@ -228,28 +228,42 @@ export const openApiDocument = {
       post: { summary: "Cancel a Request without marking it resolved" },
     },
     "/assignments": {
-      get: { summary: "List operational assignments" },
-      post: { summary: "Create operational assignment" },
+      get: { summary: "Deprecated read-only operational assignment projection" },
+      post: { summary: "Create an idempotent open operational assignment" },
     },
-    "/assignment-assignees": {
-      get: {
-        summary: "List eligible assignment assignees for manager actions",
-      },
+    "/assignments/queue": {
+      get: { summary: "List the filtered, paged operational assignment queue" },
+    },
+    "/assignments/assignees": {
+      get: { summary: "Search active incident-scoped eligible assignment candidates" },
     },
     "/assignments/{id}": {
-      patch: { summary: "Update operational assignment" },
+      get: { summary: "Get incident-scoped operational assignment context" },
+      patch: { summary: "Update versioned assignment facts and planning fields only" },
     },
     "/assignments/{id}/assign": {
       post: { summary: "Assign operational task owner" },
     },
-    "/assignments/{id}/assign-to-me": {
-      post: { summary: "Assign operational task to current user" },
+    "/assignments/{id}/claim": {
+      post: { summary: "Atomically claim an unassigned operational task" },
     },
     "/assignments/{id}/reassign": {
       post: { summary: "Reassign operational task owner" },
     },
-    "/assignments/{id}/status": {
-      post: { summary: "Update operational task status" },
+    "/assignments/{id}/start": {
+      post: { summary: "Start an open operational assignment" },
+    },
+    "/assignments/{id}/escalate": {
+      post: { summary: "Escalate an in-progress operational assignment" },
+    },
+    "/assignments/{id}/resume": {
+      post: { summary: "Resume an escalated operational assignment" },
+    },
+    "/assignments/{id}/complete": {
+      post: { summary: "Idempotently complete an in-progress operational assignment" },
+    },
+    "/assignments/{id}/cancel": {
+      post: { summary: "Idempotently cancel an active operational assignment" },
     },
     "/timeline": {
       get: { summary: "Case timeline" },

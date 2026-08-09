@@ -376,7 +376,7 @@ describe("ZPP Connect API", () => {
 
     expect((await apiGet(app, "/api/dashboard", "viewer@lot.pl")).status).toBe(200);
     expect((await apiGet(app, "/api/assignments", "viewer@lot.pl")).status).toBe(403);
-    expect((await apiGet(app, "/api/assignment-assignees", "volunteer@lot.pl")).status).toBe(403);
+    expect((await apiGet(app, "/api/assignments/assignees", "volunteer@lot.pl").query({ sessionId: "ses-demo-1" })).status).toBe(403);
     expect((await apiPost(app, "/api/family-records", "volunteer@lot.pl").send({ sessionId: "ses-demo-1" })).status).toBe(403);
     expect((await apiPost(app, "/api/matching/claims/claim-memory-fam-demo-1/confirm", "tec@lot.pl").send({})).status).toBe(403);
   });
@@ -609,7 +609,7 @@ describe("ZPP Connect API", () => {
 
   it("links briefing priorities to assignments without mutating assignment workflow", async () => {
     const app = createApp();
-    const session = await apiPost(app, "/api/sessions", "admin@lot.pl").send({
+    const session = await apiPost(app, "/api/sessions", "coordinator@lot.pl").send({
       mode: "EXERCISE",
       status: "Active",
       eventType: "Exercise",
@@ -625,13 +625,15 @@ describe("ZPP Connect API", () => {
       sessionId,
       title: "Linkable briefing task one",
       priority: "Urgent",
-      dueAt: "2026-07-02T11:00:00.000Z"
+      dueAt: "2026-07-02T11:00:00.000Z",
+      operationId: randomUUID()
     });
     const second = await apiPost(app, "/api/assignments", "coordinator@lot.pl").send({
       sessionId,
       title: "Linkable briefing task two",
       priority: "Normal",
-      dueAt: "2026-07-02T12:00:00.000Z"
+      dueAt: "2026-07-02T12:00:00.000Z",
+      operationId: randomUUID()
     });
     expect(first.status).toBe(201);
     expect(second.status).toBe(201);
@@ -997,28 +999,44 @@ describe("ZPP Connect API", () => {
   it("uses stable assignment owner IDs for claim, reassignment, status and legacy handling", async () => {
     const app = createApp();
     const token = `S3A-ASN-${Date.now()}`;
-    const created = await apiPost(app, "/api/assignments", "coordinator@lot.pl").send({
+    const protectedCreate = await apiPost(app, "/api/assignments", "coordinator@lot.pl").send({
       sessionId: "ses-demo-1",
       groupId: "grp-2026-000004",
       title: token,
       status: "Completed",
       ownerAssignedTo: "Injected owner",
       assignedUserId: demoIds.admin,
-      priority: "Urgent"
+      priority: "Urgent",
+      operationId: randomUUID()
+    });
+    expect(protectedCreate.status).toBe(400);
+    const created = await apiPost(app, "/api/assignments", "coordinator@lot.pl").send({
+      sessionId: "ses-demo-1",
+      title: token,
+      priority: "Urgent",
+      operationId: randomUUID()
     });
     expect(created.status).toBe(201);
     expect(created.body).toMatchObject({ status: "Open", ownerAssignedTo: null, assignedUserId: null });
 
-    const patched = await apiPatch(app, `/api/assignments/${created.body.id}`, "coordinator@lot.pl").send({
+    const protectedPatch = await apiPatch(app, `/api/assignments/${created.body.id}`, "coordinator@lot.pl").send({
+      sessionId: "ses-demo-1",
+      expectedVersion: created.body.version,
       title: `${token}-EDITED`,
       status: "Completed",
       ownerAssignedTo: "Silent replacement",
       assignedUserId: demoIds.admin
     });
+    expect(protectedPatch.status).toBe(400);
+    const patched = await apiPatch(app, `/api/assignments/${created.body.id}`, "coordinator@lot.pl").send({
+      sessionId: "ses-demo-1",
+      expectedVersion: created.body.version,
+      title: `${token}-EDITED`
+    });
     expect(patched.status).toBe(200);
     expect(patched.body).toMatchObject({ title: `${token}-EDITED`, status: "Open", ownerAssignedTo: null, assignedUserId: null });
 
-    const claimed = await apiPost(app, `/api/assignments/${created.body.id}/assign-to-me`, "volunteer@lot.pl").send({});
+    const claimed = await apiPost(app, `/api/assignments/${created.body.id}/claim`, "volunteer@lot.pl").send({ sessionId: "ses-demo-1", expectedVersion: patched.body.version, operationId: randomUUID() });
     expect(claimed.status).toBe(200);
     expect(claimed.body).toMatchObject({
       status: "Open",
@@ -1027,28 +1045,32 @@ describe("ZPP Connect API", () => {
       ownerAssignedTo: "ZPP Member 01"
     });
     expect(claimed.body.ownerAssignedTo).not.toBe("ZPP");
-    expect((await apiPost(app, `/api/assignments/${created.body.id}/assign-to-me`, "zpp@lot.pl").send({})).status).toBe(403);
+    expect((await apiPost(app, `/api/assignments/${created.body.id}/claim`, "zpp@lot.pl").send({ sessionId: "ses-demo-1", expectedVersion: patched.body.version, operationId: randomUUID() })).status).toBe(409);
 
-    const started = await apiPost(app, `/api/assignments/${created.body.id}/status`, "volunteer@lot.pl").send({ status: "In Progress" });
+    const started = await apiPost(app, `/api/assignments/${created.body.id}/start`, "volunteer@lot.pl").send({ sessionId: "ses-demo-1", expectedVersion: claimed.body.version });
     expect(started.status).toBe(200);
-    expect((await apiPost(app, `/api/assignments/${created.body.id}/reassign`, "volunteer@lot.pl").send({ assignedUserId: demoIds.zpp, reason: "Trying to manage work." })).status).toBe(403);
+    expect((await apiPost(app, `/api/assignments/${created.body.id}/reassign`, "volunteer@lot.pl").send({ sessionId: "ses-demo-1", expectedVersion: started.body.version, operationId: randomUUID(), assignedUserId: demoIds.zpp, reason: "Trying to manage work." })).status).toBe(403);
 
-    const assignees = await apiGet(app, "/api/assignment-assignees", "coordinator@lot.pl");
+    const assignees = await apiGet(app, "/api/assignments/assignees", "coordinator@lot.pl").query({ sessionId: "ses-demo-1" });
     expect(assignees.status).toBe(200);
-    expect(assignees.body.data.map((item: any) => item.userId)).toEqual(expect.arrayContaining([demoIds.volunteer, demoIds.zpp, demoIds.coordinator, demoIds.admin]));
-    expect(assignees.body.data.map((item: any) => item.userId)).not.toContain(demoIds.viewer);
+    expect(assignees.body.data.map((item: any) => item.id)).toEqual(expect.arrayContaining([demoIds.volunteer, demoIds.zpp, demoIds.coordinator, demoIds.admin]));
+    expect(assignees.body.data.map((item: any) => item.id)).not.toContain(demoIds.viewer);
 
-    const scopedAssignees = await apiGet(app, "/api/assignment-assignees", "zpp@lot.pl");
+    const scopedAssignees = await apiGet(app, "/api/assignments/assignees", "zpp@lot.pl").query({ sessionId: "ses-demo-1" });
     expect(scopedAssignees.status).toBe(200);
-    expect(scopedAssignees.body.data.map((item: any) => item.userId)).toContain(demoIds.zpp);
-    expect(scopedAssignees.body.data.map((item: any) => item.userId)).not.toEqual(expect.arrayContaining([demoIds.volunteer, demoIds.tec, demoIds.viewer]));
+    expect(scopedAssignees.body.data.map((item: any) => item.id)).toContain(demoIds.zpp);
+    expect(scopedAssignees.body.data.map((item: any) => item.id)).not.toContain(demoIds.viewer);
 
     const globallyManagedAssignmentId = "asn-demo-3";
-    const noReason = await apiPost(app, `/api/assignments/${globallyManagedAssignmentId}/reassign`, "coordinator@lot.pl").send({ assignedUserId: demoIds.zpp });
+    const managed = await apiGet(app, `/api/assignments/${globallyManagedAssignmentId}`, "coordinator@lot.pl").query({ sessionId: "ses-demo-1" });
+    const noReason = await apiPost(app, `/api/assignments/${globallyManagedAssignmentId}/reassign`, "coordinator@lot.pl").send({ sessionId: "ses-demo-1", expectedVersion: managed.body.version, operationId: randomUUID(), assignedUserId: demoIds.zpp });
     expect(noReason.status).toBe(400);
     const reassigned = await apiPost(app, `/api/assignments/${globallyManagedAssignmentId}/reassign`, "coordinator@lot.pl").send({
       assignedUserId: demoIds.zpp,
-      reason: "Shift handover approved by the coordinator."
+      reason: "Shift handover approved by the coordinator.",
+      sessionId: "ses-demo-1",
+      expectedVersion: managed.body.version,
+      operationId: randomUUID()
     });
     expect(reassigned.status).toBe(200);
     expect(reassigned.body).toMatchObject({
@@ -1060,9 +1082,7 @@ describe("ZPP Connect API", () => {
     const assignmentAudit = await apiGet(app, "/api/audit-logs").query({ sessionId: "ses-demo-1" });
     expect(assignmentAudit.body.data.find((item: any) => item.action === "reassign_assignment" && item.entityId === globallyManagedAssignmentId)?.metadata).toMatchObject({
       previousAssigneeId: demoIds.coordinator,
-      previousAssigneeDisplayName: "ZPP Coordinator",
       newAssigneeId: demoIds.zpp,
-      newAssigneeDisplayName: "ZPP Group Leader"
     });
     const assignmentTimeline = await apiGet(app, "/api/timeline").query({ sessionId: "ses-demo-1" });
     expect(assignmentTimeline.body.data.find((item: any) => item.entityId === globallyManagedAssignmentId && item.title.includes("reassigned"))?.metadata).toMatchObject({
@@ -1070,18 +1090,22 @@ describe("ZPP Connect API", () => {
       newAssigneeId: demoIds.zpp
     });
 
-    expect((await apiPost(app, `/api/assignments/${created.body.id}/status`, "volunteer@lot.pl").send({ status: "Completed" })).status).toBe(200);
-    expect((await apiPatch(app, `/api/assignments/${created.body.id}`, "volunteer@lot.pl").send({ title: "Terminal overwrite" })).status).toBe(409);
+    const done = await apiPost(app, `/api/assignments/${created.body.id}/complete`, "volunteer@lot.pl").send({ sessionId: "ses-demo-1", expectedVersion: started.body.version, operationId: randomUUID() });
+    expect(done.status).toBe(200);
+    expect((await apiPatch(app, `/api/assignments/${created.body.id}`, "volunteer@lot.pl").send({ sessionId: "ses-demo-1", expectedVersion: done.body.version, title: "Terminal overwrite" })).status).toBe(409);
 
     const legacy = (await apiGet(app, "/api/assignments").query({ sessionId: "ses-demo-1" })).body.data.find((item: any) => item.operationalId === "ASN-2026-000002");
     expect(legacy).toMatchObject({
       assignedUserId: null,
       ownerAssignedTo: "Leader Bravo",
-      legacyAssignee: { label: "Legacy/unresolved assignee: Leader Bravo" }
+      legacyAssigneeLabel: "Leader Bravo"
     });
     const resolvedLegacy = await apiPost(app, `/api/assignments/${legacy.id}/reassign`, "coordinator@lot.pl").send({
       assignedUserId: demoIds.tec,
-      reason: "Resolve the legacy string owner to a canonical identity."
+      reason: "Resolve the legacy string owner to a canonical identity.",
+      sessionId: "ses-demo-1",
+      expectedVersion: legacy.version,
+      operationId: randomUUID()
     });
     expect(resolvedLegacy.status).toBe(200);
     expect(resolvedLegacy.body.assignedUserId).toBe(demoIds.tec);
@@ -1089,14 +1113,14 @@ describe("ZPP Connect API", () => {
     const session = await apiPost(app, "/api/sessions").send({ mode: "EXERCISE", status: "Active", eventType: "Exercise", flightNumber: token });
     const closedTask = await apiPost(app, "/api/assignments", "coordinator@lot.pl").send({
       sessionId: session.body.id,
-      groupId: "grp-2026-000004",
       title: `${token}-CLOSED`,
-      priority: "Normal"
+      priority: "Normal",
+      operationId: randomUUID()
     });
     await apiPost(app, `/api/sessions/${session.body.id}/close`).send({ notes: "Stage 3A isolated API test cleanup." });
-    expect((await apiPost(app, `/api/assignments/${closedTask.body.id}/assign-to-me`, "volunteer@lot.pl").send({})).status).toBe(409);
-    expect((await apiPost(app, `/api/assignments/${closedTask.body.id}/status`, "volunteer@lot.pl").send({ status: "In Progress" })).status).toBe(409);
-    expect((await apiPost(app, `/api/assignments/${closedTask.body.id}/assign-to-me`, "tec@lot.pl").send({})).status).toBe(403);
+    expect((await apiPost(app, `/api/assignments/${closedTask.body.id}/claim`, "coordinator@lot.pl").send({ sessionId: session.body.id, expectedVersion: closedTask.body.version, operationId: randomUUID() })).status).toBe(409);
+    expect((await apiPatch(app, `/api/assignments/${closedTask.body.id}`, "coordinator@lot.pl").send({ sessionId: session.body.id, expectedVersion: closedTask.body.version, title: "Closed overwrite" })).status).toBe(409);
+    expect((await apiGet(app, `/api/assignments/${closedTask.body.id}`, "tec@lot.pl").query({ sessionId: session.body.id })).status).toBe(404);
   });
 
   it("serves rostering and availability through API with role scope, actions and neutral audit summaries", async () => {
@@ -1746,11 +1770,17 @@ describe("ZPP Connect API", () => {
     const app = createApp();
     const created = await apiPost(app, "/api/assignments").send({
       sessionId: "ses-demo-1",
-      title: "Check family assistance handover"
+      title: "Check family assistance handover",
+      operationId: randomUUID()
     });
     expect(created.status).toBe(201);
 
-    const assigned = await apiPost(app, `/api/assignments/${created.body.id}/assign`).send({ assignedUserId: demoIds.volunteer });
+    const assigned = await apiPost(app, `/api/assignments/${created.body.id}/assign`).send({
+      sessionId: "ses-demo-1",
+      expectedVersion: created.body.version,
+      operationId: randomUUID(),
+      assignedUserId: demoIds.volunteer
+    });
     expect(assigned.status).toBe(200);
 
     const volunteerFeed = await apiGet(app, "/api/notifications", "volunteer@lot.pl").query({ sourceType: "assignment", limit: 100 });
@@ -1773,9 +1803,9 @@ describe("ZPP Connect API", () => {
       })
     ]));
 
-    const completed = await apiPost(app, `/api/assignments/${created.body.id}/status`, "volunteer@lot.pl").send({ status: "In Progress" });
+    const completed = await apiPost(app, `/api/assignments/${created.body.id}/start`, "volunteer@lot.pl").send({ sessionId: "ses-demo-1", expectedVersion: assigned.body.version });
     expect(completed.status).toBe(200);
-    const done = await apiPost(app, `/api/assignments/${created.body.id}/status`, "volunteer@lot.pl").send({ status: "Completed" });
+    const done = await apiPost(app, `/api/assignments/${created.body.id}/complete`, "volunteer@lot.pl").send({ sessionId: "ses-demo-1", expectedVersion: completed.body.version, operationId: randomUUID() });
     expect(done.status).toBe(200);
 
     const resolvedFeed = await apiGet(app, "/api/notifications", "volunteer@lot.pl").query({ sourceType: "assignment", status: "resolved", limit: 100 });

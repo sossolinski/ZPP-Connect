@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { expect, test, type Page } from "@playwright/test";
 import { login } from "./helpers";
 
@@ -45,14 +46,14 @@ async function setSessionForRestrictedPersona(page: Page, session: Row) {
 async function createAssignment(page: Page, sessionId: string, title: string) {
   const response = await page.request.post(`${apiUrl}/assignments`, {
     headers: coordinatorHeaders,
-    data: { sessionId, title, priority: "Urgent", details: `Operational detail for ${title}` }
+    data: { sessionId, title, priority: "Urgent", details: `Operational detail for ${title}`, operationId: randomUUID() }
   });
   expect(response.status()).toBe(201);
   return await response.json() as Row;
 }
 
-async function assign(page: Page, assignmentId: string, assignedUserId: string) {
-  const response = await page.request.post(`${apiUrl}/assignments/${assignmentId}/assign`, { headers: coordinatorHeaders, data: { assignedUserId } });
+async function assign(page: Page, assignment: Row, assignedUserId: string) {
+  const response = await page.request.post(`${apiUrl}/assignments/${assignment.id}/assign`, { headers: coordinatorHeaders, data: { sessionId: assignment.sessionId, expectedVersion: assignment.version, operationId: randomUUID(), assignedUserId } });
   expect(response.ok()).toBeTruthy();
   return await response.json() as Row;
 }
@@ -77,8 +78,8 @@ test("protects manual Timeline categories and exposes full provenance on desktop
   const token = `S2C-TL-${Date.now()}`;
   const session = await createSession(page, token);
   const assignment = await createAssignment(page, session.id, `${token}-SOURCE`);
-  await assign(page, assignment.id, demoIds.coordinator);
-  const started = await page.request.post(`${apiUrl}/assignments/${assignment.id}/status`, { headers: coordinatorHeaders, data: { status: "In Progress" } });
+  const assigned = await assign(page, assignment, demoIds.coordinator);
+  const started = await page.request.post(`${apiUrl}/assignments/${assignment.id}/start`, { headers: coordinatorHeaders, data: { sessionId: session.id, expectedVersion: assigned.version } });
   expect(started.ok()).toBeTruthy();
 
   const rejected = await page.request.post(`${apiUrl}/timeline`, {
@@ -116,7 +117,7 @@ test("protects manual Timeline categories and exposes full provenance on desktop
   await detail.getByRole("button", { name: "Close" }).click();
 
   const workflowRow = page.getByRole("row").filter({ hasText: `Assignment ${assignment.operationalId} moved to In Progress` });
-  await expect(workflowRow).toContainText("State transition");
+  await expect(workflowRow).toContainText("Assignment activity");
   await workflowRow.getByRole("button", { name: "View timeline details" }).click();
   detail = page.getByRole("dialog", { name: "Timeline event details" });
   await expect(detail.getByText("Open", { exact: true }).first()).toBeVisible();
@@ -148,15 +149,16 @@ test("enforces assignment ownership workflow, conflicts, roles and mobile parity
   await grantIncidentAccess(page, session.id, [demoIds.zpp, demoIds.tec, demoIds.volunteer, demoIds.viewer]);
   const unassigned = await createAssignment(page, session.id, `${token}-UNASSIGNED`);
   const volunteerTask = await createAssignment(page, session.id, `${token}-VOLUNTEER`);
-  await assign(page, volunteerTask.id, demoIds.volunteer);
+  await assign(page, volunteerTask, demoIds.volunteer);
   const coordinatorTask = await createAssignment(page, session.id, `${token}-REASSIGN`);
-  await assign(page, coordinatorTask.id, demoIds.coordinator);
+  await assign(page, coordinatorTask, demoIds.coordinator);
   const optionTask = await createAssignment(page, session.id, `${token}-OPTION`);
-  await assign(page, optionTask.id, demoIds.volunteer);
+  await assign(page, optionTask, demoIds.volunteer);
   const terminal = await createAssignment(page, session.id, `${token}-TERMINAL`);
-  await assign(page, terminal.id, demoIds.coordinator);
-  await page.request.post(`${apiUrl}/assignments/${terminal.id}/status`, { headers: coordinatorHeaders, data: { status: "In Progress" } });
-  await page.request.post(`${apiUrl}/assignments/${terminal.id}/status`, { headers: coordinatorHeaders, data: { status: "Completed" } });
+  const assignedTerminal = await assign(page, terminal, demoIds.coordinator);
+  const startedTerminal = await page.request.post(`${apiUrl}/assignments/${terminal.id}/start`, { headers: coordinatorHeaders, data: { sessionId: session.id, expectedVersion: assignedTerminal.version } });
+  const startedTerminalBody = await startedTerminal.json() as Row;
+  await page.request.post(`${apiUrl}/assignments/${terminal.id}/complete`, { headers: coordinatorHeaders, data: { sessionId: session.id, expectedVersion: startedTerminalBody.version, operationId: randomUUID() } });
 
   await login(page);
   await useSession(page, session);
@@ -177,10 +179,10 @@ test("enforces assignment ownership workflow, conflicts, roles and mobile parity
   await expect(editDrawer.getByText("Current assignee")).toBeVisible();
   await editDrawer.getByRole("button", { name: "Close" }).click();
 
-  const externalClaim = await page.request.post(`${apiUrl}/assignments/${unassigned.id}/assign-to-me`, { headers: coordinatorHeaders, data: {} });
+  const externalClaim = await page.request.post(`${apiUrl}/assignments/${unassigned.id}/claim`, { headers: coordinatorHeaders, data: { sessionId: session.id, expectedVersion: unassigned.version, operationId: randomUUID() } });
   expect(externalClaim.ok()).toBeTruthy();
   await unassignedRow.getByRole("button", { name: "Claim", exact: true }).click();
-  await expect(page.getByText(/Another user claimed or changed this assignment/)).toBeVisible();
+  await expect(page.getByText(/claimed or changed by another operator/i)).toBeVisible();
   await expect(unassignedRow).toContainText("Unassigned");
 
   const reassignRow = page.getByRole("row").filter({ hasText: `${token}-REASSIGN` });
@@ -240,11 +242,42 @@ test("enforces assignment ownership workflow, conflicts, roles and mobile parity
   await expect(page.getByRole("button", { name: /Claim|Assign|Reassign|Start|Complete|Cancel/ })).toHaveCount(0);
 });
 
+test("preserves revoked assignee history, warns managers and excludes the user from candidates", async ({ page }) => {
+  const token = `S8-REVOKED-${Date.now()}`;
+  const session = await createSession(page, token);
+  await grantIncidentAccess(page, session.id, [demoIds.volunteer]);
+  const assignment = await createAssignment(page, session.id, `${token}-TASK`);
+  await assign(page, assignment, demoIds.volunteer);
+
+  const access = await page.request.get(`${apiUrl}/sessions/${session.id}/assignments?includeInactive=true`, { headers: adminHeaders });
+  const volunteerAccess = ((await access.json()).data as Row[]).find((item) => item.userId === demoIds.volunteer && item.active)!;
+  const revoked = await page.request.post(`${apiUrl}/sessions/${session.id}/assignments/${volunteerAccess.id}/revoke`, {
+    headers: adminHeaders,
+    data: { reason: "Shift ended before handover" }
+  });
+  expect(revoked.ok()).toBeTruthy();
+
+  await login(page, "coordinator@lot.pl");
+  await useSession(page, session);
+  await page.goto("/assignments");
+  const row = page.getByRole("row").filter({ hasText: `${token}-TASK` });
+  await expect(row.getByText("Access revoked", { exact: true })).toBeVisible();
+  await row.getByRole("button", { name: "Edit" }).click();
+  const drawer = page.getByRole("dialog", { name: "Edit Assignment" });
+  await expect(drawer.getByText(/no longer has access to this incident/i)).toBeVisible();
+  await drawer.getByRole("button", { name: "Close" }).click();
+
+  await row.getByRole("button", { name: "Reassign" }).click();
+  const reassign = page.getByRole("dialog", { name: "Reassign work" });
+  await expect(reassign.getByLabel("New assignee").getByRole("option", { name: "ZPP Member 01" })).toHaveCount(0);
+});
+
 test("blocks a stale assignment drawer after the session closes and keeps Audit read-only", async ({ page }) => {
   const token = `S2C-STALE-${Date.now()}`;
   const session = await createSession(page, token);
+  await grantIncidentAccess(page, session.id, [demoIds.admin]);
   const assignment = await createAssignment(page, session.id, `${token}-TASK`);
-  await assign(page, assignment.id, demoIds.admin);
+  await assign(page, assignment, demoIds.admin);
 
   await login(page);
   await useSession(page, session);
