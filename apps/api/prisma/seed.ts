@@ -284,6 +284,34 @@ async function seedOperationalData() {
 
   await seedMemberDirectory({ incidentId: session.id, adminId: admin.id, tecId: tec.id, zppId: zpp.id, volunteerId: volunteer.id });
 
+  const rosterTimestamp = new Date("2026-07-09T09:00:00.000Z");
+  const rosterShifts = [
+    ["rst-2026-000001", "RST-001", "grp-2026-000001", "mem-2026-000003", "Family Assistance Centre morning support", "Family support desk", "Family Assistance Team", "2026-07-13T04:00:00.000Z", "2026-07-13T12:00:00.000Z", "Family Assistance Centre", "Published", "Confirm readiness before the morning handover."],
+    ["rst-2026-000002", "RST-002", "grp-2026-000004", "mem-2026-000008", "Documentation Cell afternoon support", "Record review", "Documentation Support", "2026-07-13T12:00:00.000Z", "2026-07-13T20:00:00.000Z", "Remote support", "Published", "Review assigned notes and confirm availability."],
+    ["rst-2026-000003", "RST-003", "grp-2026-000002", "mem-2026-000002", "Telephone Enquiry Center evening supervisor", "TEC supervision", "Telephone Enquiry Center", "2026-07-13T10:00:00.000Z", "2026-07-13T18:00:00.000Z", "Hybrid", "Confirmed", "Supervisor confirmed for the evening handover."],
+    ["rst-2026-000004", "RST-004", "grp-2026-000003", "mem-2026-000005", "Welfare Support reserve shift", "Reserve coverage", "Welfare Support", "2026-07-14T06:00:00.000Z", "2026-07-14T14:00:00.000Z", "On-site", "Cancelled", "Cancelled after coverage plan changed."],
+    ["rst-2026-000005", "RST-005", "grp-2026-000001", "mem-2026-000001", "Family Assistance initial briefing", "Briefing support", "Family Assistance Team", "2026-07-08T06:00:00.000Z", "2026-07-08T08:00:00.000Z", "Command room", "Completed", "Briefing completed."],
+    ["rst-2026-000006", "RST-006", "grp-2026-000003", null, "Airport Reception Support cover", "Reception support", "Airport Reception Support", "2026-07-15T04:00:00.000Z", "2026-07-15T12:00:00.000Z", "Airport desk", "Draft", "Assign a trained member before publishing."],
+  ] as const;
+  for (const [id, operationalId, groupId, assignedMemberProfileId, title, duty, functionName, startAt, endAt, location, status, notes] of rosterShifts) {
+    const data = { sessionId: session.id, groupId, assignedMemberProfileId, title, duty, functionName, startAt: new Date(startAt), endAt: new Date(endAt), location, status, notes, legacyImported: true, legacyMetadata: { provenance: "memory-seed", transitionActorsAvailable: false }, createdAt: rosterTimestamp, updatedAt: rosterTimestamp, createdById: admin.id, updatedById: admin.id };
+    await prisma.rosterShift.upsert({ where: { id }, update: data, create: { id, operationalId, ...data } });
+  }
+
+  const availability = [
+    ["avl-2026-000001", "AVL-001", "mem-2026-000008", "2026-07-13T12:00:00.000Z", "2026-07-13T20:00:00.000Z", "Available", "Can support documentation work remotely.", volunteer.id],
+    ["avl-2026-000002", "AVL-002", "mem-2026-000005", "2026-07-14T05:00:00.000Z", "2026-07-14T13:00:00.000Z", "Unavailable", "Unavailable during this window.", admin.id],
+    ["avl-2026-000003", "AVL-003", "mem-2026-000006", "2026-07-15T04:00:00.000Z", "2026-07-15T12:00:00.000Z", "Preferred", "Prefers airport reception support.", admin.id],
+    ["avl-2026-000004", "AVL-004", "mem-2026-000002", "2026-07-13T10:00:00.000Z", "2026-07-13T18:00:00.000Z", "Available", "TEC supervisor available for hybrid duty.", tec.id],
+  ] as const;
+  for (const [id, operationalId, memberProfileId, startAt, endAt, type, note, actorId] of availability) {
+    const data = { memberProfileId, startAt: new Date(startAt), endAt: new Date(endAt), type, note, status: "Active", createdAt: rosterTimestamp, updatedAt: rosterTimestamp, createdById: actorId, updatedById: actorId };
+    await prisma.availability.upsert({ where: { id }, update: data, create: { id, operationalId, ...data } });
+  }
+
+  await prisma.$queryRaw`SELECT setval('"RosterShift_operational_seq"', GREATEST(COALESCE((SELECT MAX(substring("operationalId" FROM '([0-9]+)$')::BIGINT) FROM "RosterShift"), 0) + 1, 1), false)`;
+  await prisma.$queryRaw`SELECT setval('"Availability_operational_seq"', GREATEST(COALESCE((SELECT MAX(substring("operationalId" FROM '([0-9]+)$')::BIGINT) FROM "Availability"), 0) + 1, 1), false)`;
+
   const enquiry1 = await prisma.enquiry.upsert({
     where: { operationalId: "TEC-2026-000001" },
     update: {},

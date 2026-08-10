@@ -42,6 +42,6 @@ export function errorHandler(error: unknown, req: Request, res: Response, _next:
     return;
   }
 
-  logger.error({ error, path: req.path }, "Unhandled API error");
+  logger.error({ err: error, path: req.path }, "Unhandled API error");
   res.status(500).json({ error: "Internal server error" });
 }
