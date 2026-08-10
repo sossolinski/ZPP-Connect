@@ -19,14 +19,18 @@ import type {
 
 type Db = PrismaClient | Prisma.TransactionClient;
 type MemberRow = Prisma.MemberProfileGetPayload<Record<string, never>>;
+const memberProjectionInclude = {
+  availabilityRecords: { where: { status: "Active" }, orderBy: [{ startAt: "asc" as const }, { id: "asc" as const }], take: 1 },
+  rosterShifts: { where: { status: { in: ["Draft", "Published", "Confirmed", "Declined"] } }, orderBy: [{ startAt: "asc" as const }, { id: "asc" as const }], take: 1 },
+};
 type GroupRow = Prisma.OperationalGroupGetPayload<{
-  include: { memberships: { include: { memberProfile: true } } };
+  include: { memberships: { include: { memberProfile: true } }; rosterShifts: { select: { id: true } } };
 }>;
 
 const derivedFields = {
-  availability: "legacy-compatibility",
+  availability: "postgres-projection",
   trainingStatus: "legacy-compatibility",
-  rosterStatus: "legacy-compatibility",
+  rosterStatus: "postgres-projection",
   assignedLeader: "legacy-compatibility",
 } as const;
 
@@ -42,6 +46,9 @@ function canSeeContact(actor: DirectoryActor) {
 
 function memberRecord(member: MemberRow, actor: DirectoryActor): MemberProfileRecord {
   const contact = canSeeContact(actor);
+  const projected = member as MemberRow & { availabilityRecords?: Array<{ id: string; operationalId: string; type: string; startAt: Date; endAt: Date }>; rosterShifts?: Array<{ id: string; operationalId: string; status: string; startAt: Date; endAt: Date }> };
+  const availability = projected.availabilityRecords?.[0] ?? null;
+  const roster = projected.rosterShifts?.[0] ?? null;
   return {
     id: member.id,
     memberId: member.memberId,
@@ -58,9 +65,11 @@ function memberRecord(member: MemberRow, actor: DirectoryActor): MemberProfileRe
     languages: member.languages,
     status: member.status as MemberProfileRecord["status"],
     version: member.version,
-    availability: member.legacyAvailability ?? "Managed in Availability",
+    availability: availability ? `${availability.type} ${availability.startAt.toISOString()}–${availability.endAt.toISOString()}` : "Managed in Availability",
     trainingStatus: member.legacyTrainingStatus ?? "Managed in Training",
-    rosterStatus: member.legacyRosterStatus ?? "Managed in Rostering",
+    rosterStatus: roster ? `${roster.status} ${roster.operationalId}` : "Managed in Rostering",
+    availabilitySummary: availability,
+    rosterSummary: roster,
     assignedLeader: member.legacyAssignedLeader,
     derivedFields,
     createdAt: member.createdAt,
@@ -98,8 +107,8 @@ function groupRecord(group: GroupRow): GroupRecord {
       removedAt: membership.removedAt,
       removedById: membership.removedById,
     })),
-    rosterShiftIds: [],
-    rosterLinkCount: 0,
+    rosterShiftIds: group.rosterShifts.map((shift) => shift.id),
+    rosterLinkCount: group.rosterShifts.length,
     createdAt: group.createdAt,
     updatedAt: group.updatedAt,
   };
@@ -146,6 +155,7 @@ function groupInclude() {
       include: { memberProfile: true },
       orderBy: [{ role: "asc" as const }, { addedAt: "asc" as const }],
     },
+    rosterShifts: { select: { id: true }, orderBy: { startAt: "asc" as const } },
   };
 }
 
@@ -274,13 +284,13 @@ export function createPrismaMemberDirectoryRepository(client: PrismaClient): Fou
         : { [query.sortBy]: query.sortDirection };
       const [total, rows] = await client.$transaction([
         client.memberProfile.count({ where }),
-        client.memberProfile.findMany({ where, orderBy: [orderBy, { id: "asc" }], take: query.limit, skip: query.offset }),
+        client.memberProfile.findMany({ where, include: memberProjectionInclude, orderBy: [orderBy, { id: "asc" }], take: query.limit, skip: query.offset }),
       ]);
       return { total, limit: query.limit, offset: query.offset, data: rows.map((row) => memberRecord(row, actor)) };
     },
 
     async getMember(id, actor) {
-      const row = await client.memberProfile.findFirst({ where: { id, AND: [memberVisibility(actor, "member:read")] } });
+      const row = await client.memberProfile.findFirst({ where: { id, AND: [memberVisibility(actor, "member:read")] }, include: memberProjectionInclude });
       return row ? memberRecord(row, actor) : null;
     },
 
@@ -385,6 +395,7 @@ export function createPrismaMemberDirectoryRepository(client: PrismaClient): Fou
           const visible = await tx.memberProfile.findFirst({ where: { id, AND: [memberVisibility(actor, "member:archive")] } });
           if (!visible) return { record: null, conflict: false };
           if (await tx.groupMembership.findFirst({ where: { memberProfileId: id, removedAt: null } })) throw new HttpError(409, "Remove this member from active groups before archiving");
+          if (await tx.rosterShift.findFirst({ where: { assignedMemberProfileId: id, status: { in: ["Draft", "Published", "Confirmed"] } } })) throw new HttpError(409, "Resolve active roster shifts before archiving this member");
           const changed = await tx.memberProfile.updateMany({ where: { id, version: expectedVersion, status: { not: "Archived" }, AND: [memberVisibility(actor, "member:archive")] }, data: { status: "Archived", linkedUserId: null, version: { increment: 1 }, updatedById: actor.id } });
           if (changed.count !== 1) return { record: null, conflict: true };
           const row = await tx.memberProfile.findUniqueOrThrow({ where: { id } });
@@ -500,6 +511,7 @@ export function createPrismaMemberDirectoryRepository(client: PrismaClient): Fou
 
     async archiveGroup(incidentId, id, expectedVersion, actor) {
       return mutateGroup(incidentId, id, expectedVersion, actor, async (tx) => {
+        if (await tx.rosterShift.findFirst({ where: { groupId: id, status: { in: ["Draft", "Published", "Confirmed"] } } })) throw new HttpError(409, "Resolve active roster shifts before archiving this group");
         const timestamp = new Date();
         await tx.groupMembership.updateMany({ where: { groupId: id, removedAt: null }, data: { removedAt: timestamp, removedById: actor.id } });
         await tx.groupRoleAssignment.updateMany({ where: { groupId: id, status: "Active" }, data: { status: "Revoked", revokedAt: timestamp, revokedBy: actor.id, version: { increment: 1 } } });

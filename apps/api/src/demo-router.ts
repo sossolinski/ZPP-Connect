@@ -93,6 +93,9 @@ import type { AssignmentRepository } from "./modules/assignments/assignment-repo
 import { createMemberDirectoryRouter } from "./modules/member-directory/member-directory-router.js";
 import { createMemberDirectoryService } from "./modules/member-directory/member-directory-service.js";
 import type { FoundationMemberDirectoryRepository } from "./modules/member-directory/member-directory-repository.js";
+import { createRosteringRouter } from "./modules/rostering/rostering-router.js";
+import { createRosteringService } from "./modules/rostering/rostering-service.js";
+import type { FoundationRosteringRepository } from "./modules/rostering/rostering-repository.js";
 import { hydrateReadOnlyProjection, mergeProjectionPage, syncProjectionRow } from "./modules/compatibility/read-only-projection.js";
 
 type Row = Record<string, any>;
@@ -1176,16 +1179,17 @@ function directoryActor(req: Request): DirectoryActor {
 }
 
 function directoryRoute(handler: (req: Request) => unknown, status = 200) {
-  return (req: Request, res: any) => {
-    try {
-      res.status(status).json(handler(req));
-    } catch (error) {
+  return (req: Request, res: any, next: NextFunction) => {
+    void Promise.resolve()
+      .then(() => handler(req))
+      .then((result) => res.status(status).json(result))
+      .catch((error) => {
       if (error instanceof DirectoryError) {
         res.status(error.status).json({ error: error.message });
         return;
       }
-      throw error;
-    }
+      next(error);
+      });
   };
 }
 
@@ -1937,7 +1941,9 @@ export function createDemoRouter(options: {
   requestRepository?: RequestRepository;
   assignmentRepository?: AssignmentRepository;
   memberDirectoryRepository?: FoundationMemberDirectoryRepository;
+  rosteringRepository?: FoundationRosteringRepository;
   assignmentNotificationHook?: (record: Record<string, unknown>, command: string) => void;
+  rosteringNotificationHook?: (record: Record<string, unknown>, command: string) => void;
 } = {}) {
   const router = Router();
   const memoryIncidentAssignments: MemoryIncidentAssignment[] = sessions.flatMap((incident) =>
@@ -2095,9 +2101,12 @@ export function createDemoRouter(options: {
   };
   const rostering = createRosteringRepository(memberDirectory);
   rosteringForAdmin = rostering;
+  const foundationRosteringService = options.rosteringRepository
+    ? createRosteringService(options.rosteringRepository, incidentAccessService)
+    : null;
   const training = createTrainingRepository(memberDirectory);
   const documentsRepository = createDocumentRepository(memberDirectory);
-  const readiness = createReadinessService({ directory: memberDirectory, training, documents: documentsRepository, rostering });
+  const readiness = createReadinessService({ directory: memberDirectory, training, documents: documentsRepository, rostering, foundationRostering: foundationRosteringService });
   const activeEvent = createActiveEventService({ users, sessions, assignments, enquiries, familyRecords, passengerRecords, matchingRecords, releases, requests });
   const notifications = createNotificationService({ users, sessions, assignments, directory: memberDirectory, rostering, training, documents: documentsRepository, activeEvent, permissionsForRoleNames });
   notificationsForAdmin = notifications;
@@ -2302,6 +2311,15 @@ export function createDemoRouter(options: {
       onGroupChange: (record) => {
         memberDirectory.replaceGroupProjection(record);
         syncRoleAssignmentGroup(record);
+      },
+    }));
+  }
+  if (foundationRosteringService) {
+    router.use(createRosteringRouter(foundationRosteringService, {
+      onShiftCommitted: (record, command) => {
+        if (command === "publish") notifications.notifyRosterShiftPublished(record);
+        if (["confirm", "decline", "cancel", "complete"].includes(command)) notifications.resolveSource("rosterShift", record.id, "Source resolved");
+        options.rosteringNotificationHook?.(record, command);
       },
     }));
   }
@@ -2738,6 +2756,7 @@ export function createDemoRouter(options: {
   }));
   router.get("/document-acknowledgements", requireAnyPermission(["document:read-own", "document:read-all", "document:acknowledge-all"]), directoryRoute((req) => documentsRepository.listAcknowledgements(req.query, directoryActor(req))));
 
+  if (!foundationRosteringService) {
   router.get("/roster-shifts", requireAnyPermission(["roster:read", "roster:read-own"]), directoryRoute((req) => rostering.listShifts(req.query, directoryActor(req))));
   router.get("/roster-shifts/:id", requireAnyPermission(["roster:read", "roster:read-own"]), directoryRoute((req) => rostering.getShift(String(req.params.id), directoryActor(req))));
   router.post("/roster-shifts", requirePermission("roster:create"), directoryRoute((req) => {
@@ -2792,6 +2811,7 @@ export function createDemoRouter(options: {
     addAudit(req, "remove_availability", "Availability removed", activeSessionId(req), { availabilityId: record.id, operationalId: record.operationalId, memberProfileId: record.memberProfileId }, "availability", record.id);
     return record;
   }));
+  }
 
   const demoResourceRoutes = [
     { resource: "files", read: "import:create", create: "import:create", update: "import:create" },

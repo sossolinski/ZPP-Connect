@@ -3,6 +3,7 @@ import { DirectoryError } from "./member-directory.js";
 import type { DirectoryActor, MemberDirectoryRepository } from "./member-directory.js";
 import type { DocumentRepository } from "./documents.js";
 import type { RosteringRepository } from "./rostering.js";
+import type { RosteringService as FoundationRosteringService } from "./modules/rostering/rostering-service.js";
 import type { TrainingRepository } from "./training.js";
 import { permissionsForRoleNames } from "./access-control.js";
 
@@ -219,12 +220,14 @@ export function createReadinessService({
   directory,
   training,
   documents,
-  rostering
+  rostering,
+  foundationRostering
 }: {
   directory: MemberDirectoryRepository;
   training: TrainingRepository;
   documents: DocumentRepository;
   rostering: RosteringRepository;
+  foundationRostering?: FoundationRosteringService | null;
 }) {
   function evaluationActor(actor: DirectoryActor): DirectoryActor {
     return {
@@ -408,15 +411,11 @@ export function createReadinessService({
     });
   }
 
-  function buildAvailabilityDimension(member: DirectoryMember, actor: DirectoryActor, evaluationAt: string) {
+  async function buildAvailabilityDimension(member: DirectoryMember, actor: DirectoryActor, evaluationAt: string) {
     const window = dayWindow(evaluationAt);
-    const result = rostering.listAvailability({
-      memberProfileId: member.id,
-      startFrom: window.startAt,
-      startTo: window.endAt,
-      limit: 20
-    }, evaluationActor(actor));
-    const records = result.data as any[];
+    const records = foundationRostering
+      ? await foundationRostering.readinessAvailability(member.id, new Date(window.startAt), new Date(window.endAt))
+      : rostering.listAvailability({ memberProfileId: member.id, startFrom: window.startAt, startTo: window.endAt, limit: 20 }, evaluationActor(actor)).data as any[];
     const activeNow = records.find((record) => overlaps(record.startAt, record.endAt, evaluationAt, evaluationAt));
     const firstRecord = activeNow ?? records[0] ?? null;
     const factors: ReturnType<typeof factor>[] = [];
@@ -456,14 +455,12 @@ export function createReadinessService({
     });
   }
 
-  function buildRosterDimension(member: DirectoryMember, actor: DirectoryActor, evaluationAt: string) {
-    const result = rostering.listShifts({
-      memberProfileId: member.id,
-      startFrom: evaluationAt,
-      startTo: addDays(evaluationAt, defaultPolicy.rosterLookaheadDays),
-      limit: 20
-    }, evaluationActor(actor));
-    const shifts = (result.data as any[]).filter((shift) => !["Cancelled", "Completed"].includes(String(shift.status)));
+  async function buildRosterDimension(member: DirectoryMember, actor: DirectoryActor, evaluationAt: string) {
+    const endAt = addDays(evaluationAt, defaultPolicy.rosterLookaheadDays);
+    const projected = foundationRostering
+      ? await foundationRostering.readinessRoster(actor, member.id, new Date(evaluationAt), new Date(endAt))
+      : rostering.listShifts({ memberProfileId: member.id, startFrom: evaluationAt, startTo: endAt, limit: 20 }, evaluationActor(actor)).data as any[];
+    const shifts = (projected as any[]).filter((shift) => !["Cancelled", "Completed"].includes(String(shift.status)));
     const nextShift = shifts[0] ?? null;
     const factors: ReturnType<typeof factor>[] = [];
     if (!nextShift) {
@@ -527,13 +524,17 @@ export function createReadinessService({
     });
   }
 
-  function assessMember(member: DirectoryMember, actor: DirectoryActor, evaluationAt: string) {
+  async function assessMember(member: DirectoryMember, actor: DirectoryActor, evaluationAt: string) {
+    const [availabilityDimension, rosterDimension] = await Promise.all([
+      buildAvailabilityDimension(member, actor, evaluationAt),
+      buildRosterDimension(member, actor, evaluationAt),
+    ]);
     const dimensions = [
       buildProfileDimension(member),
       buildTrainingDimension(member, actor, evaluationAt),
       buildDocumentDimension(member, actor, evaluationAt),
-      buildAvailabilityDimension(member, actor, evaluationAt),
-      buildRosterDimension(member, actor, evaluationAt)
+      availabilityDimension,
+      rosterDimension
     ];
     const factors = dimensions.flatMap((item) => item.factors);
     const overallStatus = summarizeOverall(dimensions);
@@ -550,7 +551,7 @@ export function createReadinessService({
     };
   }
 
-  function applyMemberFilters(data: ReturnType<typeof assessMember>[], query: Query) {
+  function applyMemberFilters(data: Awaited<ReturnType<typeof assessMember>>[], query: Query) {
     const search = normalize(query.search ?? query.q);
     const status = asString(query.status);
     const groupId = asString(query.groupId);
@@ -571,7 +572,7 @@ export function createReadinessService({
     });
   }
 
-  function summaryFor(assessments: ReturnType<typeof assessMember>[], evaluationAt: string) {
+  function summaryFor(assessments: Awaited<ReturnType<typeof assessMember>>[], evaluationAt: string) {
     const byStatus: Record<ReadinessOverallStatus, number> = {
       Ready: 0,
       "Ready with attention": 0,
@@ -599,11 +600,11 @@ export function createReadinessService({
     };
   }
 
-  function groupReadiness(group: DirectoryGroup, actor: DirectoryActor, evaluationAt: string) {
-    const memberAssessments = group.memberIds
+  async function groupReadiness(group: DirectoryGroup, actor: DirectoryActor, evaluationAt: string) {
+    const members = group.memberIds
       .map((memberId) => directory.lookupMember(memberId))
-      .filter((member) => member.status !== "Archived")
-      .map((member) => assessMember(member, actor, evaluationAt));
+      .filter((member) => member.status !== "Archived");
+    const memberAssessments = await Promise.all(members.map((member) => assessMember(member, actor, evaluationAt)));
     return {
       group: groupSummary(group),
       calculatedAt: evaluationAt,
@@ -619,7 +620,7 @@ export function createReadinessService({
   }
 
   return {
-    me(query: Query, actor: DirectoryActor) {
+    async me(query: Query, actor: DirectoryActor) {
       assert(hasPermission(actor, "readiness:read-own"), 403, "Forbidden");
       const member = linkedMember(actor);
       const evaluationAt = parseEvaluationAt(query);
@@ -643,47 +644,47 @@ export function createReadinessService({
           policy: defaultPolicy
         };
       }
-      return assessMember(member, actor, evaluationAt);
+      return await assessMember(member, actor, evaluationAt);
     },
 
-    members(query: Query, actor: DirectoryActor) {
+    async members(query: Query, actor: DirectoryActor) {
       assert(hasPermission(actor, "readiness:read-all") || hasPermission(actor, "readiness:read-group"), 403, "Forbidden");
       const evaluationAt = parseEvaluationAt(query);
-      const assessments = applyMemberFilters(visibleMembers(actor).map((member) => assessMember(member, actor, evaluationAt)), query)
+      const assessments = applyMemberFilters(await Promise.all(visibleMembers(actor).map((member) => assessMember(member, actor, evaluationAt))), query)
         .sort((left, right) => statusRank(left.overallStatus) - statusRank(right.overallStatus) || left.member.displayName.localeCompare(right.member.displayName));
       return page(assessments, query, { summary: summaryFor(assessments, evaluationAt) });
     },
 
-    member(id: string, query: Query, actor: DirectoryActor) {
+    async member(id: string, query: Query, actor: DirectoryActor) {
       assert(canReadMember(actor, id), 403, "Forbidden");
-      return assessMember(directory.lookupMember(id), actor, parseEvaluationAt(query));
+      return await assessMember(directory.lookupMember(id), actor, parseEvaluationAt(query));
     },
 
-    groups(query: Query, actor: DirectoryActor) {
+    async groups(query: Query, actor: DirectoryActor) {
       assert(hasPermission(actor, "readiness:read-all") || hasPermission(actor, "readiness:read-group"), 403, "Forbidden");
       const evaluationAt = parseEvaluationAt(query);
       const allowed = visibleGroupIds(actor);
-      const groups = allGroups()
+      const candidates = allGroups()
         .filter((group) => allowed.has(group.id))
-        .filter((group) => !asString(query.groupId) || group.id === asString(query.groupId))
-        .map((group) => groupReadiness(group, actor, evaluationAt))
+        .filter((group) => !asString(query.groupId) || group.id === asString(query.groupId));
+      const groups = (await Promise.all(candidates.map((group) => groupReadiness(group, actor, evaluationAt))))
         .sort((left, right) => left.group.name.localeCompare(right.group.name));
       return page(groups, query);
     },
 
-    group(id: string, query: Query, actor: DirectoryActor) {
+    async group(id: string, query: Query, actor: DirectoryActor) {
       const allowed = visibleGroupIds(actor);
       assert(allowed.has(id), 403, "Forbidden");
-      return groupReadiness(directory.lookupGroup(id), actor, parseEvaluationAt(query));
+      return await groupReadiness(directory.lookupGroup(id), actor, parseEvaluationAt(query));
     },
 
-    summary(query: Query, actor: DirectoryActor) {
+    async summary(query: Query, actor: DirectoryActor) {
       assert(hasPermission(actor, "readiness:read-summary") || hasPermission(actor, "readiness:read-all") || hasPermission(actor, "readiness:read-group"), 403, "Forbidden");
       const evaluationAt = parseEvaluationAt(query);
       const members = hasPermission(actor, "readiness:read-summary") && !hasPermission(actor, "readiness:read-group") && !hasPermission(actor, "readiness:read-all")
         ? allMembers()
         : visibleMembers(actor);
-      return summaryFor(members.map((member) => assessMember(member, actor, evaluationAt)), evaluationAt);
+      return summaryFor(await Promise.all(members.map((member) => assessMember(member, actor, evaluationAt))), evaluationAt);
     },
 
     policy(actor: DirectoryActor) {

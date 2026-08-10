@@ -59,10 +59,12 @@ type RosterShift = {
   location: string;
   status: RosterStatus;
   notes?: string | null;
+  version: number;
   updatedAt: string;
   assignedMember?: MemberSummary | null;
   group?: GroupSummary | null;
   conflictWarnings?: string[];
+  warningDetails?: Array<{ code: string; message: string; sourceId?: string }>;
   permissions?: {
     canUpdate?: boolean;
     canPublish?: boolean;
@@ -81,6 +83,8 @@ type AvailabilityRecord = {
   endAt: string;
   type: AvailabilityType;
   note?: string | null;
+  status: "Active" | "Removed";
+  version: number;
   updatedAt: string;
   member?: MemberSummary;
   permissions?: {
@@ -92,6 +96,8 @@ type AvailabilityRecord = {
 type ApiListResult<T> = {
   data: T[];
   total: number;
+  limit?: number;
+  offset?: number;
   linkedMemberProfile?: MemberSummary | null;
 };
 
@@ -117,6 +123,7 @@ type AvailabilityForm = {
 
 const statusOptions: Array<"All" | RosterStatus> = ["All", "Draft", "Published", "Confirmed", "Declined", "Cancelled", "Completed"];
 const availabilityTypeOptions: AvailabilityType[] = ["Available", "Unavailable", "Preferred"];
+const pageSize = 50;
 
 function formatDateTime(value?: string | null) {
   if (!value) return "Not set";
@@ -234,11 +241,17 @@ export function RosteringPage({ user }: { user: DemoUser }) {
   const [error, setError] = useState("");
   const [readinessError, setReadinessError] = useState("");
   const [success, setSuccess] = useState("");
+  const [searchFilter, setSearchFilter] = useState("");
+  const [functionFilter, setFunctionFilter] = useState("");
   const [statusFilter, setStatusFilter] = useState<(typeof statusOptions)[number]>("All");
   const [groupFilter, setGroupFilter] = useState("All");
   const [memberFilter, setMemberFilter] = useState("All");
   const [fromFilter, setFromFilter] = useState("");
   const [toFilter, setToFilter] = useState("");
+  const [rosterOffset, setRosterOffset] = useState(0);
+  const [rosterTotal, setRosterTotal] = useState(0);
+  const [availabilityOffset, setAvailabilityOffset] = useState(0);
+  const [availabilityTotal, setAvailabilityTotal] = useState(0);
   const [drawer, setDrawer] = useState<{ mode: "create" | "edit" | "view"; shift?: RosterShift } | null>(null);
   const [shiftForm, setShiftForm] = useState<ShiftForm>(() => shiftFormFromRecord());
   const [shiftBaseline, setShiftBaseline] = useState<ShiftForm>(() => shiftFormFromRecord());
@@ -277,7 +290,9 @@ export function RosteringPage({ user }: { user: DemoUser }) {
       return;
     }
     try {
-      const rosterQuery: Record<string, string | boolean> = { sessionId };
+      const rosterQuery: Record<string, string | boolean | number> = { sessionId, limit: pageSize, offset: rosterOffset };
+      if (searchFilter) rosterQuery.search = searchFilter;
+      if (functionFilter) rosterQuery.functionName = functionFilter;
       if (statusFilter !== "All") rosterQuery.status = statusFilter;
       if (groupFilter !== "All") rosterQuery.groupId = groupFilter;
       if (memberFilter !== "All") rosterQuery.memberProfileId = memberFilter;
@@ -285,8 +300,8 @@ export function RosteringPage({ user }: { user: DemoUser }) {
       if (toFilter) rosterQuery.startTo = new Date(`${toFilter}T23:59:59`).toISOString();
       if (!canReadAllRoster) rosterQuery.mine = true;
 
-      const rosterPromise = api.rosterShifts(rosterQuery) as Promise<ApiListResult<RosterShift>>;
-      const availabilityPromise = canReadAvailability ? (api.availability(can("availability:read-all") ? {} : { memberProfileId: linkedMember?.id }) as Promise<ApiListResult<AvailabilityRecord>>) : Promise.resolve({ total: 0, data: [], linkedMemberProfile: null });
+      const rosterPromise = api.rosterShiftsPage(rosterQuery) as Promise<ApiListResult<RosterShift>>;
+      const availabilityPromise = canReadAvailability ? (api.availabilityPage({ limit: pageSize, offset: availabilityOffset, ...(!can("availability:read-all") ? { mine: true } : {}) }) as Promise<ApiListResult<AvailabilityRecord>>) : Promise.resolve({ total: 0, data: [], linkedMemberProfile: null });
       const membersPromise = canCreateShift || canUpdateShift || canManageAllAvailability ? api.memberProfiles({ status: "Active" }) : Promise.resolve({ total: 0, data: [] });
       const groupsPromise = canCreateShift || canUpdateShift ? api.groups({ sessionId }) : Promise.resolve({ total: 0, data: [] });
       const readinessPromise = canReadRosterReadiness
@@ -298,7 +313,9 @@ export function RosteringPage({ user }: { user: DemoUser }) {
 
       const [rosterResult, availabilityResult, memberResult, groupResult, readinessResult] = await Promise.all([rosterPromise, availabilityPromise, membersPromise, groupsPromise, readinessPromise]);
       setShifts(rosterResult.data);
+      setRosterTotal(rosterResult.total);
       setAvailability(availabilityResult.data);
+      setAvailabilityTotal(availabilityResult.total);
       setLinkedMember((rosterResult.linkedMemberProfile ?? availabilityResult.linkedMemberProfile ?? null) as MemberSummary | null);
       setMembers((memberResult.data ?? []) as MemberSummary[]);
       setGroups((groupResult.data ?? []) as GroupSummary[]);
@@ -309,11 +326,15 @@ export function RosteringPage({ user }: { user: DemoUser }) {
     } finally {
       setLoading(false);
     }
-  }, [can, canCreateShift, canReadAllRoster, canReadAvailability, canManageAllAvailability, canReadRosterReadiness, canUpdateShift, fromFilter, groupFilter, linkedMember?.id, memberFilter, sessionId, statusFilter, toFilter]);
+  }, [availabilityOffset, can, canCreateShift, canReadAllRoster, canReadAvailability, canManageAllAvailability, canReadRosterReadiness, canUpdateShift, fromFilter, functionFilter, groupFilter, memberFilter, rosterOffset, searchFilter, sessionId, statusFilter, toFilter]);
 
   useEffect(() => {
     void loadData();
   }, [loadData]);
+
+  useEffect(() => {
+    setRosterOffset(0);
+  }, [searchFilter, functionFilter, statusFilter, groupFilter, memberFilter, fromFilter, toFilter, sessionId]);
 
   const activeShifts = shifts.filter((shift) => !["Cancelled", "Completed", "Declined"].includes(shift.status));
   const waitingForResponse = shifts.filter((shift) => shift.status === "Published").length;
@@ -385,7 +406,7 @@ export function RosteringPage({ user }: { user: DemoUser }) {
         assignedMemberProfileId: shiftForm.assignedMemberProfileId || null,
         startAt: fromDateTimeInput(shiftForm.startAt),
         endAt: fromDateTimeInput(shiftForm.endAt),
-        expectedUpdatedAt: drawer.shift?.updatedAt
+        ...(drawer.mode === "create" ? { operationId: crypto.randomUUID() } : { expectedVersion: drawer.shift?.version })
       };
       const saved = drawer.mode === "create"
         ? await api.createRosterShift(body)
@@ -422,7 +443,7 @@ export function RosteringPage({ user }: { user: DemoUser }) {
         cancel: "Roster shift cancelled",
         complete: "Roster shift completed"
       };
-      const updated = await methods[action](shift.id, {});
+      const updated = await methods[action](shift.id, { sessionId: shift.sessionId, expectedVersion: shift.version, operationId: crypto.randomUUID() });
       setSuccess(labels[action]);
       if (drawer?.shift?.id === shift.id) {
         const nextForm = shiftFormFromRecord(updated as RosterShift);
@@ -465,7 +486,7 @@ export function RosteringPage({ user }: { user: DemoUser }) {
         memberProfileId: canManageAllAvailability ? availabilityForm.memberProfileId : undefined,
         startAt: fromDateTimeInput(availabilityForm.startAt),
         endAt: fromDateTimeInput(availabilityForm.endAt),
-        expectedUpdatedAt: availabilityEditing?.updatedAt
+        ...(availabilityEditing ? { expectedVersion: availabilityEditing.version } : { operationId: crypto.randomUUID() })
       };
       const saved = availabilityEditing
         ? await api.updateAvailability(availabilityEditing.id, body)
@@ -487,7 +508,7 @@ export function RosteringPage({ user }: { user: DemoUser }) {
     setSavingAvailability(true);
     setAvailabilityError("");
     try {
-      await api.removeAvailability(record.id);
+      await api.removeAvailability(record.id, { expectedVersion: record.version, operationId: crypto.randomUUID() });
       setSuccess("Availability removed");
       startAvailabilityCreate();
       await loadData();
@@ -595,10 +616,16 @@ export function RosteringPage({ user }: { user: DemoUser }) {
       <Card className="mt-4">
         <CardHeader
           title="Filters"
-          description={canReadAllRoster ? "Narrow the roster by status, group, member or date." : "Your roster is limited to shifts linked to your member profile."}
+          description={canReadAllRoster ? "Narrow the bounded server queue by search, status, function, group, member or date." : "Your roster is limited to shifts linked to your member profile."}
           action={<Button variant="secondary" size="sm" icon={RefreshCcw} onClick={() => void loadData()}>Refresh</Button>}
         />
-        <div className="grid gap-3 p-4 sm:grid-cols-2 xl:grid-cols-5">
+        <div className="grid gap-3 p-4 sm:grid-cols-2 xl:grid-cols-4">
+          <Field label="Search">
+            <Input value={searchFilter} placeholder="ID, title, duty, member…" onChange={(event) => setSearchFilter(event.target.value)} />
+          </Field>
+          <Field label="Function">
+            <Input value={functionFilter} placeholder="All functions" onChange={(event) => setFunctionFilter(event.target.value)} />
+          </Field>
           <Field label="Status">
             <Select value={statusFilter} onChange={(event) => setStatusFilter(event.target.value as (typeof statusOptions)[number])}>
               {statusOptions.map((item) => <option key={item} value={item}>{item}</option>)}
@@ -609,7 +636,7 @@ export function RosteringPage({ user }: { user: DemoUser }) {
               <Field label="Group">
                 <Select value={groupFilter} onChange={(event) => setGroupFilter(event.target.value)}>
                   <option value="All">All groups</option>
-                  {Array.from(new Map(shifts.filter((shift) => shift.group).map((shift) => [shift.group!.id, shift.group!])).values()).map((group) => (
+                  {groups.map((group) => (
                     <option key={group.id} value={group.id}>{group.name}</option>
                   ))}
                 </Select>
@@ -617,7 +644,7 @@ export function RosteringPage({ user }: { user: DemoUser }) {
               <Field label="Member">
                 <Select value={memberFilter} onChange={(event) => setMemberFilter(event.target.value)}>
                   <option value="All">All members</option>
-                  {Array.from(new Map(shifts.filter((shift) => shift.assignedMember).map((shift) => [shift.assignedMember!.id, shift.assignedMember!])).values()).map((member) => (
+                  {members.map((member) => (
                     <option key={member.id} value={member.id}>{member.displayName}</option>
                   ))}
                 </Select>
@@ -670,6 +697,15 @@ export function RosteringPage({ user }: { user: DemoUser }) {
                 actionWidth="w-72"
               />
             )}
+            {!loading && rosterTotal > 0 ? (
+              <div className="mt-4 flex flex-wrap items-center justify-between gap-3 border-t border-border pt-3">
+                <p className="text-sm font-semibold text-muted-foreground">Showing {rosterOffset + 1}–{Math.min(rosterOffset + shifts.length, rosterTotal)} of {rosterTotal}</p>
+                <div className="flex gap-2">
+                  <Button size="sm" variant="secondary" disabled={rosterOffset === 0} onClick={() => setRosterOffset((value) => Math.max(0, value - pageSize))}>Previous</Button>
+                  <Button size="sm" variant="secondary" disabled={rosterOffset + pageSize >= rosterTotal} onClick={() => setRosterOffset((value) => value + pageSize)}>Next</Button>
+                </div>
+              </div>
+            ) : null}
           </div>
         </Card>
 
@@ -699,6 +735,15 @@ export function RosteringPage({ user }: { user: DemoUser }) {
                 }}
                 actionWidth="w-44"
               />
+              {availabilityTotal > 0 ? (
+                <div className="flex flex-wrap items-center justify-between gap-3 border-t border-border pt-3 xl:col-span-2">
+                  <p className="text-sm font-semibold text-muted-foreground">Showing {availabilityOffset + 1}–{Math.min(availabilityOffset + availability.length, availabilityTotal)} of {availabilityTotal}</p>
+                  <div className="flex gap-2">
+                    <Button size="sm" variant="secondary" disabled={availabilityOffset === 0} onClick={() => setAvailabilityOffset((value) => Math.max(0, value - pageSize))}>Previous</Button>
+                    <Button size="sm" variant="secondary" disabled={availabilityOffset + pageSize >= availabilityTotal} onClick={() => setAvailabilityOffset((value) => value + pageSize)}>Next</Button>
+                  </div>
+                </div>
+              ) : null}
 
               {canEditAvailability ? (
                 <form
@@ -820,7 +865,12 @@ export function RosteringPage({ user }: { user: DemoUser }) {
                   </Field>
 
                   {drawerShift?.conflictWarnings?.length ? (
-                    <AlertBox>{drawerShift.conflictWarnings.join(" · ")}</AlertBox>
+                    <AlertBox tone="warning">
+                      <p className="font-black">Planner review required — these warnings do not change the roster automatically.</p>
+                      <ul className="mt-2 list-disc space-y-1 pl-5">
+                        {drawerShift.conflictWarnings.map((warning) => <li key={warning}>{warning}</li>)}
+                      </ul>
+                    </AlertBox>
                   ) : null}
                 </div>
               </div>

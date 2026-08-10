@@ -20,6 +20,7 @@ import type { ReleaseRepository } from "./modules/releases/release-repository.js
 import type { RequestRepository } from "./modules/requests/request-repository.js";
 import type { AssignmentRepository } from "./modules/assignments/assignment-repository.js";
 import type { FoundationMemberDirectoryRepository } from "./modules/member-directory/member-directory-repository.js";
+import type { FoundationRosteringRepository } from "./modules/rostering/rostering-repository.js";
 
 export function createApp(options: {
   incidentRepository?: IncidentRepository;
@@ -33,7 +34,9 @@ export function createApp(options: {
   requestRepository?: RequestRepository;
   assignmentRepository?: AssignmentRepository;
   memberDirectoryRepository?: FoundationMemberDirectoryRepository;
+  rosteringRepository?: FoundationRosteringRepository;
   assignmentNotificationHook?: (record: Record<string, unknown>, command: string) => void;
+  rosteringNotificationHook?: (record: Record<string, unknown>, command: string) => void;
   skipRuntimeValidation?: boolean;
 } = {}) {
   if (!options.skipRuntimeValidation) validateRuntimeConfig(config);
@@ -76,7 +79,9 @@ export function createApp(options: {
     requestRepository: options.requestRepository,
     assignmentRepository: options.assignmentRepository,
     memberDirectoryRepository: options.memberDirectoryRepository,
-    assignmentNotificationHook: options.assignmentNotificationHook
+    rosteringRepository: options.rosteringRepository,
+    assignmentNotificationHook: options.assignmentNotificationHook,
+    rosteringNotificationHook: options.rosteringNotificationHook
   });
 
   app.use(notFound);

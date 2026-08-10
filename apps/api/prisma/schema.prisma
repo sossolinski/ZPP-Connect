@@ -39,6 +39,16 @@ model User {
   addedGroupMemberships           GroupMembership[]                  @relation("GroupMembershipAddedBy")
   removedGroupMemberships         GroupMembership[]                  @relation("GroupMembershipRemovedBy")
   groupRoleAssignments            GroupRoleAssignment[]
+  createdRosterShifts             RosterShift[]                      @relation("RosterShiftCreatedBy")
+  updatedRosterShifts             RosterShift[]                      @relation("RosterShiftUpdatedBy")
+  publishedRosterShifts           RosterShift[]                      @relation("RosterShiftPublishedBy")
+  confirmedRosterShifts           RosterShift[]                      @relation("RosterShiftConfirmedBy")
+  declinedRosterShifts            RosterShift[]                      @relation("RosterShiftDeclinedBy")
+  cancelledRosterShifts           RosterShift[]                      @relation("RosterShiftCancelledBy")
+  completedRosterShifts           RosterShift[]                      @relation("RosterShiftCompletedBy")
+  createdAvailabilities           Availability[]                     @relation("AvailabilityCreatedBy")
+  updatedAvailabilities           Availability[]                     @relation("AvailabilityUpdatedBy")
+  removedAvailabilities           Availability[]                     @relation("AvailabilityRemovedBy")
   incidentAssignments             IncidentAssignment[]               @relation("IncidentAssignedUser")
   createdIncidentAssignments      IncidentAssignment[]               @relation("IncidentAssignmentCreator")
   revokedIncidentAssignments      IncidentAssignment[]               @relation("IncidentAssignmentRevoker")
@@ -76,14 +86,14 @@ model Organization {
 }
 
 model Role {
-  id          String     @id @default(uuid()) @db.Uuid
-  name        String     @unique
-  displayName String
-  description String?
-  permissions Json
-  createdAt   DateTime   @default(now())
-  updatedAt   DateTime   @updatedAt
-  users       UserRole[]
+  id               String                @id @default(uuid()) @db.Uuid
+  name             String                @unique
+  displayName      String
+  description      String?
+  permissions      Json
+  createdAt        DateTime              @default(now())
+  updatedAt        DateTime              @updatedAt
+  users            UserRole[]
   groupAssignments GroupRoleAssignment[]
 }
 
@@ -142,38 +152,41 @@ model Session {
   exerciseObservations  ExerciseObservation[]
   incidentAssignments   IncidentAssignment[]
   operationalGroups     OperationalGroup[]
+  rosterShifts          RosterShift[]
   auditLogs             AuditLog[]
 
   @@index([mode, status])
 }
 
 model MemberProfile {
-  id                         String            @id
-  memberId                   String            @unique
-  linkedUserId               String?           @db.Uuid
-  firstName                  String
-  lastName                   String
-  pool                       String
-  role                       String
-  assignedFunction           String
-  contactEmail               String?
-  normalizedContactEmail     String?
-  phone                      String?
-  languages                  String[]
-  status                     String            @default("Active")
-  version                    Int               @default(1)
-  legacyAvailability         String?
-  legacyTrainingStatus       String?
-  legacyRosterStatus         String?
-  legacyAssignedLeader       String?
-  createdAt                  DateTime          @default(now())
-  updatedAt                  DateTime          @updatedAt
-  createdById                String?           @db.Uuid
-  updatedById                String?           @db.Uuid
-  linkedUser                 User?             @relation("MemberProfileLinkedUser", fields: [linkedUserId], references: [id], onDelete: Restrict)
-  createdBy                  User?             @relation("MemberProfileCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
-  updatedBy                  User?             @relation("MemberProfileUpdatedBy", fields: [updatedById], references: [id], onDelete: SetNull)
-  memberships                GroupMembership[]
+  id                     String            @id
+  memberId               String            @unique
+  linkedUserId           String?           @db.Uuid
+  firstName              String
+  lastName               String
+  pool                   String
+  role                   String
+  assignedFunction       String
+  contactEmail           String?
+  normalizedContactEmail String?
+  phone                  String?
+  languages              String[]
+  status                 String            @default("Active")
+  version                Int               @default(1)
+  legacyAvailability     String?
+  legacyTrainingStatus   String?
+  legacyRosterStatus     String?
+  legacyAssignedLeader   String?
+  createdAt              DateTime          @default(now())
+  updatedAt              DateTime          @updatedAt
+  createdById            String?           @db.Uuid
+  updatedById            String?           @db.Uuid
+  linkedUser             User?             @relation("MemberProfileLinkedUser", fields: [linkedUserId], references: [id], onDelete: Restrict)
+  createdBy              User?             @relation("MemberProfileCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
+  updatedBy              User?             @relation("MemberProfileUpdatedBy", fields: [updatedById], references: [id], onDelete: SetNull)
+  memberships            GroupMembership[]
+  rosterShifts           RosterShift[]
+  availabilityRecords    Availability[]
 
   @@index([status, pool, updatedAt])
   @@index([assignedFunction, status])
@@ -199,7 +212,9 @@ model OperationalGroup {
   updatedBy       User?                 @relation("OperationalGroupUpdatedBy", fields: [updatedById], references: [id], onDelete: SetNull)
   memberships     GroupMembership[]
   roleAssignments GroupRoleAssignment[]
+  rosterShifts    RosterShift[]
 
+  @@unique([id, incidentId])
   @@index([incidentId, status, updatedAt])
   @@index([incidentId, pool, functionName])
 }
@@ -240,6 +255,99 @@ model GroupRoleAssignment {
 
   @@index([userId, status])
   @@index([groupId, status])
+}
+
+model RosterShift {
+  id                      String               @id
+  operationalId           String               @unique
+  sessionId               String               @db.Uuid
+  groupId                 String?
+  assignedMemberProfileId String?
+  title                   String
+  duty                    String
+  functionName            String
+  startAt                 DateTime
+  endAt                   DateTime
+  location                String
+  status                  String               @default("Draft")
+  notes                   String?
+  version                 Int                  @default(1)
+  publishedAt             DateTime?
+  publishedById           String?              @db.Uuid
+  confirmedAt             DateTime?
+  confirmedById           String?              @db.Uuid
+  declinedAt              DateTime?
+  declinedById            String?              @db.Uuid
+  cancelledAt             DateTime?
+  cancelledById           String?              @db.Uuid
+  cancelReason            String?
+  completedAt             DateTime?
+  completedById           String?              @db.Uuid
+  legacyImported          Boolean              @default(false)
+  legacyMetadata          Json?
+  createdAt               DateTime             @default(now())
+  updatedAt               DateTime             @updatedAt
+  createdById             String?              @db.Uuid
+  updatedById             String?              @db.Uuid
+  session                 Session              @relation(fields: [sessionId], references: [id], onDelete: Restrict)
+  group                   OperationalGroup?    @relation(fields: [groupId, sessionId], references: [id, incidentId], onDelete: Restrict)
+  assignedMemberProfile   MemberProfile?       @relation(fields: [assignedMemberProfileId], references: [id], onDelete: Restrict)
+  createdBy               User?                @relation("RosterShiftCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
+  updatedBy               User?                @relation("RosterShiftUpdatedBy", fields: [updatedById], references: [id], onDelete: SetNull)
+  publishedBy             User?                @relation("RosterShiftPublishedBy", fields: [publishedById], references: [id], onDelete: SetNull)
+  confirmedBy             User?                @relation("RosterShiftConfirmedBy", fields: [confirmedById], references: [id], onDelete: SetNull)
+  declinedBy              User?                @relation("RosterShiftDeclinedBy", fields: [declinedById], references: [id], onDelete: SetNull)
+  cancelledBy             User?                @relation("RosterShiftCancelledBy", fields: [cancelledById], references: [id], onDelete: SetNull)
+  completedBy             User?                @relation("RosterShiftCompletedBy", fields: [completedById], references: [id], onDelete: SetNull)
+  operations              RosteringOperation[]
+
+  @@index([sessionId, status, startAt])
+  @@index([sessionId, assignedMemberProfileId, startAt])
+  @@index([sessionId, groupId, startAt])
+  @@index([sessionId, functionName, startAt])
+}
+
+model Availability {
+  id              String               @id
+  operationalId   String               @unique
+  memberProfileId String
+  startAt         DateTime
+  endAt           DateTime
+  type            String
+  note            String?
+  status          String               @default("Active")
+  version         Int                  @default(1)
+  createdAt       DateTime             @default(now())
+  updatedAt       DateTime             @updatedAt
+  createdById     String?              @db.Uuid
+  updatedById     String?              @db.Uuid
+  removedAt       DateTime?
+  removedById     String?              @db.Uuid
+  memberProfile   MemberProfile        @relation(fields: [memberProfileId], references: [id], onDelete: Restrict)
+  createdBy       User?                @relation("AvailabilityCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
+  updatedBy       User?                @relation("AvailabilityUpdatedBy", fields: [updatedById], references: [id], onDelete: SetNull)
+  removedBy       User?                @relation("AvailabilityRemovedBy", fields: [removedById], references: [id], onDelete: SetNull)
+  operations      RosteringOperation[]
+
+  @@index([memberProfileId, status, startAt])
+  @@index([type, status, startAt])
+}
+
+model RosteringOperation {
+  id                 String        @id @default(uuid()) @db.Uuid
+  operationId        String        @unique @db.Uuid
+  rosterShiftId      String?
+  availabilityId     String?
+  command            String
+  commandFingerprint String
+  resultVersion      Int
+  requestId          String?
+  createdAt          DateTime      @default(now())
+  rosterShift        RosterShift?  @relation(fields: [rosterShiftId], references: [id], onDelete: Cascade)
+  availability       Availability? @relation(fields: [availabilityId], references: [id], onDelete: Cascade)
+
+  @@index([rosterShiftId, createdAt])
+  @@index([availabilityId, createdAt])
 }
 
 model Enquiry {
