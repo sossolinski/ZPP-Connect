@@ -139,20 +139,23 @@ migration:                         155 LOC
 
 ## Z. Browser tests
 
-Nowe 2 scenariusze Stage 9 PASS: bounded server pagination/search, contact display dla admina, create/edit/archive Member, derived fields disabled, stale Member `409`, controlled membership add/remove, multiple groups, archive Group, roster links read-only oraz stale Group `409`. Finalny pełny lokalny suite: **63/63 PASS**. Oficjalny remote Browser gate pozostaje rozstrzygający dla finalnego verdict.
+Nowe 2 scenariusze Stage 9 PASS: bounded server pagination/search, contact display dla admina, create/edit/archive Member, derived fields disabled, stale Member `409`, controlled membership add/remove, multiple groups, archive Group, roster links read-only oraz stale Group `409`. Finalny pełny lokalny i zdalny suite: **63/63 PASS**.
 
 ## AA. CI
 
 Workflow został rozszerzony o Stage 9 w `test:postgres`, nazwę Stage 1–9 oraz dokładny legacy rehearsal nowej migracji/tabel/sequences. Wymagane jobs: fresh migration/seed/startup + PostgreSQL + backfill; Typecheck/Unit/Build/Browser; Production Dependency Audit.
 
-Stan przed publikacją Draft PR:
+Finalny stan implementacyjnego HEAD `d162fabe423e71c5827b50f565cc0a9f7ef20e4a` na Draft PR #6:
 
 - Typecheck: PASS.
 - Unit: 96/96 PASS.
 - Build: PASS (istniejące ostrzeżenie Vite o wielkości chunku).
 - Exact legacy backfill rehearsal: PASS, łącznie z tabelami i sequences Stage 9.
 - Production Dependency Audit: PASS, zero findings.
-- Remote CI: pending.
+- Remote CI push run [31371574138](https://github.com/sossolinski/ZPP-Connect/actions/runs/31371574138): wszystkie trzy jobs PASS.
+- Remote CI pull-request run [31371578388](https://github.com/sossolinski/ZPP-Connect/actions/runs/31371578388): wszystkie trzy jobs PASS.
+
+Pierwsze workflow dla `d3068f516ad9f13766145340da9387de0c194177` wykryły jedną wadliwą asercję legacy w teście Assignment: test odczytywał niesynchronizowany widok po zmianie persony i oczekiwał, że ZPP Group Leader nie może zarządzać incident-scoped Assignment. Harness został zsynchronizowany z odpowiedzią właściwej sesji, a asercja dostosowana do utrwalonego w Stage 8 kontraktu `IncidentAssignment`; nie zmieniono semantyki produktu ani uprawnień. Targeted test 4/4, pełny lokalny Browser 63/63 i oba ponowione remote workflows są zielone.
 
 ## AB. Remaining split-brain
 
@@ -179,13 +182,7 @@ Nie istnieje drugi aktywny production Member/Group command implementation ani wr
 ## AD. Next decision
 
 ```text
-NOT READY
-```
-
-Jedyny blocker przed zmianą verdictu: wymagane remote GitHub Actions dla finalnego Stage 9 SHA jeszcze nie zostały wykonane. Po pełnym PASS raport zostanie zmieniony na:
-
-```text
 READY FOR ROSTERING / AVAILABILITY SLICE
 ```
 
-Stage 9 nie rozpoczyna Rostering ani Availability.
+Stage 9 domyka trwały Member/Group ownership i pozostawia Draft PR gotowy do przeglądu. Następnym rekomendowanym pionowym slice'em jest Rostering / Availability, ponieważ to największy pozostały write-owning consumer Member/Group, nadal memory-backed i tracący stan po restarcie. Stage 9 nie rozpoczyna tego slice'a.
