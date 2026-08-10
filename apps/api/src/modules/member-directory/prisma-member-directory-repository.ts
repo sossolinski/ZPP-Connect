@@ -29,7 +29,7 @@ type GroupRow = Prisma.OperationalGroupGetPayload<{
 
 const derivedFields = {
   availability: "postgres-projection",
-  trainingStatus: "legacy-compatibility",
+  trainingStatus: "postgres-projection",
   rosterStatus: "postgres-projection",
   assignedLeader: "legacy-compatibility",
 } as const;
@@ -44,7 +44,7 @@ function canSeeContact(actor: DirectoryActor) {
     actor.permissions.includes("admin:manage");
 }
 
-function memberRecord(member: MemberRow, actor: DirectoryActor): MemberProfileRecord {
+function memberRecord(member: MemberRow, actor: DirectoryActor, trainingStatus?: string): MemberProfileRecord {
   const contact = canSeeContact(actor);
   const projected = member as MemberRow & { availabilityRecords?: Array<{ id: string; operationalId: string; type: string; startAt: Date; endAt: Date }>; rosterShifts?: Array<{ id: string; operationalId: string; status: string; startAt: Date; endAt: Date }> };
   const availability = projected.availabilityRecords?.[0] ?? null;
@@ -66,7 +66,7 @@ function memberRecord(member: MemberRow, actor: DirectoryActor): MemberProfileRe
     status: member.status as MemberProfileRecord["status"],
     version: member.version,
     availability: availability ? `${availability.type} ${availability.startAt.toISOString()}–${availability.endAt.toISOString()}` : "Managed in Availability",
-    trainingStatus: member.legacyTrainingStatus ?? "Managed in Training",
+    trainingStatus: trainingStatus ?? member.legacyTrainingStatus ?? "Managed in Training",
     rosterStatus: roster ? `${roster.status} ${roster.operationalId}` : "Managed in Rostering",
     availabilitySummary: availability,
     rosterSummary: roster,
@@ -217,7 +217,8 @@ function roleAssignmentRecord(input: { id: string; userId: string; groupId: stri
   };
 }
 
-export function createPrismaMemberDirectoryRepository(client: PrismaClient): FoundationMemberDirectoryRepository {
+export function createPrismaMemberDirectoryRepository(client: PrismaClient, trainingStatus?: (memberProfileId: string) => Promise<string>): FoundationMemberDirectoryRepository {
+  const projectMember = async (row: MemberRow, actor: DirectoryActor) => memberRecord(row, actor, trainingStatus ? await trainingStatus(row.id) : undefined);
   async function mutateGroup(
     incidentId: string,
     groupId: string,
@@ -286,12 +287,12 @@ export function createPrismaMemberDirectoryRepository(client: PrismaClient): Fou
         client.memberProfile.count({ where }),
         client.memberProfile.findMany({ where, include: memberProjectionInclude, orderBy: [orderBy, { id: "asc" }], take: query.limit, skip: query.offset }),
       ]);
-      return { total, limit: query.limit, offset: query.offset, data: rows.map((row) => memberRecord(row, actor)) };
+      return { total, limit: query.limit, offset: query.offset, data: await Promise.all(rows.map((row) => projectMember(row, actor))) };
     },
 
     async getMember(id, actor) {
       const row = await client.memberProfile.findFirst({ where: { id, AND: [memberVisibility(actor, "member:read")] }, include: memberProjectionInclude });
-      return row ? memberRecord(row, actor) : null;
+      return row ? projectMember(row, actor) : null;
     },
 
     async listEligibleUsers(search, currentMemberId, limit, offset) {
@@ -339,7 +340,7 @@ export function createPrismaMemberDirectoryRepository(client: PrismaClient): Fou
             beforeAfterClassification: { before: "absent", after: "active_profile" },
             versionAfter: 1,
           });
-          return { record: memberRecord(row, actor), conflict: false };
+          return { record: await projectMember(row, actor), conflict: false };
         }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
       } catch (error) {
         if (isConflict(error)) return { record: null, conflict: true };
@@ -380,7 +381,7 @@ export function createPrismaMemberDirectoryRepository(client: PrismaClient): Fou
             versionBefore: expectedVersion,
             versionAfter: expectedVersion + 1,
           });
-          return { record: memberRecord(row, actor), conflict: false };
+          return { record: await projectMember(row, actor), conflict: false };
         }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
       } catch (error) {
         if (isConflict(error)) return { record: null, conflict: true };
@@ -400,7 +401,7 @@ export function createPrismaMemberDirectoryRepository(client: PrismaClient): Fou
           if (changed.count !== 1) return { record: null, conflict: true };
           const row = await tx.memberProfile.findUniqueOrThrow({ where: { id } });
           await audit(tx, actor, "archive_member_profile", "memberProfile", id, "Profile archived", null, { memberProfileId: id, changedFields: ["status", "linkedUserId"], beforeAfterClassification: { status: { before: visible.status, after: "Archived" }, linkedUserId: { before: visible.linkedUserId ? "linked" : "unlinked", after: "unlinked" } }, versionBefore: expectedVersion, versionAfter: expectedVersion + 1 });
-          return { record: memberRecord(row, actor), conflict: false };
+          return { record: await projectMember(row, actor), conflict: false };
         }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
       } catch (error) {
         if (isConflict(error)) return { record: null, conflict: true };
@@ -417,7 +418,7 @@ export function createPrismaMemberDirectoryRepository(client: PrismaClient): Fou
         if (changed.count !== 1) return { record: null, conflict: true };
         const row = await tx.memberProfile.findUniqueOrThrow({ where: { id } });
         await audit(tx, actor, "restore_member_profile", "memberProfile", id, "Profile restored", null, { memberProfileId: id, versionBefore: expectedVersion, versionAfter: expectedVersion + 1 });
-        return { record: memberRecord(row, actor), conflict: false };
+        return { record: await projectMember(row, actor), conflict: false };
       }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
     },
 
@@ -527,7 +528,7 @@ export function createPrismaMemberDirectoryRepository(client: PrismaClient): Fou
         client.groupMembership.count({ where }),
         client.groupMembership.findMany({ where, include: { memberProfile: true }, orderBy: [{ role: "asc" }, { addedAt: "asc" }], take: limit, skip: offset }),
       ]);
-      return { total, limit, offset, data: memberships.map((membership) => ({ ...memberRecord(membership.memberProfile, actor), membershipId: membership.id, membershipRole: membership.role, membershipCreatedAt: membership.addedAt, membershipUpdatedAt: membership.updatedAt })) };
+      return { total, limit, offset, data: await Promise.all(memberships.map(async (membership) => ({ ...await projectMember(membership.memberProfile, actor), membershipId: membership.id, membershipRole: membership.role, membershipCreatedAt: membership.addedAt, membershipUpdatedAt: membership.updatedAt }))) };
     },
 
     async addGroupMember(incidentId, groupId, memberProfileId, role, expectedVersion, actor) {

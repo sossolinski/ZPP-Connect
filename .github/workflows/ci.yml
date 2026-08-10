@@ -82,7 +82,7 @@ jobs:
           kill "$api_pid"
           wait "$api_pid" || true
 
-      - name: PostgreSQL Foundation Stage 1, 2, 2.5, 3, 4, 5, 6, 7, 8, 9 and 10 integration tests
+      - name: PostgreSQL Foundation Stage 1, 2, 2.5, 3, 4, 5, 6, 7, 8, 9, 10 and 11 integration tests
         run: npm run test:postgres
 
       - name: Rehearse IncidentAssignment backfill from pre-Stage-2 data
@@ -263,6 +263,14 @@ jobs:
           test "$rostering_sequences" = "2"
           synthetic_rostering_operations=$(psql "$BACKFILL_PSQL_URL" --tuples-only --no-align --command='SELECT count(*) FROM "RosteringOperation";')
           test "$synthetic_rostering_operations" = "0"
+          cp -R apps/api/prisma/migrations/20260810110000_training_foundation "$migration_workspace/migrations/"
+          DATABASE_URL="$BACKFILL_DATABASE_URL" npx prisma migrate deploy --schema "$migration_workspace/schema.prisma"
+          training_tables=$(psql "$BACKFILL_PSQL_URL" --tuples-only --no-align --command='SELECT count(*) FROM information_schema.tables WHERE table_schema = '\''public'\'' AND table_name IN ('\''TrainingCourse'\'', '\''TrainingRequirement'\'', '\''MemberTrainingRecord'\'', '\''TrainingOperation'\'');')
+          test "$training_tables" = "4"
+          training_sequences=$(psql "$BACKFILL_PSQL_URL" --tuples-only --no-align --command='SELECT count(*) FROM pg_class WHERE relkind = '\''S'\'' AND relname IN ('\''TrainingCourse_id_seq'\'', '\''TrainingRequirement_id_seq'\'', '\''MemberTrainingRecord_id_seq'\'');')
+          test "$training_sequences" = "3"
+          synthetic_training_operations=$(psql "$BACKFILL_PSQL_URL" --tuples-only --no-align --command='SELECT count(*) FROM "TrainingOperation";')
+          test "$synthetic_training_operations" = "0"
 
   quality:
     name: Typecheck, Unit, Build and Browser

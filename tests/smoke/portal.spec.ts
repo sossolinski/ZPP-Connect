@@ -758,7 +758,7 @@ test.describe("ZPP Connect portal", () => {
     const assignDrawer = page.getByRole("dialog", { name: "Assign training" });
     await expect(assignDrawer).toBeVisible();
     await assignDrawer.getByLabel("Assign to").selectOption("Group");
-    await assignDrawer.getByLabel("Group").selectOption({ index: 0 });
+    await assignDrawer.getByRole("combobox", { name: /^Group/ }).selectOption({ index: 1 });
     await assignDrawer.getByLabel("Course").selectOption({ label: "Smoke Training Course" });
     await assignDrawer.getByRole("button", { name: "Assign training" }).click();
 

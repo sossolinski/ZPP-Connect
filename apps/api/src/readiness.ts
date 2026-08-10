@@ -5,6 +5,7 @@ import type { DocumentRepository } from "./documents.js";
 import type { RosteringRepository } from "./rostering.js";
 import type { RosteringService as FoundationRosteringService } from "./modules/rostering/rostering-service.js";
 import type { TrainingRepository } from "./training.js";
+import type { TrainingService as FoundationTrainingService } from "./modules/training/training-service.js";
 import { permissionsForRoleNames } from "./access-control.js";
 
 type Query = Record<string, unknown>;
@@ -221,13 +222,15 @@ export function createReadinessService({
   training,
   documents,
   rostering,
-  foundationRostering
+  foundationRostering,
+  foundationTraining
 }: {
   directory: MemberDirectoryRepository;
   training: TrainingRepository;
   documents: DocumentRepository;
   rostering: RosteringRepository;
   foundationRostering?: FoundationRosteringService | null;
+  foundationTraining?: FoundationTrainingService | null;
 }) {
   function evaluationActor(actor: DirectoryActor): DirectoryActor {
     return {
@@ -347,8 +350,10 @@ export function createReadinessService({
     });
   }
 
-  function buildTrainingDimension(member: DirectoryMember, actor: DirectoryActor, evaluationAt: string) {
-    const result = training.evaluateMemberCompliance(member.id, evaluationActor(actor), {
+  async function buildTrainingDimension(member: DirectoryMember, actor: DirectoryActor, evaluationAt: string) {
+    const result = foundationTraining
+      ? await foundationTraining.evaluateMemberCompliance(evaluationActor(actor), member.id, { evaluationAt, expiringSoonDays: defaultPolicy.expiringSoonDays })
+      : training.evaluateMemberCompliance(member.id, evaluationActor(actor), {
       evaluationAt,
       expiringSoonDays: defaultPolicy.expiringSoonDays
     });
@@ -525,13 +530,14 @@ export function createReadinessService({
   }
 
   async function assessMember(member: DirectoryMember, actor: DirectoryActor, evaluationAt: string) {
-    const [availabilityDimension, rosterDimension] = await Promise.all([
+    const [trainingDimension, availabilityDimension, rosterDimension] = await Promise.all([
+      buildTrainingDimension(member, actor, evaluationAt),
       buildAvailabilityDimension(member, actor, evaluationAt),
       buildRosterDimension(member, actor, evaluationAt),
     ]);
     const dimensions = [
       buildProfileDimension(member),
-      buildTrainingDimension(member, actor, evaluationAt),
+      trainingDimension,
       buildDocumentDimension(member, actor, evaluationAt),
       availabilityDimension,
       rosterDimension

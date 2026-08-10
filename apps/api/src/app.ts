@@ -21,6 +21,7 @@ import type { RequestRepository } from "./modules/requests/request-repository.js
 import type { AssignmentRepository } from "./modules/assignments/assignment-repository.js";
 import type { FoundationMemberDirectoryRepository } from "./modules/member-directory/member-directory-repository.js";
 import type { FoundationRosteringRepository } from "./modules/rostering/rostering-repository.js";
+import type { FoundationTrainingRepository } from "./modules/training/training-repository.js";
 
 export function createApp(options: {
   incidentRepository?: IncidentRepository;
@@ -35,8 +36,11 @@ export function createApp(options: {
   assignmentRepository?: AssignmentRepository;
   memberDirectoryRepository?: FoundationMemberDirectoryRepository;
   rosteringRepository?: FoundationRosteringRepository;
+  trainingRepository?: FoundationTrainingRepository;
+  trainingClock?: { now(): Date };
   assignmentNotificationHook?: (record: Record<string, unknown>, command: string) => void;
   rosteringNotificationHook?: (record: Record<string, unknown>, command: string) => void;
+  trainingNotificationHook?: (record: Record<string, unknown>, command: string) => void;
   skipRuntimeValidation?: boolean;
 } = {}) {
   if (!options.skipRuntimeValidation) validateRuntimeConfig(config);
@@ -80,8 +84,11 @@ export function createApp(options: {
     assignmentRepository: options.assignmentRepository,
     memberDirectoryRepository: options.memberDirectoryRepository,
     rosteringRepository: options.rosteringRepository,
+    trainingRepository: options.trainingRepository,
+    trainingClock: options.trainingClock,
     assignmentNotificationHook: options.assignmentNotificationHook,
-    rosteringNotificationHook: options.rosteringNotificationHook
+    rosteringNotificationHook: options.rosteringNotificationHook,
+    trainingNotificationHook: options.trainingNotificationHook
   });
 
   app.use(notFound);

@@ -239,6 +239,103 @@ async function seedMemberDirectory(input: {
   await prisma.$executeRawUnsafe(`SELECT setval('"GroupMembership_id_seq"', 12, true)`);
 }
 
+async function seedTraining(input: { adminId: string; coordinatorId: string; zppId: string }) {
+  const timestamp = new Date("2026-07-09T09:00:00.000Z");
+  const courses = [
+    ["crs-2026-000001", "ERP-FAM", "ERP Familiarization", "Core briefing for working inside the active response structure.", "Core", "Briefing", 24, true, true, null],
+    ["crs-2026-000002", "FAC-BASICS", "Family Assistance Basics", "Practical expectations for family support work and handover.", "Family Assistance", "Classroom", 12, true, false, null],
+    ["crs-2026-000003", "PFA-AWARE", "Psychological First Aid Awareness", "Recognition, boundaries and escalation for welfare support.", "Welfare", "E-learning", 12, true, true, null],
+    ["crs-2026-000004", "TEC-PROC", "Telephone Enquiry Center Procedures", "Call handling, status boundaries and escalation practice for TEC work.", "TEC", "Practical", 6, true, true, null],
+    ["crs-2026-000005", "DATA-CRISIS", "Data Protection for Crisis Response", "Sensitive information handling for crisis response records.", "Data Protection", "E-learning", 12, true, true, null],
+    ["crs-2026-000006", "ROLE-CARD", "Role Card Briefing", "Historical role-card briefing retained for previous completion records.", "Coordination", "Briefing", 12, false, false, "2026-07-10T12:00:00.000Z"],
+  ] as const;
+  for (const [id, code, title, description, category, deliveryType, validityMonths, active, selfCompletable, deactivatedAt] of courses) {
+    const data = {
+      code,
+      normalizedCode: code,
+      title,
+      description,
+      category,
+      deliveryType,
+      validityMonths,
+      active,
+      selfCompletable,
+      deactivatedAt: deactivatedAt ? new Date(deactivatedAt) : null,
+      legacyImported: true,
+      legacyMetadata: { provenance: "memory-seed" },
+      createdAt: timestamp,
+      updatedAt: timestamp,
+      createdById: input.adminId,
+      updatedById: input.adminId,
+    };
+    await prisma.trainingCourse.upsert({ where: { id }, update: data, create: { id, ...data } });
+  }
+
+  const requirements = [
+    ["trq-2026-000001", "crs-2026-000005", "Role", "ZPP Member", null, null, "Required", "2026-07-25T12:00:00.000Z"],
+    ["trq-2026-000002", "crs-2026-000002", "Group", null, "grp-2026-000001", null, "Required", "2026-07-20T12:00:00.000Z"],
+    ["trq-2026-000003", "crs-2026-000004", "MemberProfile", null, null, "mem-2026-000002", "Required", "2026-07-08T12:00:00.000Z"],
+    ["trq-2026-000004", "crs-2026-000001", "Role", "ZPP Member", null, null, "Recommended", "2026-08-01T12:00:00.000Z"],
+  ] as const;
+  for (const [id, courseId, targetType, targetRole, groupId, memberProfileId, requiredStatus, dueAt] of requirements) {
+    const data = {
+      courseId,
+      targetType,
+      targetRole,
+      groupId,
+      memberProfileId,
+      requiredStatus,
+      dueAt: new Date(dueAt),
+      effectiveFrom: new Date("2026-07-09T00:00:00.000Z"),
+      active: true,
+      provenance: { source: "memory-seed", actorEvidenceAvailable: false },
+      createdAt: timestamp,
+      updatedAt: timestamp,
+      createdById: input.adminId,
+      updatedById: input.adminId,
+    };
+    await prisma.trainingRequirement.upsert({ where: { id }, update: data, create: { id, ...data } });
+  }
+
+  const records = [
+    ["trn-2026-000001", "TRN-2026-000001", "mem-2026-000008", "crs-2026-000005", "trq-2026-000001", "2026-07-10T08:00:00.000Z", "2026-07-20T12:00:00.000Z", "Assigned", null, null, null, null, null],
+    ["trn-2026-000002", "TRN-2026-000002", "mem-2026-000008", "crs-2026-000001", null, "2026-06-15T08:00:00.000Z", "2026-08-01T12:00:00.000Z", "Completed", "2026-07-01T10:00:00.000Z", "2028-07-01T10:00:00.000Z", "Completed during response familiarization.", input.zppId, "2026-07-01T11:00:00.000Z"],
+    ["trn-2026-000003", "TRN-2026-000003", "mem-2026-000003", "crs-2026-000002", "trq-2026-000002", "2026-07-09T08:00:00.000Z", "2026-07-20T12:00:00.000Z", "In Progress", null, null, null, null, null],
+    ["trn-2026-000004", "TRN-2026-000004", "mem-2026-000002", "crs-2026-000004", "trq-2026-000003", "2026-07-05T08:00:00.000Z", "2026-07-08T12:00:00.000Z", "Assigned", null, null, null, null, null],
+    ["trn-2026-000005", "TRN-2026-000005", "mem-2026-000001", "crs-2026-000005", "trq-2026-000001", "2025-07-01T08:00:00.000Z", "2025-08-01T12:00:00.000Z", "Completed", "2025-08-01T09:00:00.000Z", "2026-08-01T09:00:00.000Z", "Annual refresher completed.", input.adminId, "2025-08-01T10:00:00.000Z"],
+    ["trn-2026-000006", "TRN-2026-000006", "mem-2026-000005", "crs-2026-000003", null, "2025-05-01T08:00:00.000Z", "2025-06-01T12:00:00.000Z", "Completed", "2025-06-01T09:00:00.000Z", "2026-06-01T09:00:00.000Z", "Previous welfare support course.", null, null],
+  ] as const;
+  for (const [id, operationalId, memberProfileId, courseId, sourceRequirementId, assignedAt, dueAt, status, completedAt, expiryAt, completionNote, verifiedById, verifiedAt] of records) {
+    const data = {
+      operationalId,
+      memberProfileId,
+      courseId,
+      sourceRequirementId,
+      assignedAt: new Date(assignedAt),
+      assignedById: input.coordinatorId,
+      dueAt: new Date(dueAt),
+      status,
+      completedAt: completedAt ? new Date(completedAt) : null,
+      expiryAt: expiryAt ? new Date(expiryAt) : null,
+      completionNote,
+      verifiedById,
+      verifiedAt: verifiedAt ? new Date(verifiedAt) : null,
+      legacyImported: true,
+      legacyMetadata: { provenance: "memory-seed", completionActorAvailable: false, startActorAvailable: false },
+      provenance: { source: "memory-seed" },
+      createdAt: timestamp,
+      updatedAt: timestamp,
+      createdById: input.coordinatorId,
+      updatedById: input.coordinatorId,
+    };
+    await prisma.memberTrainingRecord.upsert({ where: { id }, update: data, create: { id, ...data } });
+  }
+
+  await prisma.$queryRaw`SELECT setval('"TrainingCourse_id_seq"', GREATEST(COALESCE((SELECT MAX(substring("id" FROM '([0-9]+)$')::BIGINT) FROM "TrainingCourse"), 0) + 1, 1), false)`;
+  await prisma.$queryRaw`SELECT setval('"TrainingRequirement_id_seq"', GREATEST(COALESCE((SELECT MAX(substring("id" FROM '([0-9]+)$')::BIGINT) FROM "TrainingRequirement"), 0) + 1, 1), false)`;
+  await prisma.$queryRaw`SELECT setval('"MemberTrainingRecord_id_seq"', GREATEST(COALESCE((SELECT MAX(substring("id" FROM '([0-9]+)$')::BIGINT) FROM "MemberTrainingRecord"), 0) + 1, 1), false)`;
+}
+
 async function seedOperationalData() {
   const coordinator = await prisma.user.findUniqueOrThrow({ where: { email: "coordinator@lot.pl" } });
   const admin = await prisma.user.findUniqueOrThrow({ where: { email: "admin@lot.pl" } });
@@ -283,6 +380,7 @@ async function seedOperationalData() {
   }
 
   await seedMemberDirectory({ incidentId: session.id, adminId: admin.id, tecId: tec.id, zppId: zpp.id, volunteerId: volunteer.id });
+  await seedTraining({ adminId: admin.id, coordinatorId: coordinator.id, zppId: zpp.id });
 
   const rosterTimestamp = new Date("2026-07-09T09:00:00.000Z");
   const rosterShifts = [

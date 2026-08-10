@@ -50,6 +50,8 @@ import { createPrismaMemberDirectoryRepository } from "../modules/member-directo
 import type { FoundationMemberDirectoryRepository } from "../modules/member-directory/member-directory-repository.js";
 import { createPrismaRosteringRepository } from "../modules/rostering/prisma-rostering-repository.js";
 import type { FoundationRosteringRepository } from "../modules/rostering/rostering-repository.js";
+import { createPrismaTrainingRepository } from "../modules/training/prisma-training-repository.js";
+import type { FoundationTrainingRepository } from "../modules/training/training-repository.js";
 
 type Delegate = {
   count(args: unknown): Promise<number>;
@@ -1301,10 +1303,13 @@ export function registerRoutes(app: Express, options: {
   assignmentRepository?: AssignmentRepository;
   memberDirectoryRepository?: FoundationMemberDirectoryRepository;
   rosteringRepository?: FoundationRosteringRepository;
+  trainingRepository?: FoundationTrainingRepository;
+  trainingClock?: { now(): Date };
   assignmentNotificationHook?: (record: Record<string, unknown>, command: string) => void;
   rosteringNotificationHook?: (record: Record<string, unknown>, command: string) => void;
+  trainingNotificationHook?: (record: Record<string, unknown>, command: string) => void;
 } = {}) {
-  const usePostgres = config.persistenceMode === "postgres" || options.incidentRepository?.kind === "postgres" || options.enquiryRepository?.kind === "postgres" || options.passengerRepository?.kind === "postgres" || options.familyRepository?.kind === "postgres" || options.matchingRepository?.kind === "postgres" || options.releaseRepository?.kind === "postgres" || options.requestRepository?.kind === "postgres" || options.assignmentRepository?.kind === "postgres" || options.memberDirectoryRepository?.kind === "postgres" || options.rosteringRepository?.kind === "postgres";
+  const usePostgres = config.persistenceMode === "postgres" || options.incidentRepository?.kind === "postgres" || options.enquiryRepository?.kind === "postgres" || options.passengerRepository?.kind === "postgres" || options.familyRepository?.kind === "postgres" || options.matchingRepository?.kind === "postgres" || options.releaseRepository?.kind === "postgres" || options.requestRepository?.kind === "postgres" || options.assignmentRepository?.kind === "postgres" || options.memberDirectoryRepository?.kind === "postgres" || options.rosteringRepository?.kind === "postgres" || options.trainingRepository?.kind === "postgres";
   const incidentRepository = options.incidentRepository ?? (
     usePostgres ? createPrismaIncidentRepository(prisma) : undefined
   );
@@ -1335,11 +1340,14 @@ export function registerRoutes(app: Express, options: {
   const assignmentRepository = options.assignmentRepository ?? (
     usePostgres ? createPrismaAssignmentRepository(prisma) : undefined
   );
+  const trainingRepository = options.trainingRepository ?? (
+    usePostgres ? createPrismaTrainingRepository(prisma, options.trainingClock) : undefined
+  );
   const memberDirectoryRepository = options.memberDirectoryRepository ?? (
-    usePostgres ? createPrismaMemberDirectoryRepository(prisma) : undefined
+    usePostgres ? createPrismaMemberDirectoryRepository(prisma, trainingRepository ? (memberProfileId) => trainingRepository.memberTrainingStatus(memberProfileId, options.trainingClock?.now() ?? new Date()) : undefined) : undefined
   );
   const rosteringRepository = options.rosteringRepository ?? (
     usePostgres ? createPrismaRosteringRepository(prisma) : undefined
   );
-  app.use("/api", createDemoRouter({ incidentRepository, enquiryRepository, incidentAccessRepository, incidentAssignmentRepository, passengerRepository, familyRepository, matchingRepository, releaseRepository, requestRepository, assignmentRepository, memberDirectoryRepository, rosteringRepository, assignmentNotificationHook: options.assignmentNotificationHook, rosteringNotificationHook: options.rosteringNotificationHook }));
+  app.use("/api", createDemoRouter({ incidentRepository, enquiryRepository, incidentAccessRepository, incidentAssignmentRepository, passengerRepository, familyRepository, matchingRepository, releaseRepository, requestRepository, assignmentRepository, memberDirectoryRepository, rosteringRepository, trainingRepository, trainingClock: options.trainingClock, assignmentNotificationHook: options.assignmentNotificationHook, rosteringNotificationHook: options.rosteringNotificationHook, trainingNotificationHook: options.trainingNotificationHook }));
 }
