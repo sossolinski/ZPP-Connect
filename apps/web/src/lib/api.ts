@@ -176,25 +176,29 @@ export const api = {
     request<T>(`/${resource}/${id}/${action}`, { method: "POST", body: JSON.stringify(body ?? {}) }),
   memberProfiles: (query?: AnyRecord, options?: ListAllOptions) =>
     listAllPages<AnyRecord>((pageQuery) => request<ApiList<AnyRecord>>(`/member-profiles${queryString(pageQuery)}`), query, options),
+  memberProfilesPage: (query?: AnyRecord) => request<ApiList<AnyRecord>>(`/member-profiles${queryString(query)}`),
   memberProfile: (id: string) => request<AnyRecord>(`/member-profiles/${id}`),
   createMemberProfile: (body: AnyRecord) => request<AnyRecord>("/member-profiles", { method: "POST", body: JSON.stringify(body) }),
   updateMemberProfile: (id: string, body: AnyRecord) => request<AnyRecord>(`/member-profiles/${id}`, { method: "PATCH", body: JSON.stringify(body) }),
-  archiveMemberProfile: (id: string) => request<AnyRecord>(`/member-profiles/${id}/archive`, { method: "POST", body: JSON.stringify({}) }),
-  restoreMemberProfile: (id: string) => request<AnyRecord>(`/member-profiles/${id}/restore`, { method: "POST", body: JSON.stringify({}) }),
+  archiveMemberProfile: (id: string, body: AnyRecord = {}) => request<AnyRecord>(`/member-profiles/${id}/archive`, { method: "POST", body: JSON.stringify(body) }),
+  restoreMemberProfile: (id: string, body: AnyRecord = {}) => request<AnyRecord>(`/member-profiles/${id}/restore`, { method: "POST", body: JSON.stringify(body) }),
   memberProfileUserLinks: (query?: AnyRecord, options?: ListAllOptions) =>
     listAllPages<AnyRecord>((pageQuery) => request<ApiList<AnyRecord>>(`/member-profile-user-links${queryString(pageQuery)}`), query, options),
   groups: (query?: AnyRecord, options?: ListAllOptions) =>
     listAllPages<AnyRecord>((pageQuery) => request<ApiList<AnyRecord>>(`/groups${queryString(pageQuery)}`), query, options),
-  group: (id: string) => request<AnyRecord>(`/groups/${id}`),
+  groupsPage: (query?: AnyRecord) => request<ApiList<AnyRecord>>(`/groups${queryString(query)}`),
+  group: (id: string, query?: AnyRecord) => request<AnyRecord>(`/groups/${id}${queryString(query)}`),
   createGroup: (body: AnyRecord) => request<AnyRecord>("/groups", { method: "POST", body: JSON.stringify(body) }),
   updateGroup: (id: string, body: AnyRecord) => request<AnyRecord>(`/groups/${id}`, { method: "PATCH", body: JSON.stringify(body) }),
-  archiveGroup: (id: string) => request<AnyRecord>(`/groups/${id}/archive`, { method: "POST", body: JSON.stringify({}) }),
+  archiveGroup: (id: string, body: AnyRecord = {}) => request<AnyRecord>(`/groups/${id}/archive`, { method: "POST", body: JSON.stringify(body) }),
   groupMembers: (id: string, query?: AnyRecord, options?: ListAllOptions) =>
     listAllPages<AnyRecord>((pageQuery) => request<ApiList<AnyRecord>>(`/groups/${id}/members${queryString(pageQuery)}`), query, options),
+  groupMembersPage: (id: string, query?: AnyRecord) => request<ApiList<AnyRecord>>(`/groups/${id}/members${queryString(query)}`),
   addGroupMember: (id: string, body: AnyRecord) => request<AnyRecord>(`/groups/${id}/members`, { method: "POST", body: JSON.stringify(body) }),
   updateGroupMember: (id: string, memberProfileId: string, body: AnyRecord) =>
     request<AnyRecord>(`/groups/${id}/members/${memberProfileId}`, { method: "PATCH", body: JSON.stringify(body) }),
-  removeGroupMember: (id: string, memberProfileId: string) => request<AnyRecord>(`/groups/${id}/members/${memberProfileId}`, { method: "DELETE" }),
+  removeGroupMember: (id: string, memberProfileId: string, body: AnyRecord = {}) => request<AnyRecord>(`/groups/${id}/members/${memberProfileId}`, { method: "DELETE", body: JSON.stringify(body) }),
+  setGroupLeader: (id: string, body: AnyRecord) => request<AnyRecord>(`/groups/${id}/set-leader`, { method: "POST", body: JSON.stringify(body) }),
   rosterShifts: (query?: AnyRecord, options?: ListAllOptions) =>
     listAllPages<AnyRecord>((pageQuery) => request<ApiList<AnyRecord>>(`/roster-shifts${queryString(pageQuery)}`), query, options),
   rosterShift: (id: string) => request<AnyRecord>(`/roster-shifts/${id}`),

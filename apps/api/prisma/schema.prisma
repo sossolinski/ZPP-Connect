@@ -31,6 +31,14 @@ model User {
   updatedOperationalAssignments   AssignmentTask[]                   @relation("AssignmentUpdatedBy")
   completedOperationalAssignments AssignmentTask[]                   @relation("AssignmentCompletedBy")
   cancelledOperationalAssignments AssignmentTask[]                   @relation("AssignmentCancelledBy")
+  linkedMemberProfiles            MemberProfile[]                    @relation("MemberProfileLinkedUser")
+  createdMemberProfiles           MemberProfile[]                    @relation("MemberProfileCreatedBy")
+  updatedMemberProfiles           MemberProfile[]                    @relation("MemberProfileUpdatedBy")
+  createdOperationalGroups        OperationalGroup[]                 @relation("OperationalGroupCreatedBy")
+  updatedOperationalGroups        OperationalGroup[]                 @relation("OperationalGroupUpdatedBy")
+  addedGroupMemberships           GroupMembership[]                  @relation("GroupMembershipAddedBy")
+  removedGroupMemberships         GroupMembership[]                  @relation("GroupMembershipRemovedBy")
+  groupRoleAssignments            GroupRoleAssignment[]
   incidentAssignments             IncidentAssignment[]               @relation("IncidentAssignedUser")
   createdIncidentAssignments      IncidentAssignment[]               @relation("IncidentAssignmentCreator")
   revokedIncidentAssignments      IncidentAssignment[]               @relation("IncidentAssignmentRevoker")
@@ -76,17 +84,20 @@ model Role {
   createdAt   DateTime   @default(now())
   updatedAt   DateTime   @updatedAt
   users       UserRole[]
+  groupAssignments GroupRoleAssignment[]
 }
 
 model UserRole {
   userId     String   @db.Uuid
   roleId     String   @db.Uuid
+  scopeType  String   @default("GLOBAL")
   assignedAt DateTime @default(now())
   assignedBy String?
   user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
   role       Role     @relation(fields: [roleId], references: [id], onDelete: Cascade)
 
   @@id([userId, roleId])
+  @@index([userId, scopeType])
 }
 
 model Session {
@@ -130,9 +141,105 @@ model Session {
   exerciseInjects       ExerciseInject[]
   exerciseObservations  ExerciseObservation[]
   incidentAssignments   IncidentAssignment[]
+  operationalGroups     OperationalGroup[]
   auditLogs             AuditLog[]
 
   @@index([mode, status])
+}
+
+model MemberProfile {
+  id                         String            @id
+  memberId                   String            @unique
+  linkedUserId               String?           @db.Uuid
+  firstName                  String
+  lastName                   String
+  pool                       String
+  role                       String
+  assignedFunction           String
+  contactEmail               String?
+  normalizedContactEmail     String?
+  phone                      String?
+  languages                  String[]
+  status                     String            @default("Active")
+  version                    Int               @default(1)
+  legacyAvailability         String?
+  legacyTrainingStatus       String?
+  legacyRosterStatus         String?
+  legacyAssignedLeader       String?
+  createdAt                  DateTime          @default(now())
+  updatedAt                  DateTime          @updatedAt
+  createdById                String?           @db.Uuid
+  updatedById                String?           @db.Uuid
+  linkedUser                 User?             @relation("MemberProfileLinkedUser", fields: [linkedUserId], references: [id], onDelete: Restrict)
+  createdBy                  User?             @relation("MemberProfileCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
+  updatedBy                  User?             @relation("MemberProfileUpdatedBy", fields: [updatedById], references: [id], onDelete: SetNull)
+  memberships                GroupMembership[]
+
+  @@index([status, pool, updatedAt])
+  @@index([assignedFunction, status])
+  @@index([linkedUserId])
+}
+
+model OperationalGroup {
+  id              String                @id
+  operationalId   String                @unique
+  incidentId      String                @db.Uuid
+  name            String
+  pool            String
+  functionName    String
+  status          String                @default("Active")
+  notes           String?
+  version         Int                   @default(1)
+  createdAt       DateTime              @default(now())
+  updatedAt       DateTime              @updatedAt
+  createdById     String?               @db.Uuid
+  updatedById     String?               @db.Uuid
+  incident        Session               @relation(fields: [incidentId], references: [id], onDelete: Restrict)
+  createdBy       User?                 @relation("OperationalGroupCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
+  updatedBy       User?                 @relation("OperationalGroupUpdatedBy", fields: [updatedById], references: [id], onDelete: SetNull)
+  memberships     GroupMembership[]
+  roleAssignments GroupRoleAssignment[]
+
+  @@index([incidentId, status, updatedAt])
+  @@index([incidentId, pool, functionName])
+}
+
+model GroupMembership {
+  id              String           @id
+  groupId         String
+  memberProfileId String
+  role            String           @default("Member")
+  addedAt         DateTime         @default(now())
+  addedById       String?          @db.Uuid
+  updatedAt       DateTime         @updatedAt
+  removedAt       DateTime?
+  removedById     String?          @db.Uuid
+  group           OperationalGroup @relation(fields: [groupId], references: [id], onDelete: Restrict)
+  memberProfile   MemberProfile    @relation(fields: [memberProfileId], references: [id], onDelete: Restrict)
+  addedBy         User?            @relation("GroupMembershipAddedBy", fields: [addedById], references: [id], onDelete: SetNull)
+  removedBy       User?            @relation("GroupMembershipRemovedBy", fields: [removedById], references: [id], onDelete: SetNull)
+
+  @@index([groupId, removedAt, role])
+  @@index([memberProfileId, removedAt])
+}
+
+model GroupRoleAssignment {
+  id         String           @id
+  userId     String           @db.Uuid
+  roleId     String           @db.Uuid
+  groupId    String
+  status     String           @default("Active")
+  assignedAt DateTime         @default(now())
+  assignedBy String?          @db.Uuid
+  revokedAt  DateTime?
+  revokedBy  String?          @db.Uuid
+  version    Int              @default(1)
+  user       User             @relation(fields: [userId], references: [id], onDelete: Restrict)
+  role       Role             @relation(fields: [roleId], references: [id], onDelete: Restrict)
+  group      OperationalGroup @relation(fields: [groupId], references: [id], onDelete: Restrict)
+
+  @@index([userId, status])
+  @@index([groupId, status])
 }
 
 model Enquiry {

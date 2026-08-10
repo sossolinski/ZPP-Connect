@@ -46,6 +46,8 @@ import { createPrismaRequestRepository } from "../modules/requests/prisma-reques
 import type { RequestRepository } from "../modules/requests/request-repository.js";
 import { createPrismaAssignmentRepository } from "../modules/assignments/prisma-assignment-repository.js";
 import type { AssignmentRepository } from "../modules/assignments/assignment-repository.js";
+import { createPrismaMemberDirectoryRepository } from "../modules/member-directory/prisma-member-directory-repository.js";
+import type { FoundationMemberDirectoryRepository } from "../modules/member-directory/member-directory-repository.js";
 
 type Delegate = {
   count(args: unknown): Promise<number>;
@@ -1295,9 +1297,10 @@ export function registerRoutes(app: Express, options: {
   releaseRepository?: ReleaseRepository;
   requestRepository?: RequestRepository;
   assignmentRepository?: AssignmentRepository;
+  memberDirectoryRepository?: FoundationMemberDirectoryRepository;
   assignmentNotificationHook?: (record: Record<string, unknown>, command: string) => void;
 } = {}) {
-  const usePostgres = config.persistenceMode === "postgres" || options.incidentRepository?.kind === "postgres" || options.enquiryRepository?.kind === "postgres" || options.passengerRepository?.kind === "postgres" || options.familyRepository?.kind === "postgres" || options.matchingRepository?.kind === "postgres" || options.releaseRepository?.kind === "postgres" || options.requestRepository?.kind === "postgres" || options.assignmentRepository?.kind === "postgres";
+  const usePostgres = config.persistenceMode === "postgres" || options.incidentRepository?.kind === "postgres" || options.enquiryRepository?.kind === "postgres" || options.passengerRepository?.kind === "postgres" || options.familyRepository?.kind === "postgres" || options.matchingRepository?.kind === "postgres" || options.releaseRepository?.kind === "postgres" || options.requestRepository?.kind === "postgres" || options.assignmentRepository?.kind === "postgres" || options.memberDirectoryRepository?.kind === "postgres";
   const incidentRepository = options.incidentRepository ?? (
     usePostgres ? createPrismaIncidentRepository(prisma) : undefined
   );
@@ -1328,5 +1331,8 @@ export function registerRoutes(app: Express, options: {
   const assignmentRepository = options.assignmentRepository ?? (
     usePostgres ? createPrismaAssignmentRepository(prisma) : undefined
   );
-  app.use("/api", createDemoRouter({ incidentRepository, enquiryRepository, incidentAccessRepository, incidentAssignmentRepository, passengerRepository, familyRepository, matchingRepository, releaseRepository, requestRepository, assignmentRepository, assignmentNotificationHook: options.assignmentNotificationHook }));
+  const memberDirectoryRepository = options.memberDirectoryRepository ?? (
+    usePostgres ? createPrismaMemberDirectoryRepository(prisma) : undefined
+  );
+  app.use("/api", createDemoRouter({ incidentRepository, enquiryRepository, incidentAccessRepository, incidentAssignmentRepository, passengerRepository, familyRepository, matchingRepository, releaseRepository, requestRepository, assignmentRepository, memberDirectoryRepository, assignmentNotificationHook: options.assignmentNotificationHook }));
 }

@@ -77,12 +77,14 @@ async function seedRolesAndUsers() {
 
     for (const roleName of roleAssignments[user.email] ?? []) {
       const role = await prisma.role.findUniqueOrThrow({ where: { name: roleName } });
+      const scopeType = user.email === "zpp@lot.pl" && roleName === "zpp-group-leader" ? "GROUP" : "GLOBAL";
       await prisma.userRole.upsert({
         where: { userId_roleId: { userId: dbUser.id, roleId: role.id } },
-        update: {},
+        update: { scopeType },
         create: {
           userId: dbUser.id,
           roleId: role.id,
+          scopeType,
           assignedBy: "seed"
         }
       });
@@ -159,6 +161,84 @@ async function seedDictionaries() {
   }
 }
 
+async function seedMemberDirectory(input: {
+  incidentId: string;
+  adminId: string;
+  tecId: string;
+  zppId: string;
+  volunteerId: string;
+}) {
+  const timestamp = new Date("2026-07-09T09:00:00.000Z");
+  const members = [
+    ["mem-2026-000001", "ZPP-001", input.zppId, "Anna", "Kowalska", "ZPP", "Family Assistance Lead", "Family Assistance Team", "anna.kowalska@lot.pl", "+48 600 100 001", ["PL", "EN"], "Today 06:00-14:00", "Confirmed", "Confirmed", "ZPP Coordinator"],
+    ["mem-2026-000002", "TEC-001", input.tecId, "Piotr", "Nowak", "TEC", "TEC Supervisor", "Telephone Enquiry Center", "piotr.nowak@lot.pl", "+48 600 200 001", ["PL", "EN"], "Today 12:00-20:00", "Confirmed", "Confirmed", "Leader Bravo"],
+    ["mem-2026-000003", "ZPP-006", null, "Marta", "Zielinska", "ZPP", "Family Assistance Member", "Family Assistance Team", "marta.zielinska@lot.pl", "+48 600 100 006", ["PL", "EN"], "Today 06:00-14:00", "Confirmed", "Confirmed", "Leader Alpha"],
+    ["mem-2026-000004", "ZPP-012", null, "Monika", "Wozniak", "ZPP", "Family Assistance Member", "Family Assistance Team", "monika.wozniak@lot.pl", "+48 600 100 012", ["PL"], "Today 06:00-14:00", "Pending", "Pending", "Leader Alpha"],
+    ["mem-2026-000005", "ZPP-018", null, "Ewa", "Lewandowska", "ZPP", "Welfare Support", "Welfare Support", "ewa.lewandowska@lot.pl", "+48 600 100 018", ["PL", "UA"], "Today 06:00-14:00", "Confirmed", "Available", "Leader Echo"],
+    ["mem-2026-000006", "ZPP-024", null, "Agnieszka", "Kaczmarek", "ZPP", "Welfare Support", "Welfare Support", "agnieszka.kaczmarek@lot.pl", "+48 600 100 024", ["PL", "EN"], "Tomorrow 06:00-14:00", "Confirmed", "Available", "Leader Echo"],
+    ["mem-2026-000007", "ZPP-030", null, "Magdalena", "Jankowska", "ZPP", "Family Assistance Member", "Family Assistance Team", "magdalena.jankowska@lot.pl", null, ["PL"], "Today 06:00-14:00", "Restricted", "Confirmed", "Leader Alpha"],
+    ["mem-2026-000008", "ZPP-221", input.volunteerId, "Adam", "Dabrowski", "ZPP", "Roster Support", "Member Rostering", "adam.dabrowski@lot.pl", "+48 600 100 221", ["PL", "EN", "UA"], "Unavailable today", "Restricted", "Unavailable", "Leader Foxtrot"],
+    ["mem-2026-000009", "TEC-170", null, "Adam", "Pawlak", "TEC", "Contact Center Agent", "Contact Center", "adam.pawlak@lot.pl", "+48 600 200 170", ["PL", "EN", "DE"], "Today 12:00-20:00", "Restricted", "Available", "Leader Charlie"],
+    ["mem-2026-000010", "ZPP-255", null, "Krzysztof", "Szymanski", "ZPP", "Logistics Support", "Logistics Support", "krzysztof.szymanski@lot.pl", "+48 600 100 255", ["PL", "EN", "FR"], "Today 14:00-22:00", "Restricted", "Confirmed", "Leader Delta"],
+  ] as const;
+
+  for (const [id, memberId, linkedUserId, firstName, lastName, pool, role, assignedFunction, contactEmail, phone, languages, legacyAvailability, legacyTrainingStatus, legacyRosterStatus, legacyAssignedLeader] of members) {
+    await prisma.memberProfile.upsert({
+      where: { id },
+      update: { memberId, linkedUserId, firstName, lastName, pool, role, assignedFunction, contactEmail, normalizedContactEmail: contactEmail.toLowerCase(), phone, languages: [...languages], legacyAvailability, legacyTrainingStatus, legacyRosterStatus, legacyAssignedLeader },
+      create: { id, memberId, linkedUserId, firstName, lastName, pool, role, assignedFunction, contactEmail, normalizedContactEmail: contactEmail.toLowerCase(), phone, languages: [...languages], legacyAvailability, legacyTrainingStatus, legacyRosterStatus, legacyAssignedLeader, createdAt: timestamp, updatedAt: timestamp, createdById: input.adminId, updatedById: input.adminId }
+    });
+  }
+
+  const groups = [
+    ["grp-2026-000001", "GRP-2026-000001", "Family Assistance Alpha", "ZPP", "Family Assistance Team", "Active", "Primary family assistance group for the current operating period."],
+    ["grp-2026-000002", "GRP-2026-000002", "TEC Evening Team", "TEC", "Telephone Enquiry Center", "Active", "Evening call intake and enquiry triage coverage."],
+    ["grp-2026-000003", "GRP-2026-000003", "Welfare Support Reserve", "ZPP", "Welfare Support", "Standby", "Reserve pool for welfare support escalation."],
+    ["grp-2026-000004", "GRP-2026-000004", "Documentation Cell", "Mixed", "Documentation Support", "Draft", "Documentation and handover support group."],
+  ] as const;
+  for (const [id, operationalId, name, pool, functionName, status, notes] of groups) {
+    await prisma.operationalGroup.upsert({
+      where: { id },
+      update: { incidentId: input.incidentId, operationalId, name, pool, functionName, status, notes },
+      create: { id, operationalId, incidentId: input.incidentId, name, pool, functionName, status, notes, createdAt: timestamp, updatedAt: timestamp, createdById: input.adminId, updatedById: input.adminId }
+    });
+  }
+
+  const memberships = [
+    ["gmb-2026-000001", "grp-2026-000001", "mem-2026-000001", "Leader"],
+    ["gmb-2026-000002", "grp-2026-000001", "mem-2026-000003", "Member"],
+    ["gmb-2026-000003", "grp-2026-000001", "mem-2026-000004", "Member"],
+    ["gmb-2026-000004", "grp-2026-000001", "mem-2026-000005", "Member"],
+    ["gmb-2026-000005", "grp-2026-000001", "mem-2026-000006", "Member"],
+    ["gmb-2026-000006", "grp-2026-000001", "mem-2026-000007", "Member"],
+    ["gmb-2026-000007", "grp-2026-000002", "mem-2026-000002", "Leader"],
+    ["gmb-2026-000008", "grp-2026-000002", "mem-2026-000009", "Member"],
+    ["gmb-2026-000009", "grp-2026-000002", "mem-2026-000010", "Member"],
+    ["gmb-2026-000010", "grp-2026-000003", "mem-2026-000005", "Reserve"],
+    ["gmb-2026-000011", "grp-2026-000003", "mem-2026-000006", "Leader"],
+    ["gmb-2026-000012", "grp-2026-000004", "mem-2026-000008", "Leader"],
+  ] as const;
+  for (const [id, groupId, memberProfileId, role] of memberships) {
+    await prisma.groupMembership.upsert({
+      where: { id },
+      update: { groupId, memberProfileId, role, removedAt: null, removedById: null },
+      create: { id, groupId, memberProfileId, role, addedAt: timestamp, addedById: input.adminId }
+    });
+  }
+
+  const zppLeaderRole = await prisma.role.findUniqueOrThrow({ where: { name: "zpp-group-leader" } });
+  await prisma.groupRoleAssignment.upsert({
+    where: { id: "gra-zpp-alpha" },
+    update: { userId: input.zppId, roleId: zppLeaderRole.id, groupId: "grp-2026-000001", status: "Active", revokedAt: null, revokedBy: null },
+    create: { id: "gra-zpp-alpha", userId: input.zppId, roleId: zppLeaderRole.id, groupId: "grp-2026-000001", status: "Active", assignedAt: timestamp, assignedBy: input.adminId }
+  });
+
+  await prisma.$executeRawUnsafe(`SELECT setval('"MemberProfile_id_seq"', 10, true)`);
+  await prisma.$executeRawUnsafe(`SELECT setval('"MemberProfile_business_seq"', 255, true)`);
+  await prisma.$executeRawUnsafe(`SELECT setval('"OperationalGroup_id_seq"', 4, true)`);
+  await prisma.$executeRawUnsafe(`SELECT setval('"GroupMembership_id_seq"', 12, true)`);
+}
+
 async function seedOperationalData() {
   const coordinator = await prisma.user.findUniqueOrThrow({ where: { email: "coordinator@lot.pl" } });
   const admin = await prisma.user.findUniqueOrThrow({ where: { email: "admin@lot.pl" } });
@@ -201,6 +281,8 @@ async function seedOperationalData() {
       }
     });
   }
+
+  await seedMemberDirectory({ incidentId: session.id, adminId: admin.id, tecId: tec.id, zppId: zpp.id, volunteerId: volunteer.id });
 
   const enquiry1 = await prisma.enquiry.upsert({
     where: { operationalId: "TEC-2026-000001" },

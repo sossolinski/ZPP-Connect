@@ -19,6 +19,7 @@ import type { MatchingRepository } from "./modules/matching/matching-repository.
 import type { ReleaseRepository } from "./modules/releases/release-repository.js";
 import type { RequestRepository } from "./modules/requests/request-repository.js";
 import type { AssignmentRepository } from "./modules/assignments/assignment-repository.js";
+import type { FoundationMemberDirectoryRepository } from "./modules/member-directory/member-directory-repository.js";
 
 export function createApp(options: {
   incidentRepository?: IncidentRepository;
@@ -31,6 +32,7 @@ export function createApp(options: {
   releaseRepository?: ReleaseRepository;
   requestRepository?: RequestRepository;
   assignmentRepository?: AssignmentRepository;
+  memberDirectoryRepository?: FoundationMemberDirectoryRepository;
   assignmentNotificationHook?: (record: Record<string, unknown>, command: string) => void;
   skipRuntimeValidation?: boolean;
 } = {}) {
@@ -73,6 +75,7 @@ export function createApp(options: {
     releaseRepository: options.releaseRepository,
     requestRepository: options.requestRepository,
     assignmentRepository: options.assignmentRepository,
+    memberDirectoryRepository: options.memberDirectoryRepository,
     assignmentNotificationHook: options.assignmentNotificationHook
   });
 

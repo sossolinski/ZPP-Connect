@@ -42,7 +42,7 @@ import type { RosterStatus } from "./rostering.js";
 import { permissionScope } from "./scope-policy.js";
 import { createTrainingRepository } from "./training.js";
 import { upload } from "./storage.js";
-import { HttpError } from "./errors.js";
+import { HttpError, asyncHandler } from "./errors.js";
 import type { AuthenticatedUser } from "./types.js";
 import { authenticate } from "./auth.js";
 import { config } from "./config.js";
@@ -90,6 +90,9 @@ import { createAssignmentRouter } from "./modules/assignments/assignment-router.
 import { createAssignmentService } from "./modules/assignments/assignment-service.js";
 import { createMemoryAssignmentRepository } from "./modules/assignments/memory-assignment-repository.js";
 import type { AssignmentRepository } from "./modules/assignments/assignment-repository.js";
+import { createMemberDirectoryRouter } from "./modules/member-directory/member-directory-router.js";
+import { createMemberDirectoryService } from "./modules/member-directory/member-directory-service.js";
+import type { FoundationMemberDirectoryRepository } from "./modules/member-directory/member-directory-repository.js";
 import { hydrateReadOnlyProjection, mergeProjectionPage, syncProjectionRow } from "./modules/compatibility/read-only-projection.js";
 
 type Row = Record<string, any>;
@@ -1933,6 +1936,7 @@ export function createDemoRouter(options: {
   releaseRepository?: ReleaseRepository;
   requestRepository?: RequestRepository;
   assignmentRepository?: AssignmentRepository;
+  memberDirectoryRepository?: FoundationMemberDirectoryRepository;
   assignmentNotificationHook?: (record: Record<string, unknown>, command: string) => void;
 } = {}) {
   const router = Router();
@@ -2080,6 +2084,15 @@ export function createDemoRouter(options: {
   };
   const memberDirectory = createMemberDirectoryRepository(users.map((user) => ({ id: user.id, email: user.email, displayName: user.displayName, roles: user.roles })));
   memberDirectoryForAdmin = memberDirectory;
+  const foundationMemberDirectoryService = options.memberDirectoryRepository
+    ? createMemberDirectoryService(options.memberDirectoryRepository, incidentAccessService)
+    : null;
+  const persistenceUserId = async (user: DemoUserAccount) => {
+    if (!options.memberDirectoryRepository) return user.id;
+    const userId = await options.memberDirectoryRepository.resolveUserId(user.email);
+    if (!userId) throw new HttpError(404, "Persisted User not found");
+    return userId;
+  };
   const rostering = createRosteringRepository(memberDirectory);
   rosteringForAdmin = rostering;
   const training = createTrainingRepository(memberDirectory);
@@ -2281,6 +2294,17 @@ export function createDemoRouter(options: {
       options.assignmentNotificationHook?.(record, command);
     }
   }));
+  if (foundationMemberDirectoryService) {
+    router.use(createMemberDirectoryRouter(foundationMemberDirectoryService, {
+      onMembers: (records, offset) => memberDirectory.replaceMemberProjectionPage(records, offset),
+      onMemberChange: (record) => memberDirectory.replaceMemberProjection(record),
+      onGroups: (records, _incidentId, offset) => memberDirectory.replaceGroupProjectionPage(records, offset),
+      onGroupChange: (record) => {
+        memberDirectory.replaceGroupProjection(record);
+        syncRoleAssignmentGroup(record);
+      },
+    }));
+  }
   const requireIncidentAccess = (resolveIncidentId: (req: Request) => string, hydrateEnquiryCompatibility = false, requireWritable = false) => (req: Request, _res: any, next: NextFunction) => {
     const incidentId = resolveIncidentId(req);
     if (!req.user || !incidentId) {
@@ -2436,6 +2460,7 @@ export function createDemoRouter(options: {
   router.get("/readiness/summary", requireAnyPermission(["readiness:read-summary", "readiness:read-all", "readiness:read-group"]), directoryRoute((req) => readiness.summary(req.query, directoryActor(req))));
   router.get("/readiness/policy", requireAnyPermission(["readiness:policy:read", "readiness:policy:manage"]), directoryRoute((req) => readiness.policy(directoryActor(req))));
 
+  if (!foundationMemberDirectoryService) {
   router.get("/member-profiles", requirePermission("member:read"), directoryRoute((req) => memberDirectory.listMembers(req.query, directoryActor(req))));
   router.post("/member-profiles", requirePermission("member:create"), directoryRoute((req) => {
     const member = memberDirectory.createMember(req.body ?? {}, directoryActor(req));
@@ -2525,6 +2550,7 @@ export function createDemoRouter(options: {
     addAudit(req, "archive_group", "Group archived", group.sessionId ?? activeSessionId(req), { groupId: group.id, operationalId: group.operationalId }, "group", group.id);
     return group;
   }));
+  }
 
   router.get("/training/courses", requireAnyPermission(["training:read-all", "training:read-own"]), directoryRoute((req) => training.listCourses(req.query, directoryActor(req))));
   router.get("/training/courses/:id", requireAnyPermission(["training:read-all", "training:read-own"]), directoryRoute((req) => training.getCourse(String(req.params.id), directoryActor(req))));
@@ -3242,7 +3268,7 @@ export function createDemoRouter(options: {
     res.status(501).json({ error: "Session revocation is not available." });
   });
 
-  router.post("/admin/users/:userId/role-assignments", requirePermission("admin:manage"), (req, res) => {
+  router.post("/admin/users/:userId/role-assignments", requirePermission("admin:manage"), asyncHandler(async (req, res) => {
     const actor = currentUser(req);
     const user = userById(String(req.params.userId));
     if (!user) {
@@ -3277,14 +3303,20 @@ export function createDemoRouter(options: {
       assignedByUserId: actor.id,
       version: 1
     };
+    if (options.memberDirectoryRepository) {
+      await options.memberDirectoryRepository.replaceRoleScopes(await persistenceUserId(user), [
+        ...activeRoleAssignmentsFor(user.id).map((item) => ({ roleName: canonicalRoleName(item.roleName), scopeType: item.scopeType, scopeId: item.scopeId ?? null })),
+        { roleName, scopeType, scopeId },
+      ], req.user!);
+    }
     userRoleAssignments.push(assignment);
     refreshUserRoleSnapshot(user);
     addAudit(req, scopeType === "GROUP" ? "scoped_role_assigned" : "role_assigned", "Role assigned", activeSessionId(req), { targetUserId: user.id, roleName, scopeType, scopeId }, "userAccount", user.id);
     notifyAccessChange(user.id, "Role assignment changed", "Your application access was updated.", assignment.id);
     res.status(201).json(roleAssignmentResponse(assignment));
-  });
+  }));
 
-  router.post("/admin/users/:userId/role-assignments/:assignmentId/revoke", requirePermission("admin:manage"), (req, res) => {
+  router.post("/admin/users/:userId/role-assignments/:assignmentId/revoke", requirePermission("admin:manage"), asyncHandler(async (req, res) => {
     const actor = currentUser(req);
     const user = userById(String(req.params.userId));
     const assignment = userRoleAssignments.find((item) => item.id === req.params.assignmentId && item.userId === req.params.userId);
@@ -3301,6 +3333,11 @@ export function createDemoRouter(options: {
       res.status(409).json({ error: "Assign another active System Admin before removing this access." });
       return;
     }
+    if (options.memberDirectoryRepository) {
+      await options.memberDirectoryRepository.replaceRoleScopes(await persistenceUserId(user), activeRoleAssignmentsFor(user.id)
+        .filter((item) => item.id !== assignment.id)
+        .map((item) => ({ roleName: canonicalRoleName(item.roleName), scopeType: item.scopeType, scopeId: item.scopeId ?? null })), req.user!);
+    }
     assignment.status = "Revoked";
     assignment.revokedAt = now();
     assignment.revokedByUserId = actor.id;
@@ -3309,9 +3346,9 @@ export function createDemoRouter(options: {
     addAudit(req, "role_assignment_revoked", "Role assignment revoked", activeSessionId(req), { targetUserId: user.id, roleName: assignment.roleName, scopeType: assignment.scopeType, scopeId: assignment.scopeId ?? null }, "userAccount", user.id);
     notifyAccessChange(user.id, "Role assignment changed", "Your application access was updated.", assignment.id);
     res.json(roleAssignmentResponse(assignment));
-  });
+  }));
 
-  router.patch("/admin/users/:id/roles", requirePermission("admin:manage"), (req, res) => {
+  router.patch("/admin/users/:id/roles", requirePermission("admin:manage"), asyncHandler(async (req, res) => {
     const actor = currentUser(req);
     const user = userById(String(req.params.id));
     if (!user) {
@@ -3387,6 +3424,13 @@ export function createDemoRouter(options: {
         nextScopeType: RoleScopeType;
         nextScopeId: string | null;
       } => Boolean(change));
+    if (options.memberDirectoryRepository) {
+      await options.memberDirectoryRepository.replaceRoleScopes(await persistenceUserId(user), nextAssignments.map((assignment) => ({
+        roleName: canonicalRoleName(assignment.roleName),
+        scopeType: assignment.scopeType,
+        scopeId: assignment.scopeId ?? null,
+      })), req.user!);
+    }
     replaceUserRoleAssignments(user.id, nextAssignments, actor.id);
     refreshUserRoleSnapshot(user);
     addAudit(req, "update_user_roles", `Roles updated for ${user.email}`, activeSessionId(req), { targetUserId: user.id, assignments: nextAssignments }, "userAccount", user.id);
@@ -3395,7 +3439,7 @@ export function createDemoRouter(options: {
     }
     notifyAccessChange(user.id, "Role assignment changed", "Your application access was updated.", "update_user_roles");
     res.json(adminUserResponse(user));
-  });
+  }));
 
   router.post("/admin/users/:userId/capability-overrides", requirePermission("admin:manage"), (req, res) => {
     const actor = currentUser(req);
@@ -3486,33 +3530,47 @@ export function createDemoRouter(options: {
     res.json({ data: accessHistoryFor(user.id) });
   });
 
-  router.post("/admin/users/:userId/member-link", requirePermission("admin:manage"), directoryRoute((req) => {
+  router.post("/admin/users/:userId/member-link", requirePermission("admin:manage"), asyncHandler(async (req, res) => {
     const actor = currentUser(req);
     const user = userById(String(req.params.userId));
-    if (!user) throw new DirectoryError(404, "User not found");
+    if (!user) throw new HttpError(404, "User not found");
     const memberProfileId = String(req.body?.memberProfileId ?? "").trim();
-    if (!memberProfileId) throw new DirectoryError(400, "Member profile is required.");
+    if (!memberProfileId) throw new HttpError(400, "Member profile is required.");
     const currentLinkedUser = users.find((candidate) => candidate.id !== user.id && candidate.linkedMemberProfileId === memberProfileId && candidate.status !== "Archived");
-    if (currentLinkedUser) throw new DirectoryError(409, "This member profile is already linked to another account.");
+    if (currentLinkedUser) throw new HttpError(409, "This member profile is already linked to another account.");
     const previousMemberProfileId = user.linkedMemberProfileId ?? null;
     if (previousMemberProfileId && previousMemberProfileId !== memberProfileId) {
+      if (foundationMemberDirectoryService) {
+        throw new HttpError(409, "Unlink the current member profile before linking a different profile.");
+      }
       memberDirectoryForAdmin?.updateMember(previousMemberProfileId, { linkedUserId: null }, directoryActor(req));
     }
-    const member = memberDirectoryForAdmin?.updateMember(memberProfileId, { linkedUserId: user.id }, directoryActor(req));
+    const member = foundationMemberDirectoryService
+      ? await Promise.all([foundationMemberDirectoryService.getMember(req.user!, memberProfileId), persistenceUserId(user)]).then(([current, linkedUserId]) => (
+          foundationMemberDirectoryService.updateMember(req.user!, memberProfileId, { linkedUserId }, current.version)
+        ))
+      : memberDirectoryForAdmin?.updateMember(memberProfileId, { linkedUserId: user.id }, directoryActor(req));
     updateUser(user, { linkedMemberProfileId: memberProfileId }, actor.id);
     addAudit(req, previousMemberProfileId ? "member_profile_link_changed" : "member_profile_linked", previousMemberProfileId ? "Member profile link changed" : "Member profile linked", activeSessionId(req), { targetUserId: user.id, previousMemberProfileId, memberProfileId }, "userAccount", user.id);
-    return { user: adminUserResponse(user), member };
+    res.json({ user: adminUserResponse(user), member });
   }));
 
-  router.delete("/admin/users/:userId/member-link", requirePermission("admin:manage"), directoryRoute((req) => {
+  router.delete("/admin/users/:userId/member-link", requirePermission("admin:manage"), asyncHandler(async (req, res) => {
     const actor = currentUser(req);
     const user = userById(String(req.params.userId));
-    if (!user) throw new DirectoryError(404, "User not found");
+    if (!user) throw new HttpError(404, "User not found");
     const previousMemberProfileId = user.linkedMemberProfileId ?? null;
-    if (previousMemberProfileId) memberDirectoryForAdmin?.updateMember(previousMemberProfileId, { linkedUserId: null }, directoryActor(req));
+    if (previousMemberProfileId) {
+      if (foundationMemberDirectoryService) {
+        const member = await foundationMemberDirectoryService.getMember(req.user!, previousMemberProfileId);
+        await foundationMemberDirectoryService.updateMember(req.user!, previousMemberProfileId, { linkedUserId: null }, member.version);
+      } else {
+        memberDirectoryForAdmin?.updateMember(previousMemberProfileId, { linkedUserId: null }, directoryActor(req));
+      }
+    }
     updateUser(user, { linkedMemberProfileId: null }, actor.id);
     addAudit(req, "member_profile_unlinked", "Member profile unlinked", activeSessionId(req), { targetUserId: user.id, previousMemberProfileId }, "userAccount", user.id);
-    return adminUserResponse(user);
+    res.json(adminUserResponse(user));
   }));
 
   router.get("/admin/invitations", requirePermission("admin:manage"), (req, res) => {
@@ -3578,6 +3636,10 @@ export function createDemoRouter(options: {
       return;
     }
     const memberProfileId = String(req.body?.memberProfileId ?? req.body?.linkedMemberProfileId ?? "").trim() || null;
+    if (memberProfileId && foundationMemberDirectoryService) {
+      res.status(409).json({ error: "A member profile can be linked only after the invited identity exists as a persisted User." });
+      return;
+    }
     let linkedMember: Row | null = null;
     let previousLinkedUserId: string | null = null;
     if (memberProfileId) {

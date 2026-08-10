@@ -670,6 +670,93 @@ export function createMemberDirectoryRepository(users: DirectoryUser[]) {
   }
 
   return {
+    replaceMemberProjection(record: Record<string, any>) {
+      const existing = members.find((member) => member.id === record.id);
+      const projected: MemberProfileRecord = {
+        id: String(record.id),
+        memberId: String(record.memberId ?? record.volunteerId),
+        linkedUserId: record.linkedUserId === undefined ? existing?.linkedUserId ?? null : record.linkedUserId,
+        firstName: String(record.firstName ?? ""),
+        lastName: String(record.lastName ?? ""),
+        displayName: String(record.displayName ?? fullName(String(record.firstName ?? ""), String(record.lastName ?? ""))),
+        pool: record.pool as MemberPool,
+        role: String(record.role ?? "Member"),
+        availability: String(record.availability ?? existing?.availability ?? "Managed in Availability"),
+        contactEmail: record.contactEmail === undefined ? existing?.contactEmail ?? null : record.contactEmail,
+        phone: record.phone === undefined ? existing?.phone ?? null : record.phone,
+        languages: uniqueStrings(record.languages),
+        trainingStatus: String(record.trainingStatus ?? existing?.trainingStatus ?? "Managed in Training"),
+        assignedFunction: String(record.assignedFunction ?? "Unassigned"),
+        rosterStatus: String(record.rosterStatus ?? existing?.rosterStatus ?? "Managed in Rostering"),
+        assignedLeader: record.assignedLeader ?? existing?.assignedLeader ?? null,
+        status: record.status as MemberProfileStatus,
+        createdAt: new Date(record.createdAt).toISOString(),
+        updatedAt: new Date(record.updatedAt).toISOString(),
+        createdById: existing?.createdById ?? null,
+        updatedById: existing?.updatedById ?? null,
+      };
+      if (existing) Object.assign(existing, projected);
+      else members.push(projected);
+    },
+
+    replaceMemberProjectionPage(records: Array<Record<string, any>>, _offset: number) {
+      records.forEach((record) => this.replaceMemberProjection(record));
+    },
+
+    replaceGroupProjection(record: Record<string, any>) {
+      const existing = groups.find((group) => group.id === record.id);
+      const projected: GroupRecord = {
+        id: String(record.id),
+        operationalId: String(record.operationalId),
+        sessionId: String(record.sessionId ?? record.incidentId),
+        name: String(record.name),
+        pool: record.pool as GroupPool,
+        functionName: String(record.functionName ?? "Operational Support"),
+        status: record.status as GroupStatus,
+        leaderId: String(record.leaderId ?? "") || null,
+        rosterShiftIds: Array.isArray(record.rosterShiftIds) && record.rosterShiftIds.length
+          ? uniqueStrings(record.rosterShiftIds)
+          : existing?.rosterShiftIds ?? [],
+        notes: optionalString(record.notes),
+        createdAt: new Date(record.createdAt).toISOString(),
+        updatedAt: new Date(record.updatedAt).toISOString(),
+        createdById: existing?.createdById ?? null,
+        updatedById: existing?.updatedById ?? null,
+      };
+      if (existing) Object.assign(existing, projected);
+      else groups.push(projected);
+
+      const activeIds = new Set<string>(Array.isArray(record.memberIds) ? record.memberIds.map(String) : []);
+      const roleByMember = new Map<string, string>((Array.isArray(record.memberships) ? record.memberships : []).map((item: any) => [String(item.memberProfileId), String(item.role ?? "Member")]));
+      const timestamp = projected.updatedAt;
+      memberships.forEach((membership) => {
+        if (membership.groupId === projected.id && !membership.archivedAt && !activeIds.has(membership.memberProfileId)) {
+          membership.archivedAt = timestamp;
+          membership.updatedAt = timestamp;
+        }
+      });
+      activeIds.forEach((memberProfileId) => {
+        const membership = memberships.find((item) => item.groupId === projected.id && item.memberProfileId === memberProfileId && !item.archivedAt);
+        if (membership) {
+          membership.role = roleByMember.get(memberProfileId) ?? (projected.leaderId === memberProfileId ? "Leader" : membership.role);
+          membership.updatedAt = timestamp;
+        } else {
+          memberships.push({
+            id: String((record.memberships ?? []).find((item: any) => String(item.memberProfileId) === memberProfileId)?.id ?? nextMembershipId()),
+            groupId: projected.id,
+            memberProfileId,
+            role: roleByMember.get(memberProfileId) ?? (projected.leaderId === memberProfileId ? "Leader" : "Member"),
+            createdAt: timestamp,
+            updatedAt: timestamp,
+          });
+        }
+      });
+    },
+
+    replaceGroupProjectionPage(records: Array<Record<string, any>>, _offset: number) {
+      records.forEach((record) => this.replaceGroupProjection(record));
+    },
+
     upsertUser(user: DirectoryUser) {
       const existing = users.find((candidate) => candidate.id === user.id);
       const nextUser = { ...user, roles: [...user.roles] };

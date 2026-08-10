@@ -10,6 +10,8 @@ let jwks: ReturnType<typeof createRemoteJWKSet> | undefined;
 function permissionsFromUser(user: Awaited<ReturnType<typeof loadUserByEmail>>): AuthenticatedUser["permissions"] {
   const permissionSet = new Set<string>();
   for (const userRole of user?.roles ?? []) {
+    const scoped = user?.groupRoleAssignments.filter((assignment) => assignment.roleId === userRole.roleId) ?? [];
+    if (userRole.scopeType === "GROUP" && !scoped.some((assignment) => assignment.status === "Active" && assignment.group.status !== "Archived")) continue;
     const permissions = userRole.role.permissions;
     if (Array.isArray(permissions)) {
       permissions.forEach((permission) => permissionSet.add(String(permission)));
@@ -21,7 +23,13 @@ function permissionsFromUser(user: Awaited<ReturnType<typeof loadUserByEmail>>):
 async function loadUserByEmail(email: string) {
   return prisma.user.findUnique({
     where: { email: email.toLowerCase() },
-    include: { organization: true, roles: { include: { role: true } } }
+    include: {
+      organization: true,
+      roles: { include: { role: true } },
+      groupRoleAssignments: {
+        include: { role: true, group: true }
+      }
+    }
   });
 }
 
@@ -60,6 +68,36 @@ export async function authenticate(req: Request, _res: Response, next: NextFunct
       throw new HttpError(401, "User is not provisioned or active");
     }
 
+    const roleAssignments = user.roles.reduce<NonNullable<AuthenticatedUser["roleAssignments"]>>((result, item) => {
+      const scoped = user.groupRoleAssignments.filter((assignment) => assignment.roleId === item.roleId);
+      if (item.scopeType === "GROUP") {
+        result.push(...scoped.map((assignment) => ({
+          id: assignment.id,
+          userId: user.id,
+          roleName: item.role.name,
+          scopeType: "GROUP" as const,
+          scopeId: assignment.groupId,
+          status: assignment.status === "Active" && assignment.group.status !== "Archived" ? "Active" as const : "Revoked" as const,
+          assignedAt: assignment.assignedAt.toISOString(),
+          assignedByUserId: assignment.assignedBy,
+          permissions: Array.isArray(item.role.permissions) ? item.role.permissions.map(String) as AuthenticatedUser["permissions"] : []
+        })));
+      } else {
+        result.push({
+          id: `global:${user.id}:${item.roleId}`,
+          userId: user.id,
+          roleName: item.role.name,
+          scopeType: "GLOBAL",
+          scopeId: null,
+          status: "Active",
+          assignedAt: item.assignedAt.toISOString(),
+          assignedByUserId: null,
+          permissions: Array.isArray(item.role.permissions) ? item.role.permissions.map(String) as AuthenticatedUser["permissions"] : []
+        });
+      }
+      return result;
+    }, []);
+
     req.user = {
       id: user.id,
       userId: user.id,
@@ -78,6 +116,7 @@ export async function authenticate(req: Request, _res: Response, next: NextFunct
           }
         : null,
       roles: user.roles.map((item) => item.role.name),
+      roleAssignments,
       permissions: permissionsFromUser(user)
     };
     next();
