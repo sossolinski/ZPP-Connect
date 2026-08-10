@@ -202,7 +202,7 @@ Stan lokalny:
 | Build | PASS |
 | Browser | PASS — 66/66 |
 | Dependency Audit | PASS — zero findings |
-| Remote GitHub Actions | PENDING |
+| Remote GitHub Actions | PASS — Foundation PostgreSQL Gate, Typecheck/Unit/Build/Browser i Production Dependency Audit |
 
 ## AD. Remaining split-brain
 
@@ -239,7 +239,7 @@ Uzasadnienie: Training ma największy pozostający spójny write model (courses,
 ## Final verdict
 
 ```text
-NOT READY
+READY FOR NEXT FOUNDATION SLICE
 ```
 
-Powód: lokalne gate’y są zielone, ale Draft PR i rzeczywiste remote GitHub Actions dla finalnego SHA nie zostały jeszcze wykonane. Verdict może zostać zmieniony na `READY FOR NEXT FOUNDATION SLICE` dopiero po zielonym finalnym remote gate.
+Powód: fresh PostgreSQL, pełny Stage 1–10, exact backfill, quality/browser, dependency audit i rzeczywiste remote GitHub Actions są zielone. PR pozostaje Draft zgodnie z wymaganym stanem końcowym; następny slice nie został rozpoczęty.
