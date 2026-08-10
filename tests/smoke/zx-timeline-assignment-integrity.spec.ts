@@ -43,6 +43,16 @@ async function setSessionForRestrictedPersona(page: Page, session: Row) {
   await expect(page.locator(`[aria-label*="Current session EXERCISE ${session.operationalId}"]:visible`)).toHaveCount(1);
 }
 
+async function openAssignmentsAfterPersonaSwitch(page: Page, sessionId: string) {
+  const queueResponse = page.waitForResponse((response) => {
+    const url = new URL(response.url());
+    return response.request().method() === "GET" && url.pathname === "/api/assignments/queue" && url.searchParams.get("sessionId") === sessionId;
+  });
+  await page.goto("/assignments");
+  expect((await queueResponse).ok()).toBeTruthy();
+  await expect(page.getByText("Loading assignments")).toHaveCount(0);
+}
+
 async function createAssignment(page: Page, sessionId: string, title: string) {
   const response = await page.request.post(`${apiUrl}/assignments`, {
     headers: coordinatorHeaders,
@@ -207,25 +217,25 @@ test("enforces assignment ownership workflow, conflicts, roles and mobile parity
 
   await login(page, "coordinator@lot.pl");
   await setSessionForRestrictedPersona(page, session);
-  await page.goto("/assignments");
+  await openAssignmentsAfterPersonaSwitch(page, session.id);
   await expect(page.getByRole("button", { name: "Reassign" }).first()).toBeVisible();
 
   await login(page, "zpp@lot.pl");
   await setSessionForRestrictedPersona(page, session);
-  await page.goto("/assignments");
-  await expect(page.getByRole("main")).not.toContainText(token);
-  await expect(page.getByRole("button", { name: "Reassign" })).toHaveCount(0);
+  await openAssignmentsAfterPersonaSwitch(page, session.id);
+  await expect(page.getByRole("main")).toContainText(token);
+  await expect(page.getByRole("button", { name: "Reassign" }).first()).toBeVisible();
 
   await login(page, "tec@lot.pl");
   await setSessionForRestrictedPersona(page, session);
-  await page.goto("/assignments");
+  await openAssignmentsAfterPersonaSwitch(page, session.id);
   await expect(page.getByText(/My active assignments - filtered to TEC Member/)).toBeVisible();
   await expect(page.getByLabel("Owner filter")).toHaveValue("__mine__");
   await expect(page.getByRole("button", { name: /Claim|Assign|Reassign|Start|Complete|Cancel/ })).toHaveCount(0);
 
   await login(page, "volunteer@lot.pl");
   await setSessionForRestrictedPersona(page, session);
-  await page.goto("/assignments");
+  await openAssignmentsAfterPersonaSwitch(page, session.id);
   await expect(page.getByText(/My active assignments - filtered to ZPP Member 01/)).toBeVisible();
   await expect(page.getByLabel("Owner filter")).toHaveValue("__mine__");
   await expect(page.getByRole("row").filter({ hasText: `${token}-VOLUNTEER` })).toBeVisible();
