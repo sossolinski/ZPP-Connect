@@ -96,6 +96,9 @@ import type { FoundationMemberDirectoryRepository } from "./modules/member-direc
 import { createRosteringRouter } from "./modules/rostering/rostering-router.js";
 import { createRosteringService } from "./modules/rostering/rostering-service.js";
 import type { FoundationRosteringRepository } from "./modules/rostering/rostering-repository.js";
+import { createTrainingRouter } from "./modules/training/training-router.js";
+import { createTrainingService } from "./modules/training/training-service.js";
+import type { FoundationTrainingRepository } from "./modules/training/training-repository.js";
 import { hydrateReadOnlyProjection, mergeProjectionPage, syncProjectionRow } from "./modules/compatibility/read-only-projection.js";
 
 type Row = Record<string, any>;
@@ -1942,8 +1945,11 @@ export function createDemoRouter(options: {
   assignmentRepository?: AssignmentRepository;
   memberDirectoryRepository?: FoundationMemberDirectoryRepository;
   rosteringRepository?: FoundationRosteringRepository;
+  trainingRepository?: FoundationTrainingRepository;
+  trainingClock?: { now(): Date };
   assignmentNotificationHook?: (record: Record<string, unknown>, command: string) => void;
   rosteringNotificationHook?: (record: Record<string, unknown>, command: string) => void;
+  trainingNotificationHook?: (record: Record<string, unknown>, command: string) => void;
 } = {}) {
   const router = Router();
   const memoryIncidentAssignments: MemoryIncidentAssignment[] = sessions.flatMap((incident) =>
@@ -2105,8 +2111,11 @@ export function createDemoRouter(options: {
     ? createRosteringService(options.rosteringRepository, incidentAccessService)
     : null;
   const training = createTrainingRepository(memberDirectory);
+  const foundationTrainingService = options.trainingRepository
+    ? createTrainingService(options.trainingRepository, incidentAccessService, options.trainingClock)
+    : null;
   const documentsRepository = createDocumentRepository(memberDirectory);
-  const readiness = createReadinessService({ directory: memberDirectory, training, documents: documentsRepository, rostering, foundationRostering: foundationRosteringService });
+  const readiness = createReadinessService({ directory: memberDirectory, training, documents: documentsRepository, rostering, foundationRostering: foundationRosteringService, foundationTraining: foundationTrainingService });
   const activeEvent = createActiveEventService({ users, sessions, assignments, enquiries, familyRecords, passengerRecords, matchingRecords, releases, requests });
   const notifications = createNotificationService({ users, sessions, assignments, directory: memberDirectory, rostering, training, documents: documentsRepository, activeEvent, permissionsForRoleNames });
   notificationsForAdmin = notifications;
@@ -2320,6 +2329,14 @@ export function createDemoRouter(options: {
         if (command === "publish") notifications.notifyRosterShiftPublished(record);
         if (["confirm", "decline", "cancel", "complete"].includes(command)) notifications.resolveSource("rosterShift", record.id, "Source resolved");
         options.rosteringNotificationHook?.(record, command);
+      },
+    }));
+  }
+  if (foundationTrainingService) {
+    router.use(createTrainingRouter(foundationTrainingService, {
+      onAssigned: (record) => {
+        notifications.notifyTrainingAssigned(record);
+        options.trainingNotificationHook?.(record, "assign");
       },
     }));
   }
@@ -2570,6 +2587,7 @@ export function createDemoRouter(options: {
   }));
   }
 
+  if (!foundationTrainingService) {
   router.get("/training/courses", requireAnyPermission(["training:read-all", "training:read-own"]), directoryRoute((req) => training.listCourses(req.query, directoryActor(req))));
   router.get("/training/courses/:id", requireAnyPermission(["training:read-all", "training:read-own"]), directoryRoute((req) => training.getCourse(String(req.params.id), directoryActor(req))));
   router.post("/training/courses", requirePermission("training:course:manage"), directoryRoute((req) => {
@@ -2668,6 +2686,7 @@ export function createDemoRouter(options: {
     addAudit(req, "cancel_training", "Training cancelled", activeSessionId(req), { recordId: record.id, oldStatus: before.status, newStatus: record.status }, "trainingRecord", record.id);
     return record;
   }));
+  }
 
   router.get("/documents", requireAnyPermission(["document:read-own", "document:read-all"]), directoryRoute((req) => documentsRepository.listDocuments(req.query, directoryActor(req))));
   router.post("/documents", requirePermission("document:manage"), directoryRoute((req) => {

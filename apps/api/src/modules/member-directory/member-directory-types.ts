@@ -45,7 +45,7 @@ export type MemberProfileRecord = {
   assignedLeader?: string | null;
   derivedFields: {
     availability: "postgres-projection";
-    trainingStatus: "legacy-compatibility";
+    trainingStatus: "legacy-compatibility" | "postgres-projection";
     rosterStatus: "postgres-projection";
     assignedLeader: "legacy-compatibility";
   };

@@ -65,6 +65,7 @@ model User {
   resolvedRequests                Request[]                          @relation("RequestResolvedBy")
   reopenedRequests                Request[]                          @relation("RequestReopenedBy")
   cancelledRequests               Request[]                          @relation("RequestCancelledBy")
+  verifiedTrainingRecords         MemberTrainingRecord[]             @relation("TrainingRecordVerifiedBy")
   auditLogs                       AuditLog[]                         @relation("ActorAudit")
 
   @@index([organizationId])
@@ -187,6 +188,8 @@ model MemberProfile {
   memberships            GroupMembership[]
   rosterShifts           RosterShift[]
   availabilityRecords    Availability[]
+  trainingRequirements   TrainingRequirement[]
+  trainingRecords        MemberTrainingRecord[]
 
   @@index([status, pool, updatedAt])
   @@index([assignedFunction, status])
@@ -213,6 +216,7 @@ model OperationalGroup {
   memberships     GroupMembership[]
   roleAssignments GroupRoleAssignment[]
   rosterShifts    RosterShift[]
+  trainingRequirements TrainingRequirement[]
 
   @@unique([id, incidentId])
   @@index([incidentId, status, updatedAt])
@@ -255,6 +259,127 @@ model GroupRoleAssignment {
 
   @@index([userId, status])
   @@index([groupId, status])
+}
+
+model TrainingCourse {
+  id               String                 @id
+  code             String
+  normalizedCode   String                 @unique
+  title            String
+  description      String?
+  category         String
+  deliveryType     String
+  validityMonths   Int?
+  active           Boolean                @default(true)
+  selfCompletable  Boolean                @default(false)
+  externalRef      String?
+  version          Int                    @default(1)
+  deactivatedAt    DateTime?
+  reactivatedAt    DateTime?
+  legacyImported   Boolean                @default(false)
+  legacyMetadata   Json?
+  createdAt        DateTime               @default(now())
+  updatedAt        DateTime               @updatedAt
+  createdById      String?                @db.Uuid
+  updatedById      String?                @db.Uuid
+  requirements     TrainingRequirement[]
+  records          MemberTrainingRecord[]
+
+  @@index([active, category, title])
+  @@index([updatedAt])
+}
+
+model TrainingRequirement {
+  id               String                 @id
+  courseId         String
+  targetType       String
+  targetRole       String?
+  groupId          String?
+  memberProfileId  String?
+  requiredStatus   String
+  dueAt            DateTime?
+  effectiveFrom    DateTime?
+  effectiveTo      DateTime?
+  active           Boolean                @default(true)
+  version          Int                    @default(1)
+  provenance       Json?
+  endedAt          DateTime?
+  endedById        String?                @db.Uuid
+  createdAt        DateTime               @default(now())
+  updatedAt        DateTime               @updatedAt
+  createdById      String?                @db.Uuid
+  updatedById      String?                @db.Uuid
+  course           TrainingCourse         @relation(fields: [courseId], references: [id], onDelete: Restrict)
+  group            OperationalGroup?      @relation(fields: [groupId], references: [id], onDelete: Restrict)
+  memberProfile    MemberProfile?         @relation(fields: [memberProfileId], references: [id], onDelete: Restrict)
+  records          MemberTrainingRecord[]
+
+  @@unique([id, courseId])
+  @@index([courseId, active, effectiveFrom, effectiveTo])
+  @@index([targetType, targetRole, active])
+  @@index([groupId, active])
+  @@index([memberProfileId, active])
+}
+
+model MemberTrainingRecord {
+  id                    String                @id
+  operationalId         String                @unique
+  memberProfileId       String
+  courseId              String
+  sourceRequirementId   String?
+  assignedAt            DateTime
+  assignedById          String?               @db.Uuid
+  dueAt                  DateTime?
+  status                 String                @default("Assigned")
+  startedAt              DateTime?
+  startedById            String?               @db.Uuid
+  completedAt            DateTime?
+  completedById          String?               @db.Uuid
+  expiryAt               DateTime?
+  score                  Int?
+  completionNote         String?
+  completionRef          String?
+  verifiedById           String?               @db.Uuid
+  verifiedAt             DateTime?
+  waivedAt               DateTime?
+  waivedById             String?               @db.Uuid
+  waiverReason           String?
+  cancelledAt            DateTime?
+  cancelledById          String?               @db.Uuid
+  cancelledReason        String?
+  version                Int                   @default(1)
+  provenance             Json?
+  legacyImported         Boolean               @default(false)
+  legacyMetadata         Json?
+  createdAt              DateTime              @default(now())
+  updatedAt              DateTime              @updatedAt
+  createdById            String?               @db.Uuid
+  updatedById            String?               @db.Uuid
+  memberProfile          MemberProfile         @relation(fields: [memberProfileId], references: [id], onDelete: Restrict)
+  course                 TrainingCourse        @relation(fields: [courseId], references: [id], onDelete: Restrict)
+  sourceRequirement      TrainingRequirement?  @relation(fields: [sourceRequirementId, courseId], references: [id, courseId], onDelete: Restrict)
+  verifiedBy             User?                 @relation("TrainingRecordVerifiedBy", fields: [verifiedById], references: [id], onDelete: Restrict)
+  operations             TrainingOperation[]
+
+  @@index([memberProfileId, courseId, status])
+  @@index([courseId, status, dueAt])
+  @@index([sourceRequirementId])
+  @@index([expiryAt])
+}
+
+model TrainingOperation {
+  id                 String                @id @default(uuid()) @db.Uuid
+  operationId        String                @unique @db.Uuid
+  memberTrainingId   String?
+  command            String
+  commandFingerprint String
+  resultVersion      Int
+  result             Json
+  requestId          String?
+  createdAt          DateTime              @default(now())
+  memberTraining     MemberTrainingRecord? @relation(fields: [memberTrainingId], references: [id], onDelete: Cascade)
+
+  @@index([memberTrainingId, createdAt])
 }
 
 model RosterShift {

@@ -35,6 +35,7 @@ type TrainingCourse = {
   validityMonths?: number | null;
   active: boolean;
   selfCompletable?: boolean;
+  version: number;
   updatedAt: string;
 };
 
@@ -51,6 +52,7 @@ type TrainingRequirement = {
   dueAt?: string | null;
   active: boolean;
   resolvedMemberCount?: number;
+  version: number;
   updatedAt: string;
 };
 
@@ -74,8 +76,12 @@ type TrainingRecord = {
   completionNote?: string;
   completionRef?: string;
   verifiedAt?: string | null;
+  verifiedById?: string | null;
+  verifiedBy?: { id: string; email: string; displayName: string } | null;
+  verificationStatus?: "Pending" | "Verified" | "Not applicable";
   waiverReason?: string;
   cancelledReason?: string;
+  version: number;
   updatedAt: string;
   permissions?: {
     canStart?: boolean;
@@ -214,14 +220,13 @@ function requirementFormFromRecord(requirement?: TrainingRequirement, courses: T
   };
 }
 
-function blankAssignForm(courses: TrainingCourse[], members: MemberSummary[], groups: GroupSummary[], requirements: TrainingRequirement[]): AssignForm {
-  const firstRequirement = requirements.find((requirement) => requirement.active);
+function blankAssignForm(courses: TrainingCourse[], members: MemberSummary[], groups: GroupSummary[]): AssignForm {
   return {
     targetType: "Member",
     memberProfileId: members.find((member) => member.status !== "Archived")?.id ?? members[0]?.id ?? "",
     groupId: groups.find((group) => group.status !== "Archived")?.id ?? groups[0]?.id ?? "",
-    courseId: firstRequirement?.courseId ?? courses.find((course) => course.active)?.id ?? courses[0]?.id ?? "",
-    sourceRequirementId: firstRequirement?.id ?? "",
+    courseId: courses.find((course) => course.active)?.id ?? courses[0]?.id ?? "",
+    sourceRequirementId: "",
     dueAt: ""
   };
 }
@@ -276,11 +281,19 @@ export function TrainingPage() {
   const showManagement = canReadAll;
 
   const [records, setRecords] = useState<TrainingRecord[]>([]);
-  const [summaryRecords, setSummaryRecords] = useState<TrainingRecord[]>([]);
+  const [recordTotal, setRecordTotal] = useState(0);
+  const [recordTotals, setRecordTotals] = useState<Record<string, number>>({});
+  const [recordOffset, setRecordOffset] = useState(0);
   const [courses, setCourses] = useState<TrainingCourse[]>([]);
+  const [courseTotal, setCourseTotal] = useState(0);
+  const [courseOffset, setCourseOffset] = useState(0);
   const [requirements, setRequirements] = useState<TrainingRequirement[]>([]);
+  const [requirementTotal, setRequirementTotal] = useState(0);
+  const [requirementOffset, setRequirementOffset] = useState(0);
   const [members, setMembers] = useState<MemberSummary[]>([]);
   const [groups, setGroups] = useState<GroupSummary[]>([]);
+  const [memberLookup, setMemberLookup] = useState("");
+  const [groupLookup, setGroupLookup] = useState("");
   const [linkedMember, setLinkedMember] = useState<MemberSummary | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -296,8 +309,8 @@ export function TrainingPage() {
   const [courseBaseline, setCourseBaseline] = useState<CourseForm>(() => courseFormFromRecord());
   const [requirementForm, setRequirementForm] = useState<RequirementForm>(() => blankRequirementForm([]));
   const [requirementBaseline, setRequirementBaseline] = useState<RequirementForm>(() => blankRequirementForm([]));
-  const [assignForm, setAssignForm] = useState<AssignForm>(() => blankAssignForm([], [], [], []));
-  const [assignBaseline, setAssignBaseline] = useState<AssignForm>(() => blankAssignForm([], [], [], []));
+  const [assignForm, setAssignForm] = useState<AssignForm>(() => blankAssignForm([], [], []));
+  const [assignBaseline, setAssignBaseline] = useState<AssignForm>(() => blankAssignForm([], [], []));
   const [completeForm, setCompleteForm] = useState<CompleteForm>(() => completeFormFromRecord());
   const [completeBaseline, setCompleteBaseline] = useState<CompleteForm>(() => completeFormFromRecord());
   const [reason, setReason] = useState("");
@@ -305,6 +318,7 @@ export function TrainingPage() {
   const [drawerError, setDrawerError] = useState("");
   const [saving, setSaving] = useState(false);
   const [busyAction, setBusyAction] = useState("");
+  const pageSize = 50;
 
   const recordQuery = useMemo(() => {
     const query: Record<string, string | boolean | number> = showManagement ? {} : { mine: true };
@@ -316,32 +330,37 @@ export function TrainingPage() {
     if (queueFilter === "Overdue") query.overdue = true;
     if (queueFilter === "Expiring soon") query.expiringWithin = 45;
     query.sort = "due";
+    query.limit = pageSize;
+    query.offset = recordOffset;
     return query;
-  }, [courseFilter, groupFilter, memberFilter, queueFilter, search, showManagement, statusFilter]);
+  }, [courseFilter, groupFilter, memberFilter, queueFilter, recordOffset, search, showManagement, statusFilter]);
+
+  useEffect(() => { setRecordOffset(0); }, [courseFilter, groupFilter, memberFilter, queueFilter, search, statusFilter]);
 
   const loadData = useCallback(async () => {
     setLoading(true);
     setError("");
     try {
-      const summaryQuery = showManagement ? {} : { mine: true };
-      const [summaryResult, recordResult, courseResult] = await Promise.all([
-        api.trainingRecords(summaryQuery) as Promise<ApiListResult<TrainingRecord>>,
-        api.trainingRecords(recordQuery) as Promise<ApiListResult<TrainingRecord>>,
-        api.trainingCourses({}) as Promise<ApiListResult<TrainingCourse>>
+      const [recordResult, courseResult] = await Promise.all([
+        api.trainingRecordsPage(recordQuery) as Promise<ApiListResult<TrainingRecord>>,
+        api.trainingCoursesPage({ limit: pageSize, offset: courseOffset }) as Promise<ApiListResult<TrainingCourse>>
       ]);
 
-      setSummaryRecords(summaryResult.data);
       setRecords(recordResult.data);
-      setLinkedMember(recordResult.linkedMemberProfile ?? summaryResult.linkedMemberProfile ?? null);
+      setRecordTotal(recordResult.total);
+      setRecordTotals(recordResult.totals ?? {});
+      setLinkedMember(recordResult.linkedMemberProfile ?? null);
       setCourses(courseResult.data);
+      setCourseTotal(courseResult.total);
 
       if (showManagement) {
         const [requirementResult, memberResult, groupResult] = await Promise.all([
-          api.trainingRequirements({}) as Promise<ApiListResult<TrainingRequirement>>,
-          api.memberProfiles({ status: "Active" }) as Promise<ApiListResult<MemberSummary>>,
-          api.groups({ status: "Active" }) as Promise<ApiListResult<GroupSummary>>
+          api.trainingRequirementsPage({ limit: pageSize, offset: requirementOffset }) as Promise<ApiListResult<TrainingRequirement>>,
+          api.memberProfilesPage({ status: "Active", limit: 100, offset: 0 }) as Promise<ApiListResult<MemberSummary>>,
+          api.groupsPage({ status: "Active", limit: 100, offset: 0 }) as Promise<ApiListResult<GroupSummary>>
         ]);
         setRequirements(requirementResult.data);
+        setRequirementTotal(requirementResult.total);
         setMembers(memberResult.data);
         setGroups(groupResult.data);
       } else {
@@ -354,25 +373,38 @@ export function TrainingPage() {
     } finally {
       setLoading(false);
     }
-  }, [recordQuery, showManagement]);
+  }, [courseOffset, recordQuery, requirementOffset, showManagement]);
 
   useEffect(() => {
     void loadData();
   }, [loadData]);
+
+  useEffect(() => {
+    if (!showManagement || (drawer?.type !== "assign" && drawer?.type !== "requirement")) return;
+    const timeout = window.setTimeout(() => {
+      void Promise.all([
+        api.memberProfilesPage({ status: "Active", search: memberLookup || undefined, limit: 50, offset: 0 }) as Promise<ApiListResult<MemberSummary>>,
+        api.groupsPage({ status: "Active", search: groupLookup || undefined, limit: 50, offset: 0 }) as Promise<ApiListResult<GroupSummary>>,
+      ]).then(([memberResult, groupResult]) => {
+        setMembers(memberResult.data);
+        setGroups(groupResult.data);
+      }).catch((err) => setDrawerError(errorMessage(err)));
+    }, 250);
+    return () => window.clearTimeout(timeout);
+  }, [drawer?.type, groupLookup, memberLookup, showManagement]);
 
   const sortedPersonalRecords = useMemo(() => (
     [...records].sort((left, right) => recordSortValue(left) - recordSortValue(right) || String(left.dueAt ?? "").localeCompare(String(right.dueAt ?? "")))
   ), [records]);
 
   const metrics = useMemo(() => {
-    const active = summaryRecords.filter((record) => record.status === "Assigned" || record.status === "In Progress");
     return [
-      metricCard("Action required", active.length, showManagement ? "Assigned or in progress" : "Training still to finish"),
-      metricCard("Overdue", summaryRecords.filter((record) => record.isOverdue).length, "Needs attention first"),
-      metricCard("Expiring soon", summaryRecords.filter((record) => record.isExpiringSoon).length, "Due within 45 days"),
-      metricCard("Completed", summaryRecords.filter((record) => record.status === "Completed").length, "Current completions")
+      metricCard("Action required", (recordTotals.assigned ?? 0) + (recordTotals.inProgress ?? 0), showManagement ? "Assigned or in progress" : "Training still to finish"),
+      metricCard("Overdue", recordTotals.overdue ?? 0, "Needs attention first"),
+      metricCard("Expiring soon", recordTotals.expiringSoon ?? 0, "Due within 45 days"),
+      metricCard("Completed", recordTotals.completed ?? 0, "Current completions")
     ];
-  }, [showManagement, summaryRecords]);
+  }, [recordTotals, showManagement]);
 
   const openCourseDrawer = (mode: "create" | "edit", course?: TrainingCourse) => {
     const form = courseFormFromRecord(course);
@@ -387,14 +419,18 @@ export function TrainingPage() {
     setDrawer({ type: "requirement", mode, requirement });
     setRequirementForm(form);
     setRequirementBaseline(form);
+    setMemberLookup("");
+    setGroupLookup("");
     setDrawerError("");
   };
 
   const openAssignDrawer = () => {
-    const form = blankAssignForm(courses, members, groups, requirements);
+    const form = blankAssignForm(courses, members, groups);
     setDrawer({ type: "assign" });
     setAssignForm(form);
     setAssignBaseline(form);
+    setMemberLookup("");
+    setGroupLookup("");
     setDrawerError("");
   };
 
@@ -422,7 +458,7 @@ export function TrainingPage() {
     setBusyAction(`start-${record.id}`);
     setSuccess("");
     try {
-      await api.startTrainingRecord(record.id, { expectedUpdatedAt: record.updatedAt });
+      await api.startTrainingRecord(record.id, { expectedVersion: record.version, operationId: crypto.randomUUID() });
       await reloadAfter("Training started");
     } catch (err) {
       setError(errorMessage(err));
@@ -435,7 +471,7 @@ export function TrainingPage() {
     setBusyAction(`verify-${record.id}`);
     setSuccess("");
     try {
-      await api.verifyTrainingRecord(record.id, { expectedUpdatedAt: record.updatedAt });
+      await api.verifyTrainingRecord(record.id, { expectedVersion: record.version, operationId: crypto.randomUUID() });
       await reloadAfter("Completion verified");
     } catch (err) {
       setError(errorMessage(err));
@@ -452,7 +488,7 @@ export function TrainingPage() {
       const body = {
         ...courseForm,
         validityMonths: courseForm.validityMonths ? Number(courseForm.validityMonths) : null,
-        expectedUpdatedAt: drawer.course?.updatedAt
+        expectedVersion: drawer.course?.version
       };
       if (drawer.mode === "create") await api.createTrainingCourse(body);
       else if (drawer.course) await api.updateTrainingCourse(drawer.course.id, body);
@@ -469,8 +505,8 @@ export function TrainingPage() {
     setSaving(true);
     setDrawerError("");
     try {
-      if (course.active) await api.deactivateTrainingCourse(course.id, { expectedUpdatedAt: course.updatedAt });
-      else await api.reactivateTrainingCourse(course.id, { expectedUpdatedAt: course.updatedAt });
+      if (course.active) await api.deactivateTrainingCourse(course.id, { expectedVersion: course.version });
+      else await api.reactivateTrainingCourse(course.id, { expectedVersion: course.version });
       setDrawer(null);
       await reloadAfter(course.active ? "Course deactivated" : "Course reactivated");
     } catch (err) {
@@ -493,7 +529,7 @@ export function TrainingPage() {
         memberProfileId: requirementForm.targetType === "MemberProfile" ? requirementForm.memberProfileId : "",
         requiredStatus: requirementForm.requiredStatus,
         dueAt: requirementForm.dueAt ? fromDateTimeInput(requirementForm.dueAt) : null,
-        expectedUpdatedAt: drawer.requirement?.updatedAt
+        expectedVersion: drawer.requirement?.version
       };
       if (drawer.mode === "create") await api.createTrainingRequirement(body);
       else if (drawer.requirement) await api.updateTrainingRequirement(drawer.requirement.id, body);
@@ -510,7 +546,7 @@ export function TrainingPage() {
     setSaving(true);
     setDrawerError("");
     try {
-      await api.endTrainingRequirement(requirement.id, { expectedUpdatedAt: requirement.updatedAt });
+      await api.endTrainingRequirement(requirement.id, { expectedVersion: requirement.version });
       setDrawer(null);
       await reloadAfter("Requirement ended");
     } catch (err) {
@@ -528,7 +564,8 @@ export function TrainingPage() {
         ...(assignForm.targetType === "Group" ? { groupId: assignForm.groupId } : { memberProfileId: assignForm.memberProfileId }),
         courseId: assignForm.courseId,
         sourceRequirementId: assignForm.sourceRequirementId || null,
-        dueAt: assignForm.dueAt ? fromDateTimeInput(assignForm.dueAt) : null
+        dueAt: assignForm.dueAt ? fromDateTimeInput(assignForm.dueAt) : null,
+        operationId: crypto.randomUUID()
       }) as { assignedCount?: number; skippedCount?: number };
       setDrawer(null);
       if (assignForm.targetType === "Group") {
@@ -550,7 +587,8 @@ export function TrainingPage() {
     setDrawerError("");
     try {
       await api.completeTrainingRecord(record.id, {
-        expectedUpdatedAt: record.updatedAt,
+        expectedVersion: record.version,
+        operationId: crypto.randomUUID(),
         completedAt: fromDateTimeInput(completeForm.completedAt),
         score: completeForm.score ? Number(completeForm.score) : null,
         completionNote: completeForm.completionNote,
@@ -569,8 +607,8 @@ export function TrainingPage() {
     setSaving(true);
     setDrawerError("");
     try {
-      if (type === "waive") await api.waiveTrainingRecord(record.id, { expectedUpdatedAt: record.updatedAt, reason });
-      else await api.cancelTrainingRecord(record.id, { expectedUpdatedAt: record.updatedAt, reason });
+      if (type === "waive") await api.waiveTrainingRecord(record.id, { expectedVersion: record.version, operationId: crypto.randomUUID(), reason });
+      else await api.cancelTrainingRecord(record.id, { expectedVersion: record.version, operationId: crypto.randomUUID(), reason });
       setDrawer(null);
       await reloadAfter(type === "waive" ? "Training waived" : "Training cancelled");
     } catch (err) {
@@ -630,10 +668,12 @@ export function TrainingPage() {
         <div className="min-w-0">
           <div className="flex flex-wrap items-center gap-2">
             <StatusBadge value={statusHint(record)} />
+            {record.baseStatus === "Completed" ? <Badge tone={record.verificationStatus === "Verified" ? "success" : "warning"}>{record.verificationStatus === "Verified" ? "Verified completion" : "Verification pending"}</Badge> : null}
             {record.sourceRequirement ? <Badge tone="info">{record.sourceRequirement.targetLabel}</Badge> : null}
           </div>
           <h3 className="mt-3 text-lg font-black text-foreground">{record.course.title}</h3>
           <p className="mt-1 text-sm font-semibold leading-6 text-muted-foreground">{record.course.description || record.course.category}</p>
+          {record.verificationStatus === "Verified" ? <p className="mt-1 text-sm font-semibold text-muted-foreground">Verified by {record.verifiedBy?.displayName ?? record.verifiedById ?? "recorded verifier"} at {formatDateTime(record.verifiedAt)}</p> : null}
           <dl className="mt-3 grid gap-2 text-sm sm:grid-cols-3">
             <div>
               <dt className="font-black uppercase tracking-wide text-muted-foreground">Due</dt>
@@ -671,7 +711,7 @@ export function TrainingPage() {
 
       {loading ? (
         <Card className="mt-5 p-5"><Loading label="Loading training" /></Card>
-      ) : error && !records.length && !summaryRecords.length ? (
+      ) : error && !records.length ? (
         <Card className="mt-5 p-5">
           <EmptyState title="Unable to load training" detail="Check your connection and try again." action={<Button icon={RefreshCcw} onClick={() => void loadData()}>Retry</Button>} />
         </Card>
@@ -757,11 +797,26 @@ export function TrainingPage() {
                       );
                     }
                   },
+                  { key: "requirement", label: "Requirement source", render: (row) => (row as TrainingRecord).sourceRequirement?.targetLabel ?? "Manual assignment" },
                   { key: "status", label: "Status", render: (row) => <StatusBadge value={statusHint(row as TrainingRecord)} /> },
+                  { key: "verification", label: "Verification", render: (row) => {
+                    const record = row as TrainingRecord;
+                    if (record.baseStatus !== "Completed") return "Not applicable";
+                    return record.verificationStatus === "Verified"
+                      ? <div><p className="font-bold text-foreground">Verified by {record.verifiedBy?.displayName ?? record.verifiedById ?? "recorded verifier"}</p><p className="text-xs font-semibold text-muted-foreground">{formatDateTime(record.verifiedAt)}</p></div>
+                      : <Badge tone="warning">Verification pending</Badge>;
+                  } },
                   { key: "dueAt", label: "Due", render: (row) => formatDateTime((row as TrainingRecord).dueAt) },
                   { key: "expiryAt", label: "Valid until", render: (row) => formatDateTime((row as TrainingRecord).expiryAt) }
                 ]}
               />
+              <div className="mt-4 flex items-center justify-between gap-3">
+                <span className="text-sm font-bold text-muted-foreground">{recordTotal ? recordOffset + 1 : 0}–{Math.min(recordOffset + records.length, recordTotal)} of {recordTotal}</span>
+                <div className="flex gap-2">
+                  <Button size="sm" variant="secondary" disabled={recordOffset === 0 || loading} onClick={() => setRecordOffset((value) => Math.max(0, value - pageSize))}>Previous</Button>
+                  <Button size="sm" variant="secondary" disabled={recordOffset + pageSize >= recordTotal || loading} onClick={() => setRecordOffset((value) => value + pageSize)}>Next</Button>
+                </div>
+              </div>
             </div>
           </Card>
 
@@ -786,6 +841,13 @@ export function TrainingPage() {
                     { key: "active", label: "State", render: (row) => <StatusBadge value={(row as TrainingCourse).active ? "Active" : "Inactive"} /> }
                   ]}
                 />
+                <div className="mt-4 flex items-center justify-between gap-3">
+                  <span className="text-sm font-bold text-muted-foreground">{courseTotal ? courseOffset + 1 : 0}–{Math.min(courseOffset + courses.length, courseTotal)} of {courseTotal}</span>
+                  <div className="flex gap-2">
+                    <Button size="sm" variant="secondary" disabled={courseOffset === 0 || loading} onClick={() => setCourseOffset((value) => Math.max(0, value - pageSize))}>Previous</Button>
+                    <Button size="sm" variant="secondary" disabled={courseOffset + pageSize >= courseTotal || loading} onClick={() => setCourseOffset((value) => value + pageSize)}>Next</Button>
+                  </div>
+                </div>
               </div>
             </Card>
 
@@ -809,6 +871,13 @@ export function TrainingPage() {
                     { key: "active", label: "State", render: (row) => <StatusBadge value={(row as TrainingRequirement).active ? "Active" : "Ended"} /> }
                   ]}
                 />
+                <div className="mt-4 flex items-center justify-between gap-3">
+                  <span className="text-sm font-bold text-muted-foreground">{requirementTotal ? requirementOffset + 1 : 0}–{Math.min(requirementOffset + requirements.length, requirementTotal)} of {requirementTotal}</span>
+                  <div className="flex gap-2">
+                    <Button size="sm" variant="secondary" disabled={requirementOffset === 0 || loading} onClick={() => setRequirementOffset((value) => Math.max(0, value - pageSize))}>Previous</Button>
+                    <Button size="sm" variant="secondary" disabled={requirementOffset + pageSize >= requirementTotal || loading} onClick={() => setRequirementOffset((value) => value + pageSize)}>Next</Button>
+                  </div>
+                </div>
               </div>
             </Card>
           </div>
@@ -851,6 +920,7 @@ export function TrainingPage() {
             <div className="rounded-lg border border-border bg-muted p-4">
               <div className="flex flex-wrap items-center gap-2">
                 <StatusBadge value={statusHint(drawer.record)} />
+                {drawer.record.baseStatus === "Completed" ? <Badge tone={drawer.record.verificationStatus === "Verified" ? "success" : "warning"}>{drawer.record.verificationStatus === "Verified" ? "Verified completion" : "Completion recorded · verification pending"}</Badge> : null}
                 {drawer.record.sourceRequirement ? <Badge tone="info">{drawer.record.sourceRequirement.targetLabel}</Badge> : null}
               </div>
               <dl className="mt-4 grid gap-3 sm:grid-cols-2">
@@ -858,6 +928,7 @@ export function TrainingPage() {
                 <div><dt className="text-xs font-black uppercase text-muted-foreground">Due</dt><dd className="font-semibold text-foreground">{formatDateTime(drawer.record.dueAt)}</dd></div>
                 <div><dt className="text-xs font-black uppercase text-muted-foreground">Completed</dt><dd className="font-semibold text-foreground">{formatDateTime(drawer.record.completedAt)}</dd></div>
                 <div><dt className="text-xs font-black uppercase text-muted-foreground">Valid until</dt><dd className="font-semibold text-foreground">{formatDateTime(drawer.record.expiryAt)}</dd></div>
+                <div><dt className="text-xs font-black uppercase text-muted-foreground">Verification</dt><dd className="font-semibold text-foreground">{drawer.record.verificationStatus === "Verified" ? `Verified by ${drawer.record.verifiedBy?.displayName ?? drawer.record.verifiedById ?? "recorded verifier"} at ${formatDateTime(drawer.record.verifiedAt)}` : drawer.record.baseStatus === "Completed" ? "Completion recorded · verification pending" : "Not applicable"}</dd></div>
               </dl>
             </div>
             {drawer.record.completionNote ? <AlertBox tone="success">{drawer.record.completionNote}</AlertBox> : null}
@@ -955,19 +1026,25 @@ export function TrainingPage() {
                     </Select>
                   </Field>
                 ) : requirementForm.targetType === "Group" ? (
-                  <Field label="Group" required>
-                    <Select value={requirementForm.groupId} onChange={(event) => setRequirementForm((form) => ({ ...form, groupId: event.target.value }))}>
-                      <option value="">Select group</option>
-                      {groups.map((group) => <option key={group.id} value={group.id}>{group.name}</option>)}
-                    </Select>
-                  </Field>
+                  <div className="grid gap-2">
+                    <Field label="Find group"><Input value={groupLookup} placeholder="Name or operational ID" onChange={(event) => setGroupLookup(event.target.value)} /></Field>
+                    <Field label="Group" required>
+                      <Select value={requirementForm.groupId} onChange={(event) => setRequirementForm((form) => ({ ...form, groupId: event.target.value }))}>
+                        <option value="">Select group</option>
+                        {groups.map((group) => <option key={group.id} value={group.id}>{group.name}</option>)}
+                      </Select>
+                    </Field>
+                  </div>
                 ) : (
-                  <Field label="Member" required>
-                    <Select value={requirementForm.memberProfileId} onChange={(event) => setRequirementForm((form) => ({ ...form, memberProfileId: event.target.value }))}>
-                      <option value="">Select member</option>
-                      {members.map((member) => <option key={member.id} value={member.id}>{member.displayName}</option>)}
-                    </Select>
-                  </Field>
+                  <div className="grid gap-2">
+                    <Field label="Find member"><Input value={memberLookup} placeholder="Name or member ID" onChange={(event) => setMemberLookup(event.target.value)} /></Field>
+                    <Field label="Member" required>
+                      <Select value={requirementForm.memberProfileId} onChange={(event) => setRequirementForm((form) => ({ ...form, memberProfileId: event.target.value }))}>
+                        <option value="">Select member</option>
+                        {members.map((member) => <option key={member.id} value={member.id}>{member.displayName}</option>)}
+                      </Select>
+                    </Field>
+                  </div>
                 )}
                 <Field label="Requirement status">
                   <Select value={requirementForm.requiredStatus} onChange={(event) => setRequirementForm((form) => ({ ...form, requiredStatus: event.target.value }))}>
@@ -1024,20 +1101,28 @@ export function TrainingPage() {
                 </Select>
               </Field>
               {assignForm.targetType === "Group" ? (
-                <Field label="Group" required>
-                  <Select value={assignForm.groupId} onChange={(event) => setAssignForm((form) => ({ ...form, groupId: event.target.value }))}>
-                    {groups.map((group) => <option key={group.id} value={group.id}>{group.name} · {group.memberCount ?? 0} members</option>)}
-                  </Select>
-                  <p className="text-xs font-semibold text-muted-foreground">
-                    {selectedAssignGroup ? `${selectedAssignGroup.memberCount ?? 0} members will be checked for this course. Existing active assignments are skipped.` : "Choose the group that needs this training."}
-                  </p>
-                </Field>
+                <div className="grid gap-3">
+                  <Field label="Find group"><Input value={groupLookup} placeholder="Name or operational ID" onChange={(event) => setGroupLookup(event.target.value)} /></Field>
+                  <Field label="Group" required>
+                    <Select value={assignForm.groupId} onChange={(event) => setAssignForm((form) => ({ ...form, groupId: event.target.value }))}>
+                      <option value="">Select group</option>
+                      {groups.map((group) => <option key={group.id} value={group.id}>{group.name} · {group.memberCount ?? 0} members</option>)}
+                    </Select>
+                    <p className="text-xs font-semibold text-muted-foreground">
+                      {selectedAssignGroup ? `${selectedAssignGroup.memberCount ?? 0} members will be checked for this course. Existing active assignments are skipped.` : "Choose the group that needs this training."}
+                    </p>
+                  </Field>
+                </div>
               ) : (
-                <Field label="Member" required>
-                  <Select value={assignForm.memberProfileId} onChange={(event) => setAssignForm((form) => ({ ...form, memberProfileId: event.target.value }))}>
-                    {members.map((member) => <option key={member.id} value={member.id}>{member.displayName} · {member.memberId}</option>)}
-                  </Select>
-                </Field>
+                <div className="grid gap-3">
+                  <Field label="Find member"><Input value={memberLookup} placeholder="Name or member ID" onChange={(event) => setMemberLookup(event.target.value)} /></Field>
+                  <Field label="Member" required>
+                    <Select value={assignForm.memberProfileId} onChange={(event) => setAssignForm((form) => ({ ...form, memberProfileId: event.target.value }))}>
+                      <option value="">Select member</option>
+                      {members.map((member) => <option key={member.id} value={member.id}>{member.displayName} · {member.memberId}</option>)}
+                    </Select>
+                  </Field>
+                </div>
               )}
               <Field label="Course" required>
                 <Select value={assignForm.courseId} onChange={(event) => updateAssignCourse(event.target.value)}>
