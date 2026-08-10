@@ -26,6 +26,7 @@ export type AuthenticatedUser = {
     status: "Active" | "Revoked";
     assignedAt: string;
     assignedByUserId?: string | null;
+    permissions?: Permission[];
   }>;
   deniedPermissions?: Permission[];
   permissions: Permission[];

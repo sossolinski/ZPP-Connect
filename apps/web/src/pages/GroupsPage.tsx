@@ -44,6 +44,7 @@ type GroupRecord = {
   rosterShiftIds: string[];
   rosterLinkCount?: number;
   notes?: string | null;
+  version: number;
 };
 type ReadinessStatus = "Ready" | "Ready with attention" | "Not ready" | "Unknown" | "Not applicable";
 type GroupReadiness = {
@@ -114,7 +115,8 @@ function normalizeGroup(input: Record<string, any>): GroupRecord {
     memberCount: Number(input.memberCount ?? 0),
     rosterShiftIds: normalizeIds(input.rosterShiftIds),
     rosterLinkCount: Number(input.rosterLinkCount ?? 0),
-    notes: String(input.notes ?? "")
+    notes: String(input.notes ?? ""),
+    version: Number(input.version ?? 1)
   };
 }
 
@@ -130,7 +132,8 @@ function emptyGroup(sessionId?: string, leader?: MemberProfile, nextNumber = 1):
     leaderName: leader?.displayName ?? "",
     memberIds: leader ? [leader.id] : [],
     rosterShiftIds: [],
-    notes: ""
+    notes: "",
+    version: 1
   };
 }
 
@@ -316,6 +319,7 @@ export function GroupsPage() {
   const [statusFilter, setStatusFilter] = useState<StatusFilter>("all");
   const [functionFilter, setFunctionFilter] = useState("all");
   const [memberQuery, setMemberQuery] = useState("");
+  const [memberSearchResults, setMemberSearchResults] = useState<MemberProfile[]>([]);
   const [editing, setEditing] = useState<GroupRecord | null>(null);
   const [saving, setSaving] = useState(false);
   const [membershipBusy, setMembershipBusy] = useState(false);
@@ -353,8 +357,18 @@ export function GroupsPage() {
     setReadinessError("");
     try {
       const [membersResult, groupsResult, readinessResult] = await Promise.all([
-        api.memberProfiles(),
-        api.groups(activeSession?.id ? { sessionId: activeSession.id } : undefined, { pageLimit: 200 }),
+        api.memberProfilesPage({ limit: 100, offset: 0, sortBy: "displayName", sortDirection: "asc" }),
+        api.groupsPage({
+          sessionId: activeSession?.id,
+          search: query || undefined,
+          pool: poolFilter === "all" ? undefined : poolFilter,
+          status: statusFilter === "all" ? undefined : statusFilter,
+          functionName: functionFilter === "all" ? undefined : functionFilter,
+          limit: 100,
+          offset: 0,
+          sortBy: "name",
+          sortDirection: "asc"
+        }),
         canReadOrgReadiness
           ? api.readinessGroups(activeSession?.id ? { sessionId: activeSession.id } : undefined, { pageLimit: 200 }).catch((err) => {
               setReadinessError(err instanceof Error ? err.message : "Unable to load readiness.");
@@ -373,7 +387,7 @@ export function GroupsPage() {
     } finally {
       setLoading(false);
     }
-  }, [activeSession?.id, canReadOrgReadiness]);
+  }, [activeSession?.id, canReadOrgReadiness, functionFilter, poolFilter, query, statusFilter]);
 
   useEffect(() => {
     void loadData();
@@ -416,7 +430,7 @@ export function GroupsPage() {
     if (!editing) return [];
     const selectedIds = new Set(editing.memberIds);
     const needle = memberQuery.trim().toLowerCase();
-    return records
+    return (needle ? memberSearchResults : records)
       .filter((record) => {
         if (selectedIds.has(record.id)) return false;
         if (editing.pool !== "Mixed" && record.pool !== editing.pool) return false;
@@ -432,7 +446,33 @@ export function GroupsPage() {
         return leftMatch - rightMatch || compareText(left.displayName, right.displayName);
       })
       .slice(0, 10);
-  }, [editing, memberQuery, records]);
+  }, [editing, memberQuery, memberSearchResults, records]);
+
+  useEffect(() => {
+    if (!editing || !memberQuery.trim()) {
+      setMemberSearchResults([]);
+      return;
+    }
+    let cancelled = false;
+    const timer = window.setTimeout(() => {
+      void api.memberProfilesPage({
+        search: memberQuery.trim(),
+        pool: editing.pool === "Mixed" ? undefined : editing.pool,
+        limit: 50,
+        offset: 0,
+        sortBy: "displayName",
+        sortDirection: "asc"
+      }).then((result) => {
+        if (!cancelled) setMemberSearchResults(result.data.map(normalizeMember));
+      }).catch((err) => {
+        if (!cancelled) setEditorError(err instanceof Error ? err.message : "Unable to search members.");
+      });
+    }, 200);
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timer);
+    };
+  }, [editing?.id, editing?.pool, memberQuery]);
 
   function replaceGroup(group: Record<string, any>) {
     const normalized = normalizeGroup(group);
@@ -471,6 +511,7 @@ export function GroupsPage() {
     const leader = leaderCandidates.find((candidate) => candidate.pool === "ZPP") ?? leaderCandidates[0];
     setEditing(emptyGroup(activeSession?.id, leader, groups.length + 1));
     setMemberQuery("");
+    setMemberSearchResults([]);
     setEditorError("");
     setNotice("");
   }
@@ -478,8 +519,18 @@ export function GroupsPage() {
   function openGroup(group: GroupRecord) {
     setEditing({ ...normalizeGroup(group) });
     setMemberQuery("");
+    setMemberSearchResults([]);
     setEditorError("");
     setNotice("");
+    if (!group.id) return;
+    void api.groupMembersPage(group.id, { sessionId: group.sessionId ?? activeSession?.id, limit: 200, offset: 0 }).then((result) => {
+      const hydrated = result.data.map(normalizeMember);
+      setRecords((current) => {
+        const byId = new Map(current.map((record) => [record.id, record]));
+        hydrated.forEach((record) => byId.set(record.id, record));
+        return [...byId.values()];
+      });
+    }).catch((err) => setEditorError(err instanceof Error ? err.message : "Unable to load group members."));
   }
 
   function updateEditing(patch: Partial<GroupRecord>) {
@@ -504,7 +555,12 @@ export function GroupsPage() {
     setMembershipBusy(true);
     setEditorError("");
     try {
-      const group = await api.addGroupMember(editing.id, { memberProfileId: id });
+      const group = await api.addGroupMember(editing.id, {
+        sessionId: editing.sessionId ?? activeSession?.id,
+        memberProfileId: id,
+        expectedVersion: editing.version,
+        role: "Member"
+      });
       replaceGroup(group);
       await refreshGroupReadiness(group.id);
       setNotice("Member added to group");
@@ -531,7 +587,10 @@ export function GroupsPage() {
     setMembershipBusy(true);
     setEditorError("");
     try {
-      const group = await api.removeGroupMember(editing.id, id);
+      const group = await api.removeGroupMember(editing.id, id, {
+        sessionId: editing.sessionId ?? activeSession?.id,
+        expectedVersion: editing.version
+      });
       replaceGroup(group);
       await refreshGroupReadiness(group.id);
       setNotice("Member removed from group");
@@ -557,7 +616,7 @@ export function GroupsPage() {
     }
 
     const memberIds = Array.from(new Set([leader.id, ...editing.memberIds]));
-    const payload = {
+    const createPayload = {
       sessionId: editing.sessionId ?? activeSession?.id,
       name,
       pool: editing.pool,
@@ -565,14 +624,31 @@ export function GroupsPage() {
       status: editing.status,
       leaderId: leader.id,
       memberIds,
-      rosterShiftIds: Array.from(new Set(editing.rosterShiftIds)),
       notes: editing.notes?.trim() ?? ""
     };
 
     setSaving(true);
     setEditorError("");
     try {
-      const saved = editing.id ? await api.updateGroup(editing.id, payload) : await api.createGroup(payload);
+      const original = editing.id ? groups.find((group) => group.id === editing.id) : undefined;
+      let saved = editing.id
+        ? await api.updateGroup(editing.id, {
+            sessionId: editing.sessionId ?? activeSession?.id,
+            expectedVersion: editing.version,
+            name,
+            pool: editing.pool,
+            functionName: editing.functionName,
+            status: editing.status,
+            notes: editing.notes?.trim() ?? ""
+          })
+        : await api.createGroup(createPayload);
+      if (editing.id && original?.leaderId !== leader.id) {
+        saved = await api.setGroupLeader(editing.id, {
+          sessionId: editing.sessionId ?? activeSession?.id,
+          expectedVersion: Number(saved.version),
+          memberProfileId: leader.id
+        });
+      }
       replaceGroup(saved);
       await refreshGroupReadiness(saved.id);
       setEditing(null);
@@ -589,7 +665,10 @@ export function GroupsPage() {
     setSaving(true);
     setEditorError("");
     try {
-      const archived = await api.archiveGroup(editing.id);
+      const archived = await api.archiveGroup(editing.id, {
+        sessionId: editing.sessionId ?? activeSession?.id,
+        expectedVersion: editing.version
+      });
       const normalized = normalizeGroup(archived);
       setGroups((current) => current.filter((group) => groupKey(group) !== groupKey(normalized)));
       setGroupReadinessRows((current) => current.filter((item) => item.group?.id !== normalized.id));
@@ -869,7 +948,7 @@ export function GroupsPage() {
                       <Field label="Search members to add">
                         <div className="relative">
                           <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
-                          <Input className="pl-9" value={memberQuery} onChange={(event) => setMemberQuery(event.target.value)} placeholder="Search name, ID, email, function" />
+                          <Input aria-label="Search members to add" className="pl-9" value={memberQuery} onChange={(event) => setMemberQuery(event.target.value)} placeholder="Search name, ID, email, function" />
                         </div>
                       </Field>
                       <div className="mt-2 grid max-h-72 gap-2 overflow-y-auto pr-1">
@@ -884,7 +963,7 @@ export function GroupsPage() {
                 </section>
 
                 <section className="rounded-md border border-border p-3">
-                  <SectionHeader title="Roster links" description="List planned roster shift IDs connected to this group." />
+                  <SectionHeader title="Roster links" description="Read-only compatibility projection; manage links in Rostering." />
                   <div className="mt-3">
                     <Field label="Roster shift IDs">
                       <div className="relative">
@@ -892,8 +971,7 @@ export function GroupsPage() {
                         <Input
                           className="pl-9"
                           value={editing.rosterShiftIds.join(", ")}
-                          disabled={!canSaveCurrent || saving}
-                          onChange={(event) => updateEditing({ rosterShiftIds: event.target.value.split(",").map((item) => item.trim()).filter(Boolean) })}
+                          disabled
                           placeholder="RST-001, RST-002"
                         />
                       </div>

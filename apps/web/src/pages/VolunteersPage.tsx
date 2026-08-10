@@ -26,12 +26,13 @@ type MemberProfile = {
   rosterStatus: string;
   assignedLeader?: string | null;
   status: MemberStatus;
+  version: number;
 };
 
 type PoolFilter = "all" | Pool;
 type ReadinessStatus = "Ready" | "Ready with attention" | "Not ready" | "Unknown" | "Not applicable";
 type ReadinessFilter = "all" | ReadinessStatus;
-type SortMode = "name" | "availability" | "function" | "leader";
+type SortMode = "name" | "memberId" | "function" | "status";
 type BadgeTone = "neutral" | "info" | "success" | "warning" | "danger" | "gold" | "petrol" | "navy";
 type ReadinessIssue = {
   title?: string;
@@ -81,7 +82,8 @@ function normalizeMember(input: Record<string, any>): MemberProfile {
     assignedFunction: String(input.assignedFunction ?? "Unassigned"),
     rosterStatus: String(input.rosterStatus ?? "Unassigned"),
     assignedLeader: input.assignedLeader ?? "",
-    status: input.status === "Archived" || input.status === "Inactive" ? input.status : "Active"
+    status: input.status === "Archived" || input.status === "Inactive" ? input.status : "Active",
+    version: Number(input.version ?? 1)
   };
 }
 
@@ -103,7 +105,8 @@ function emptyMember(): MemberProfile {
     assignedFunction: "Family Assistance Team",
     rosterStatus: "Unassigned",
     assignedLeader: "ZPP Coordinator",
-    status: "Active"
+    status: "Active",
+    version: 1
   };
 }
 
@@ -182,9 +185,9 @@ function matchesQuery(record: MemberProfile, query: string) {
 function sortMembers(rows: MemberProfile[], sortBy: SortMode) {
   return [...rows].sort((left, right) => {
     if (sortBy === "name") return compareText(left.displayName, right.displayName);
-    if (sortBy === "availability") return compareText(left.availability, right.availability) || compareText(left.displayName, right.displayName);
+    if (sortBy === "memberId") return compareText(left.memberId, right.memberId);
     if (sortBy === "function") return compareText(left.assignedFunction, right.assignedFunction) || compareText(left.displayName, right.displayName);
-    if (sortBy === "leader") return compareText(left.assignedLeader ?? "", right.assignedLeader ?? "") || compareText(left.displayName, right.displayName);
+    if (sortBy === "status") return compareText(left.status, right.status) || compareText(left.displayName, right.displayName);
     return compareText(left.displayName, right.displayName);
   });
 }
@@ -284,6 +287,7 @@ export function VolunteersPage() {
   const [readinessRows, setReadinessRows] = useState<MemberReadiness[]>([]);
   const [query, setQuery] = useState("");
   const [poolFilter, setPoolFilter] = useState<PoolFilter>("all");
+  const [statusFilter, setStatusFilter] = useState<"all" | MemberStatus>("all");
   const [functionFilter, setFunctionFilter] = useState("all");
   const [trainingFilter, setTrainingFilter] = useState("all");
   const [rosterFilter, setRosterFilter] = useState("all");
@@ -292,6 +296,7 @@ export function VolunteersPage() {
   const [sortBy, setSortBy] = useState<SortMode>("name");
   const [pageSize, setPageSize] = useState(25);
   const [page, setPage] = useState(1);
+  const [totalMembers, setTotalMembers] = useState(0);
   const [editing, setEditing] = useState<MemberProfile | null>(null);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState("");
@@ -306,7 +311,16 @@ export function VolunteersPage() {
     setReadinessError("");
     try {
       const [membersResponse, readinessResponse] = await Promise.all([
-        api.memberProfiles(),
+        api.memberProfilesPage({
+          search: query || undefined,
+          pool: poolFilter === "all" ? undefined : poolFilter,
+          status: statusFilter === "all" ? undefined : statusFilter,
+          functionName: functionFilter === "all" ? undefined : functionFilter,
+          sortBy: sortBy === "name" ? "displayName" : sortBy === "function" ? "assignedFunction" : sortBy,
+          sortDirection: "asc",
+          limit: pageSize,
+          offset: (page - 1) * pageSize
+        }),
         canReadOrgReadiness
           ? api.readinessMembers(undefined, { pageLimit: 200 }).catch((error) => {
               setReadinessError(error instanceof Error ? error.message : "Unable to load readiness.");
@@ -315,15 +329,17 @@ export function VolunteersPage() {
           : Promise.resolve(null)
       ]);
       setRecords(membersResponse.data.map(normalizeMember));
+      setTotalMembers(membersResponse.total ?? membersResponse.data.length);
       setReadinessRows(readinessResponse?.data.map(normalizeReadiness) ?? []);
     } catch (error) {
       setLoadError(error instanceof Error ? error.message : "Unable to load members.");
       setRecords([]);
+      setTotalMembers(0);
       setReadinessRows([]);
     } finally {
       setLoading(false);
     }
-  }, [canReadOrgReadiness]);
+  }, [canReadOrgReadiness, functionFilter, page, pageSize, poolFilter, query, sortBy, statusFilter]);
 
   useEffect(() => {
     void loadMembers();
@@ -347,7 +363,7 @@ export function VolunteersPage() {
   }, [readinessRows]);
 
   const metrics = useMemo(() => {
-    const activeRecords = records.filter((record) => record.status !== "Archived");
+    const activeRecords = records;
     const zppCount = activeRecords.filter((record) => record.pool === "ZPP").length;
     const tecCount = activeRecords.filter((record) => record.pool === "TEC").length;
     const availableToday = activeRecords.filter(isAvailableToday).length;
@@ -360,6 +376,7 @@ export function VolunteersPage() {
     const filtered = metrics.activeRecords.filter((record) => {
       if (!matchesQuery(record, query)) return false;
       if (poolFilter !== "all" && record.pool !== poolFilter) return false;
+      if (statusFilter !== "all" && record.status !== statusFilter) return false;
       if (functionFilter !== "all" && record.assignedFunction !== functionFilter) return false;
       if (trainingFilter !== "all" && record.trainingStatus !== trainingFilter) return false;
       if (rosterFilter !== "all" && record.rosterStatus !== rosterFilter) return false;
@@ -369,17 +386,18 @@ export function VolunteersPage() {
     });
 
     return sortMembers(filtered, sortBy);
-  }, [functionFilter, leaderFilter, metrics.activeRecords, poolFilter, query, readinessByMember, readinessFilter, rosterFilter, sortBy, trainingFilter]);
+  }, [functionFilter, leaderFilter, metrics.activeRecords, poolFilter, query, readinessByMember, readinessFilter, rosterFilter, sortBy, statusFilter, trainingFilter]);
 
-  const pageCount = Math.max(1, Math.ceil(filteredMembers.length / pageSize));
+  const pageCount = Math.max(1, Math.ceil(totalMembers / pageSize));
   const safePage = Math.min(page, pageCount);
   const pageStart = (safePage - 1) * pageSize;
-  const pageRows = filteredMembers.slice(pageStart, pageStart + pageSize);
-  const visibleFrom = filteredMembers.length ? pageStart + 1 : 0;
-  const visibleTo = Math.min(pageStart + pageSize, filteredMembers.length);
+  const pageRows = filteredMembers;
+  const visibleFrom = pageRows.length ? pageStart + 1 : 0;
+  const visibleTo = pageStart + pageRows.length;
   const hasFilters =
     query ||
     poolFilter !== "all" ||
+    statusFilter !== "all" ||
     functionFilter !== "all" ||
     trainingFilter !== "all" ||
     rosterFilter !== "all" ||
@@ -390,7 +408,7 @@ export function VolunteersPage() {
 
   useEffect(() => {
     setPage(1);
-  }, [functionFilter, leaderFilter, pageSize, poolFilter, query, readinessFilter, rosterFilter, sortBy, trainingFilter]);
+  }, [functionFilter, leaderFilter, pageSize, poolFilter, query, readinessFilter, rosterFilter, sortBy, statusFilter, trainingFilter]);
 
   useEffect(() => {
     if (page > pageCount) setPage(pageCount);
@@ -399,6 +417,7 @@ export function VolunteersPage() {
   function clearFilters() {
     setQuery("");
     setPoolFilter("all");
+    setStatusFilter("all");
     setFunctionFilter("all");
     setTrainingFilter("all");
     setRosterFilter("all");
@@ -446,18 +465,14 @@ export function VolunteersPage() {
       memberId: editing.memberId || undefined,
       firstName,
       lastName,
-      displayName: `${firstName} ${lastName}`,
       pool: editing.pool,
       role: editing.role,
-      availability: editing.availability,
       contactEmail,
       phone,
       languages: editing.languages.map((language) => language.trim()).filter(Boolean),
-      trainingStatus: editing.trainingStatus,
       assignedFunction: editing.assignedFunction,
-      rosterStatus: editing.rosterStatus,
-      assignedLeader: editing.assignedLeader,
-      status: editing.status
+      status: editing.status,
+      ...(editing.id ? { expectedVersion: editing.version } : {})
     };
 
     try {
@@ -478,7 +493,7 @@ export function VolunteersPage() {
     setSaving(true);
     setEditorError("");
     try {
-      await api.archiveMemberProfile(editing.id);
+      await api.archiveMemberProfile(editing.id, { expectedVersion: editing.version });
       await loadMembers();
       setEditing(null);
       setNotice("Profile archived");
@@ -504,7 +519,7 @@ export function VolunteersPage() {
       {readinessError ? <AlertBox tone="warning" className="mt-3">Readiness status could not be loaded. Member profiles remain available.</AlertBox> : null}
 
       <div className="mt-3 grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
-        <MetricTile label="Total people" value={String(metrics.activeRecords.length)} detail={`${metrics.zppCount} ZPP · ${metrics.tecCount} TEC`} tone="navy" />
+        <MetricTile label="Total people" value={String(totalMembers)} detail="Server-side directory total" tone="navy" />
         <MetricTile label="ZPP members" value={String(metrics.zppCount)} detail="Family, logistics and support roles" tone="petrol" />
         <MetricTile label="TEC agents" value={String(metrics.tecCount)} detail="Contact center and enquiry roles" tone="petrol" />
         <MetricTile label="Available today" value={String(metrics.availableToday)} detail="Available in active operating period" tone="success" />
@@ -522,7 +537,7 @@ export function VolunteersPage() {
                   className="pl-9"
                   value={query}
                   onChange={(event) => setQuery(event.target.value)}
-                  placeholder="Search name, ID, function, leader, language"
+                  placeholder="Search name, ID, role or function"
                 />
               </div>
             </Field>
@@ -558,13 +573,22 @@ export function VolunteersPage() {
             </div>
           </div>
 
-          <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-7">
+          <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-8">
             <Field label="Function">
               <Select aria-label="Function filter" value={functionFilter} onChange={(event) => setFunctionFilter(event.target.value)}>
                 <option value="all">All functions</option>
                 {functionOptions.map((value) => (
                   <option key={value} value={value}>{value}</option>
                 ))}
+              </Select>
+            </Field>
+
+            <Field label="Status">
+              <Select aria-label="Status filter" value={statusFilter} onChange={(event) => setStatusFilter(event.target.value as "all" | MemberStatus)}>
+                <option value="all">All status</option>
+                <option value="Active">Active</option>
+                <option value="Inactive">Inactive</option>
+                <option value="Archived">Archived</option>
               </Select>
             </Field>
 
@@ -609,9 +633,9 @@ export function VolunteersPage() {
             <Field label="Sort">
               <Select aria-label="Sort members" value={sortBy} onChange={(event) => setSortBy(event.target.value as SortMode)}>
                 <option value="name">Name</option>
-                <option value="availability">Availability</option>
+                <option value="memberId">Member ID</option>
                 <option value="function">Function</option>
-                <option value="leader">Leader</option>
+                <option value="status">Status</option>
               </Select>
             </Field>
 
@@ -640,7 +664,7 @@ export function VolunteersPage() {
               description="Paginated directory for ZPP and TEC operational members."
               action={
                 <div className="flex flex-wrap gap-2">
-                  <Badge tone="neutral">{visibleFrom}-{visibleTo} of {filteredMembers.length}</Badge>
+                  <Badge tone="neutral">{visibleFrom}-{visibleTo} of {totalMembers}</Badge>
                   <Badge tone="petrol">{pageRows.length} shown</Badge>
                 </div>
               }
@@ -756,15 +780,15 @@ export function VolunteersPage() {
                   <Field label="Role">
                     <Input value={editing.role} disabled={!editorCanSave || saving} onChange={(event) => updateEditing({ role: event.target.value })} />
                   </Field>
-                  <Field label="Leader">
-                    <Select value={editing.assignedLeader ?? ""} disabled={!editorCanSave || saving} onChange={(event) => updateEditing({ assignedLeader: event.target.value })}>
+                  <Field label="Leader (Rostering projection)">
+                    <Select value={editing.assignedLeader ?? ""} disabled>
                       {leaderOptions.map((value) => (
                         <option key={value} value={value}>{value}</option>
                       ))}
                     </Select>
                   </Field>
-                  <Field label="Availability">
-                    <Select value={editing.availability} disabled={!editorCanSave || saving} onChange={(event) => updateEditing({ availability: event.target.value })}>
+                  <Field label="Availability (derived)">
+                    <Select value={editing.availability} disabled>
                       {availabilityOptions.map((value) => (
                         <option key={value} value={value}>{value}</option>
                       ))}
@@ -773,15 +797,15 @@ export function VolunteersPage() {
                   <Field label="Languages">
                     <Input value={editing.languages.join(", ")} disabled={!editorCanSave || saving} onChange={(event) => updateEditing({ languages: event.target.value.split(",").map((item) => item.trim()).filter(Boolean) })} />
                   </Field>
-                  <Field label="Training status">
-                    <Select value={editing.trainingStatus} disabled={!editorCanSave || saving} onChange={(event) => updateEditing({ trainingStatus: event.target.value })}>
+                  <Field label="Training status (derived)">
+                    <Select value={editing.trainingStatus} disabled>
                       {trainingOptions.map((value) => (
                         <option key={value} value={value}>{value}</option>
                       ))}
                     </Select>
                   </Field>
-                  <Field label="Roster status">
-                    <Select value={editing.rosterStatus} disabled={!editorCanSave || saving} onChange={(event) => updateEditing({ rosterStatus: event.target.value })}>
+                  <Field label="Roster status (derived)">
+                    <Select value={editing.rosterStatus} disabled>
                       {rosterOptions.map((value) => (
                         <option key={value} value={value}>{value}</option>
                       ))}
