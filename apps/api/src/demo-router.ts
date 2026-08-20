@@ -99,6 +99,9 @@ import type { FoundationRosteringRepository } from "./modules/rostering/rosterin
 import { createTrainingRouter } from "./modules/training/training-router.js";
 import { createTrainingService } from "./modules/training/training-service.js";
 import type { FoundationTrainingRepository } from "./modules/training/training-repository.js";
+import { createDocumentRouter } from "./modules/documents/document-router.js";
+import { createDocumentService } from "./modules/documents/document-service.js";
+import type { FoundationDocumentRepository } from "./modules/documents/document-repository.js";
 import { hydrateReadOnlyProjection, mergeProjectionPage, syncProjectionRow } from "./modules/compatibility/read-only-projection.js";
 
 type Row = Record<string, any>;
@@ -1947,6 +1950,9 @@ export function createDemoRouter(options: {
   rosteringRepository?: FoundationRosteringRepository;
   trainingRepository?: FoundationTrainingRepository;
   trainingClock?: { now(): Date };
+  documentRepository?: FoundationDocumentRepository;
+  documentClock?: { now(): Date };
+  documentNotificationHook?: (record: Record<string, unknown>) => void;
   assignmentNotificationHook?: (record: Record<string, unknown>, command: string) => void;
   rosteringNotificationHook?: (record: Record<string, unknown>, command: string) => void;
   trainingNotificationHook?: (record: Record<string, unknown>, command: string) => void;
@@ -2114,10 +2120,13 @@ export function createDemoRouter(options: {
   const foundationTrainingService = options.trainingRepository
     ? createTrainingService(options.trainingRepository, incidentAccessService, options.trainingClock)
     : null;
+  const foundationDocumentService = options.documentRepository
+    ? createDocumentService(options.documentRepository, incidentAccessService, options.documentClock)
+    : null;
   const documentsRepository = createDocumentRepository(memberDirectory);
-  const readiness = createReadinessService({ directory: memberDirectory, training, documents: documentsRepository, rostering, foundationRostering: foundationRosteringService, foundationTraining: foundationTrainingService });
+  const readiness = createReadinessService({ directory: memberDirectory, training, documents: documentsRepository, rostering, foundationRostering: foundationRosteringService, foundationTraining: foundationTrainingService, foundationDocuments: foundationDocumentService });
   const activeEvent = createActiveEventService({ users, sessions, assignments, enquiries, familyRecords, passengerRecords, matchingRecords, releases, requests });
-  const notifications = createNotificationService({ users, sessions, assignments, directory: memberDirectory, rostering, training, documents: documentsRepository, activeEvent, permissionsForRoleNames });
+  const notifications = createNotificationService({ users, sessions, assignments, directory: memberDirectory, rostering, training, documents: foundationDocumentService ? undefined : documentsRepository, activeEvent, permissionsForRoleNames });
   notificationsForAdmin = notifications;
 
   const notifySafely = (handler: () => void) => {
@@ -2338,6 +2347,14 @@ export function createDemoRouter(options: {
         notifications.notifyTrainingAssigned(record);
         options.trainingNotificationHook?.(record, "assign");
       },
+    }));
+  }
+  if (foundationDocumentService) {
+    router.use(createDocumentRouter(foundationDocumentService, {
+      onPublished: (record) => notifySafely(() => {
+        options.documentNotificationHook?.(record);
+        notifications.notifyDocumentVersionPublished(record);
+      }),
     }));
   }
   const requireIncidentAccess = (resolveIncidentId: (req: Request) => string, hydrateEnquiryCompatibility = false, requireWritable = false) => (req: Request, _res: any, next: NextFunction) => {
@@ -2688,6 +2705,7 @@ export function createDemoRouter(options: {
   }));
   }
 
+  if (!foundationDocumentService) {
   router.get("/documents", requireAnyPermission(["document:read-own", "document:read-all"]), directoryRoute((req) => documentsRepository.listDocuments(req.query, directoryActor(req))));
   router.post("/documents", requirePermission("document:manage"), directoryRoute((req) => {
     const document = documentsRepository.createDocument(req.body ?? {}, directoryActor(req));
@@ -2774,6 +2792,7 @@ export function createDemoRouter(options: {
     return requirement;
   }));
   router.get("/document-acknowledgements", requireAnyPermission(["document:read-own", "document:read-all", "document:acknowledge-all"]), directoryRoute((req) => documentsRepository.listAcknowledgements(req.query, directoryActor(req))));
+  }
 
   if (!foundationRosteringService) {
   router.get("/roster-shifts", requireAnyPermission(["roster:read", "roster:read-own"]), directoryRoute((req) => rostering.listShifts(req.query, directoryActor(req))));

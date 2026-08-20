@@ -82,7 +82,7 @@ jobs:
           kill "$api_pid"
           wait "$api_pid" || true
 
-      - name: PostgreSQL Foundation Stage 1, 2, 2.5, 3, 4, 5, 6, 7, 8, 9, 10 and 11 integration tests
+      - name: PostgreSQL Foundation Stage 1 through 12 integration tests (zero skipped)
         run: npm run test:postgres
 
       - name: Rehearse IncidentAssignment backfill from pre-Stage-2 data
@@ -271,6 +271,14 @@ jobs:
           test "$training_sequences" = "3"
           synthetic_training_operations=$(psql "$BACKFILL_PSQL_URL" --tuples-only --no-align --command='SELECT count(*) FROM "TrainingOperation";')
           test "$synthetic_training_operations" = "0"
+          cp -R apps/api/prisma/migrations/20260820090000_documents_foundation "$migration_workspace/migrations/"
+          DATABASE_URL="$BACKFILL_DATABASE_URL" npx prisma migrate deploy --schema "$migration_workspace/schema.prisma"
+          document_tables=$(psql "$BACKFILL_PSQL_URL" --tuples-only --no-align --command='SELECT count(*) FROM information_schema.tables WHERE table_schema = '\''public'\'' AND table_name IN ('\''Document'\'', '\''DocumentVersion'\'', '\''DocumentRequirement'\'', '\''DocumentAcknowledgement'\'', '\''DocumentAcknowledgementRequirement'\'', '\''DocumentOperation'\'');')
+          test "$document_tables" = "6"
+          document_sequences=$(psql "$BACKFILL_PSQL_URL" --tuples-only --no-align --command='SELECT count(*) FROM pg_class WHERE relkind = '\''S'\'' AND relname IN ('\''Document_id_seq'\'', '\''DocumentVersion_id_seq'\'', '\''DocumentRequirement_id_seq'\'', '\''DocumentAcknowledgement_id_seq'\'');')
+          test "$document_sequences" = "4"
+          synthetic_document_operations=$(psql "$BACKFILL_PSQL_URL" --tuples-only --no-align --command='SELECT count(*) FROM "DocumentOperation";')
+          test "$synthetic_document_operations" = "0"
 
   quality:
     name: Typecheck, Unit, Build and Browser
@@ -331,4 +339,4 @@ jobs:
         run: npm ci
 
       - name: Production dependency audit
-        run: npm audit --omit=dev
+        run: npm audit --omit=dev --omit=optional

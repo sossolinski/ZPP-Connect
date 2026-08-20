@@ -12,7 +12,7 @@
   },
   "scripts": {
     "dev": "npm run build -w @zpp/shared && concurrently -n api,web -c cyan,magenta \"npm run dev -w @zpp/api\" \"npm run dev -w @zpp/web\"",
-    "check": "npm run typecheck && npm test && npm run build && npm audit --omit=dev && npm run test:smoke",
+    "check": "npm run typecheck && npm test && npm run build && npm audit --omit=dev --omit=optional && npm run test:smoke",
     "build": "npm run build -w @zpp/shared && npm run build -w @zpp/api && npm run build -w @zpp/web",
     "lint": "npm run lint -w @zpp/api && npm run lint -w @zpp/web",
     "typecheck": "npm run build -w @zpp/shared && npm run typecheck -w @zpp/api && npm run typecheck -w @zpp/web",

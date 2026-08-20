@@ -190,6 +190,8 @@ model MemberProfile {
   availabilityRecords    Availability[]
   trainingRequirements   TrainingRequirement[]
   trainingRecords        MemberTrainingRecord[]
+  documentRequirements   DocumentRequirement[]
+  documentAcknowledgements DocumentAcknowledgement[]
 
   @@index([status, pool, updatedAt])
   @@index([assignedFunction, status])
@@ -217,6 +219,7 @@ model OperationalGroup {
   roleAssignments GroupRoleAssignment[]
   rosterShifts    RosterShift[]
   trainingRequirements TrainingRequirement[]
+  documentRequirements DocumentRequirement[]
 
   @@unique([id, incidentId])
   @@index([incidentId, status, updatedAt])
@@ -380,6 +383,164 @@ model TrainingOperation {
   memberTraining     MemberTrainingRecord? @relation(fields: [memberTrainingId], references: [id], onDelete: Cascade)
 
   @@index([memberTrainingId, createdAt])
+}
+
+model Document {
+  id               String            @id
+  code             String
+  normalizedCode   String            @unique
+  title            String
+  description      String?
+  category         String
+  ownerFunction    String
+  active           Boolean           @default(true)
+  version          Int               @default(1)
+  archivedAt       DateTime?
+  reactivatedAt    DateTime?
+  legacyImported   Boolean           @default(false)
+  legacyMetadata   Json?
+  createdAt        DateTime           @default(now())
+  updatedAt        DateTime           @updatedAt
+  createdById      String?            @db.Uuid
+  updatedById      String?            @db.Uuid
+  versions         DocumentVersion[]
+
+  @@index([active, category, title])
+  @@index([ownerFunction, active])
+  @@index([updatedAt])
+}
+
+model DocumentVersion {
+  id                       String                    @id
+  documentId               String
+  versionLabel             String
+  normalizedVersionLabel   String
+  titleOverride            String?
+  changeSummary            String?
+  status                   String                    @default("Draft")
+  effectiveFrom            DateTime?
+  reviewDueAt              DateTime?
+  publishedAt              DateTime?
+  publishedById            String?                   @db.Uuid
+  withdrawnAt              DateTime?
+  withdrawnById            String?                   @db.Uuid
+  withdrawReason           String?
+  contentMode              String
+  contentBody              String?
+  externalUrl              String?
+  contentDigest            String?
+  basePublishedVersionId   String?
+  version                  Int                       @default(1)
+  provenance               Json?
+  legacyImported           Boolean                   @default(false)
+  legacyMetadata           Json?
+  createdAt                DateTime                  @default(now())
+  updatedAt                DateTime                  @updatedAt
+  createdById              String?                   @db.Uuid
+  updatedById              String?                   @db.Uuid
+  document                 Document                  @relation(fields: [documentId], references: [id], onDelete: Restrict)
+  basePublishedVersion     DocumentVersion?          @relation("DocumentVersionBase", fields: [basePublishedVersionId], references: [id], onDelete: Restrict)
+  basedDrafts              DocumentVersion[]         @relation("DocumentVersionBase")
+  requirements             DocumentRequirement[]
+  acknowledgements         DocumentAcknowledgement[]
+  operations               DocumentOperation[]
+
+  @@unique([documentId, normalizedVersionLabel])
+  @@index([documentId, status, createdAt])
+  @@index([reviewDueAt, status])
+}
+
+model DocumentRequirement {
+  id                       String                               @id
+  documentVersionId        String
+  targetType               String
+  targetRole               String?
+  groupId                  String?
+  memberProfileId          String?
+  acknowledgementRequired Boolean                              @default(true)
+  effectiveFrom            DateTime?
+  dueAt                    DateTime?
+  effectiveTo              DateTime?
+  active                   Boolean                             @default(true)
+  version                  Int                                 @default(1)
+  provenance               Json?
+  endedAt                  DateTime?
+  endedById                String?                             @db.Uuid
+  createdAt                DateTime                            @default(now())
+  updatedAt                DateTime                            @updatedAt
+  createdById              String?                             @db.Uuid
+  updatedById              String?                             @db.Uuid
+  documentVersion          DocumentVersion                     @relation(fields: [documentVersionId], references: [id], onDelete: Restrict)
+  group                    OperationalGroup?                   @relation(fields: [groupId], references: [id], onDelete: Restrict)
+  memberProfile            MemberProfile?                      @relation(fields: [memberProfileId], references: [id], onDelete: Restrict)
+  acknowledgementSources   DocumentAcknowledgementRequirement[]
+  operations               DocumentOperation[]
+
+  @@index([documentVersionId, active, effectiveFrom, effectiveTo])
+  @@index([targetType, targetRole, active])
+  @@index([groupId, active])
+  @@index([memberProfileId, active])
+  @@index([dueAt, active])
+}
+
+model DocumentAcknowledgement {
+  id                              String                               @id
+  documentVersionId               String
+  memberProfileId                 String
+  acknowledgedAt                  DateTime
+  acknowledgedById                String                               @db.Uuid
+  acknowledgementStatementVersion String
+  note                            String?
+  onBehalf                        Boolean                              @default(false)
+  documentCode                    String
+  documentTitle                   String
+  versionLabel                    String
+  contentMode                     String
+  externalUrlSnapshot             String?
+  contentDigestSnapshot           String?
+  legacyImported                  Boolean                              @default(false)
+  legacyMetadata                  Json?
+  createdAt                       DateTime                             @default(now())
+  documentVersion                 DocumentVersion                     @relation(fields: [documentVersionId], references: [id], onDelete: Restrict)
+  memberProfile                   MemberProfile                       @relation(fields: [memberProfileId], references: [id], onDelete: Restrict)
+  sourceRequirements              DocumentAcknowledgementRequirement[]
+  operations                      DocumentOperation[]
+
+  @@unique([documentVersionId, memberProfileId])
+  @@index([memberProfileId, acknowledgedAt])
+  @@index([documentVersionId, acknowledgedAt])
+  @@index([acknowledgedById, acknowledgedAt])
+}
+
+model DocumentAcknowledgementRequirement {
+  acknowledgementId String
+  requirementId     String
+  acknowledgement   DocumentAcknowledgement @relation(fields: [acknowledgementId], references: [id], onDelete: Restrict)
+  requirement       DocumentRequirement     @relation(fields: [requirementId], references: [id], onDelete: Restrict)
+
+  @@id([acknowledgementId, requirementId])
+  @@index([requirementId])
+}
+
+model DocumentOperation {
+  id                 String                   @id @default(uuid()) @db.Uuid
+  operationId        String                   @unique @db.Uuid
+  documentVersionId  String?
+  requirementId      String?
+  acknowledgementId String?
+  command            String
+  commandFingerprint String
+  resultVersion      Int
+  result             Json
+  requestId          String?
+  createdAt          DateTime                 @default(now())
+  documentVersion    DocumentVersion?         @relation(fields: [documentVersionId], references: [id], onDelete: Restrict)
+  requirement        DocumentRequirement?     @relation(fields: [requirementId], references: [id], onDelete: Restrict)
+  acknowledgement    DocumentAcknowledgement? @relation(fields: [acknowledgementId], references: [id], onDelete: Restrict)
+
+  @@index([documentVersionId, createdAt])
+  @@index([requirementId, createdAt])
+  @@index([acknowledgementId, createdAt])
 }
 
 model RosterShift {
