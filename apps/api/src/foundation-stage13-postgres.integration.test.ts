@@ -86,6 +86,15 @@ postgresDescribe("Foundation Stage 13 PostgreSQL Notifications delivery integrit
     await prisma.notificationOutbox.deleteMany({ where: { OR: [{ aggregateId: { contains: marker } }, { recipientUserId: { in: userIds } }] } });
     await prisma.assignmentOperation.deleteMany({ where: { incidentId } });
     await prisma.assignmentTask.deleteMany({ where: { OR: [{ id: { in: assignmentIds } }, { sessionId: incidentId }] } });
+    await prisma.rosterShift.deleteMany({ where: { sessionId: incidentId } });
+    await prisma.documentAcknowledgementRequirement.deleteMany({ where: { OR: [{ acknowledgementId: { startsWith: marker } }, { requirementId: { startsWith: marker } }] } });
+    await prisma.documentAcknowledgement.deleteMany({ where: { id: { startsWith: marker } } });
+    await prisma.documentRequirement.deleteMany({ where: { id: { startsWith: marker } } });
+    await prisma.documentVersion.deleteMany({ where: { id: { startsWith: marker } } });
+    await prisma.document.deleteMany({ where: { id: { startsWith: marker } } });
+    await prisma.memberTrainingRecord.deleteMany({ where: { id: { startsWith: marker } } });
+    await prisma.trainingCourse.deleteMany({ where: { id: { startsWith: marker } } });
+    await prisma.memberProfile.deleteMany({ where: { id: { startsWith: marker.toLowerCase() } } });
     await prisma.auditLog.deleteMany({ where: { sessionId: incidentId } });
     await prisma.caseTimelineEvent.deleteMany({ where: { sessionId: incidentId } });
     await prisma.incidentAssignment.deleteMany({ where: { incidentId } });
@@ -167,7 +176,7 @@ postgresDescribe("Foundation Stage 13 PostgreSQL Notifications delivery integrit
   it("waits for a real linked active user instead of fabricating a training recipient", async () => {
     const memberId = `${marker.toLowerCase()}-unlinked-member`;
     await prisma!.memberProfile.create({ data: { id: memberId, memberId: `${marker}-UNLINKED`, firstName: "Pending", lastName: "Identity", pool: "ZPP", role: "Member", assignedFunction: marker, languages: ["PL"], createdById: admin.id, updatedById: admin.id } });
-    const outbox = await createOutbox({ eventType: "TRAINING_ASSIGNED", aggregateType: "trainingRecord", sessionId: null, payload: { memberProfileId: memberId, operationalId: `${marker}-TRAINING`, occurredAt: now.toISOString() } });
+    const outbox = await createOutbox({ eventType: "TRAINING_ASSIGNED", aggregateType: "trainingRecord", recipientUserId: null, sessionId: null, payload: { memberProfileId: memberId, operationalId: `${marker}-TRAINING`, occurredAt: now.toISOString() } });
     const dispatcher = createNotificationDispatcher(prisma!, repository, { clock, workerId: `${marker}-link` });
     await dispatcher.runOnce();
     expect(await prisma!.notificationOutbox.findUnique({ where: { id: outbox.id } })).toMatchObject({ status: "PENDING", attemptCount: 0 });
@@ -255,7 +264,7 @@ postgresDescribe("Foundation Stage 13 PostgreSQL Notifications delivery integrit
     await prisma!.memberProfile.update({ where: { id: memberId }, data: { status: "Archived" } });
 
     await prisma!.document.create({ data: { id: documentId, code: `${marker}-DOC-${suffix}`, normalizedCode: `${marker}-doc-${suffix}`.toLowerCase(), title: "Controlled document", category: "Operational", ownerFunction: "Operations", createdById: admin.id, updatedById: admin.id } });
-    await prisma!.documentVersion.create({ data: { id: versionId, documentId, versionLabel: "1.0", normalizedVersionLabel: "1.0", status: "Published", publishedAt: now, publishedById: users.manager!.id, effectiveFrom: now, contentMode: "Internal", contentBody: "Controlled publication.", contentDigest: "stage13-controlled", createdById: admin.id, updatedById: admin.id } });
+    await prisma!.documentVersion.create({ data: { id: versionId, documentId, versionLabel: "1.0", normalizedVersionLabel: "1.0", status: "Published", publishedAt: now, publishedById: users.manager!.id, effectiveFrom: now, contentMode: "Internal text", contentBody: "Controlled publication.", contentDigest: "stage13-controlled", createdById: admin.id, updatedById: admin.id } });
     await prisma!.$transaction(async (tx) => {
       await tx.documentRequirement.create({ data: { id: requirementId, documentVersionId: versionId, targetType: "MemberProfile", memberProfileId: memberId, effectiveFrom: now, dueAt: new Date(now.getTime() - 1), createdById: users.manager!.id, updatedById: users.manager!.id } });
       await enqueueNotification(tx, { eventType: "DOCUMENT_REQUIREMENT_CREATED", aggregateType: "documentRequirement", aggregateId: requirementId, aggregateVersion: "1", payload: { requirementId, occurredAt: now.toISOString() } });
@@ -264,8 +273,7 @@ postgresDescribe("Foundation Stage 13 PostgreSQL Notifications delivery integrit
 
     const dispatcher = createNotificationDispatcher(prisma!, repository, { clock, workerId: `${marker}-source-races` });
     await dispatcher.runOnce();
-    expect(await prisma!.notification.count({ where: { sourceId: rosterId, recipientUserId: users.b!.id, mode: "EVENT" } })).toBe(1);
-    expect(await prisma!.notification.count({ where: { sourceId: { in: [trainingId, requirementId] }, recipientUserId: users.b!.id } })).toBe(0);
+    expect(await prisma!.notification.count({ where: { sourceId: { in: [rosterId, trainingId, requirementId] }, recipientUserId: users.b!.id } })).toBe(0);
 
     await prisma!.memberProfile.update({ where: { id: memberId }, data: { status: "Active" } });
     await prisma!.documentRequirement.update({ where: { id: requirementId }, data: { active: true, endedAt: null, endedById: null } });
@@ -278,7 +286,7 @@ postgresDescribe("Foundation Stage 13 PostgreSQL Notifications delivery integrit
 
     const acknowledgementId = `${marker}-ack-${suffix}`;
     await prisma!.$transaction(async (tx) => {
-      await tx.documentAcknowledgement.create({ data: { id: acknowledgementId, documentVersionId: versionId, memberProfileId: memberId, acknowledgedAt: now, acknowledgedById: users.b!.id, acknowledgementStatementVersion: "stage13-test", documentCode: `${marker}-DOC-${suffix}`, documentTitle: "Controlled document", versionLabel: "1.0", contentMode: "Internal", contentDigestSnapshot: "stage13-controlled" } });
+      await tx.documentAcknowledgement.create({ data: { id: acknowledgementId, documentVersionId: versionId, memberProfileId: memberId, acknowledgedAt: now, acknowledgedById: users.b!.id, acknowledgementStatementVersion: "stage13-test", documentCode: `${marker}-DOC-${suffix}`, documentTitle: "Controlled document", versionLabel: "1.0", contentMode: "Internal text", contentDigestSnapshot: "stage13-controlled" } });
       await tx.documentAcknowledgementRequirement.create({ data: { acknowledgementId, requirementId } });
     });
     await projector.runOnce();

@@ -11,8 +11,8 @@ export function createPersistentNotificationService(repository: NotificationRepo
     markRead: (user: { id?: string; userId?: string }, id: string) => repository.markRead(user.id ?? user.userId!, id, true, clock.now()),
     markUnread: (user: { id?: string; userId?: string }, id: string) => repository.markRead(user.id ?? user.userId!, id, false, clock.now()),
     markAllRead: (user: { id?: string; userId?: string }, ids?: string[]) => repository.markAllRead(user.id ?? user.userId!, ids, clock.now()),
-    createEvent: (input: NotificationInput) => repository.createEvent(safeNotificationInput({ ...input, createdAt: input.createdAt ?? clock.now() })),
-    upsertCondition: (input: NotificationInput) => repository.upsertCondition(safeNotificationInput({ ...input, createdAt: input.createdAt ?? clock.now() })),
+    createEvent: async (input: NotificationInput) => repository.createEvent(safeNotificationInput({ ...input, createdAt: input.createdAt ?? clock.now() })),
+    upsertCondition: async (input: NotificationInput) => repository.upsertCondition(safeNotificationInput({ ...input, createdAt: input.createdAt ?? clock.now() })),
     deliveryHealth: () => repository.deliveryHealth(clock.now()),
   };
 }
