@@ -292,8 +292,8 @@ export const api = {
   notificationCounts: <T = AnyRecord>() => request<T>("/notifications/counts"),
   markNotificationRead: <T = AnyRecord>(id: string) => request<T>(`/notifications/${id}/read`, { method: "POST", body: JSON.stringify({}) }),
   markNotificationUnread: <T = AnyRecord>(id: string) => request<T>(`/notifications/${id}/unread`, { method: "POST", body: JSON.stringify({}) }),
-  markNotificationsRead: <T = AnyRecord>(ids?: string[]) =>
-    request<ApiList<T>>("/notifications/read-all", { method: "POST", body: JSON.stringify({ ids }) }),
+  markNotificationsRead: (ids?: string[]) =>
+    request<{ updatedCount: number }>("/notifications/read-all", { method: "POST", body: JSON.stringify({ ids }) }),
   matchingQueue: (query: AnyRecord) => request<ApiList<AnyRecord>>(`/matching/queue${queryString(query)}`),
   matchingContext: (claimId: string, sessionId: string) => request<AnyRecord>(`/matching/claims/${claimId}${queryString({ sessionId })}`),
   matchingSuggestions: (claimId: string, query: AnyRecord) => request<ApiList<AnyRecord>>(`/matching/claims/${claimId}/suggestions${queryString(query)}`),

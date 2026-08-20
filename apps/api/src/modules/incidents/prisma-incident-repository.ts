@@ -8,6 +8,7 @@ import type {
   IncidentRecord,
   IncidentUpdateInput
 } from "./incident-types.js";
+import { enqueueNotification } from "../notifications/notification-outbox.js";
 
 const terminalStatuses = ["Closed", "Archived"];
 
@@ -198,6 +199,11 @@ export function createPrismaIncidentRepository(client: PrismaClient): IncidentRe
             createdById: actorId,
             occurredAt: timestamp
           }
+        });
+        await enqueueNotification(tx, {
+          eventType: "SESSION_CLOSED", aggregateType: "session", aggregateId: id,
+          aggregateVersion: timestamp.toISOString(), sessionId: id,
+          payload: { operationalId: record.operationalId, occurredAt: timestamp.toISOString() },
         });
         return record as IncidentRecord;
       });

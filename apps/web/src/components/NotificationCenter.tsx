@@ -6,7 +6,7 @@ import { api } from "../lib/api";
 
 type NotificationKind = "Action required" | "Information";
 type NotificationSeverity = "Critical" | "Attention" | "Information";
-type NotificationCategory = "Session" | "Briefing" | "Assignment" | "Rostering" | "Training" | "Documents" | "Readiness" | "Requests" | "Operational";
+type NotificationCategory = "Session" | "Briefing" | "Assignment" | "Rostering" | "Training" | "Documents" | "Readiness" | "Requests" | "Operational" | "Admin";
 
 type NotificationItem = {
   id: string;
@@ -50,7 +50,8 @@ const categoryLabel: Record<NotificationCategory, string> = {
   Documents: "Documents",
   Readiness: "Readiness",
   Requests: "Requests",
-  Operational: "Operational"
+  Operational: "Operational",
+  Admin: "Admin"
 };
 
 function formatTimestamp(value: string, iso?: string) {
@@ -99,7 +100,6 @@ export function NotificationCenter({ role, canAccessTarget }: { role?: unknown; 
   const visibleItems = useMemo(() => [...items].sort(sortNotifications), [items]);
   const actionItems = visibleItems.filter((item) => item.kind === "Action required" && item.active);
   const updateItems = visibleItems.filter((item) => item.kind !== "Action required" || item.resolved);
-  const allVisibleIds = useMemo(() => visibleItems.map((item) => item.id), [visibleItems]);
   const badgeCount = counts.unread;
 
   useEffect(() => {
@@ -169,7 +169,8 @@ export function NotificationCenter({ role, canAccessTarget }: { role?: unknown; 
 
   function markAllRead() {
     setBusy(true);
-    void api.markNotificationsRead<NotificationItem>(allVisibleIds).then((response) => {
+    void api.markNotificationsRead().then(async () => {
+      const response = await api.notifications<NotificationItem>({ limit: 100 });
       setItems(response.data);
       setLoadError("");
       void refreshCounts();
@@ -266,7 +267,7 @@ export function NotificationCenter({ role, canAccessTarget }: { role?: unknown; 
                   <button
                     type="button"
                     className="focus-ring inline-flex h-8 shrink-0 items-center gap-1.5 rounded-md border border-border bg-muted px-2 text-xs font-bold text-muted-foreground hover:bg-card hover:text-foreground disabled:cursor-not-allowed disabled:opacity-50"
-                    disabled={!allVisibleIds.length || busy}
+                    disabled={!visibleItems.length || busy}
                     onClick={markAllRead}
                   >
                     <CheckCheck className="h-3.5 w-3.5" />

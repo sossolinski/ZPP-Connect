@@ -1049,11 +1049,46 @@ async function seedOperationalData() {
   }
 }
 
+async function seedNotifications() {
+  const [admin, coordinator, volunteer, session] = await Promise.all([
+    prisma.user.findUniqueOrThrow({ where: { email: "admin@lot.pl" } }),
+    prisma.user.findUniqueOrThrow({ where: { email: "coordinator@lot.pl" } }),
+    prisma.user.findUniqueOrThrow({ where: { email: "volunteer@lot.pl" } }),
+    prisma.session.findUniqueOrThrow({ where: { operationalId: "SES-2026-001" } }),
+  ]);
+  const createdAt = new Date("2026-07-09T09:30:00.000Z");
+  await prisma.notification.createMany({
+    skipDuplicates: true,
+    data: [
+      {
+        id: "13000000-0000-4000-8000-000000000001", recipientUserId: coordinator.id,
+        deduplicationKey: "seed:event:session:ses-2026-001:briefing", mode: "EVENT", kind: "Information", severity: "Information", category: "Session",
+        title: "Exercise session available", message: "SES-2026-001 is available for operational review.", sessionId: session.id, sessionLabel: session.operationalId,
+        sourceType: "session", sourceId: session.id, sourceLabel: session.operationalId, actionDestination: "/sessions", actionLabel: "Open sessions",
+        metadata: { provenance: "prisma-seed" }, createdAt, updatedAt: createdAt,
+      },
+      {
+        id: "13000000-0000-4000-8000-000000000002", recipientUserId: admin.id,
+        deduplicationKey: "seed:event:access:admin-ready", mode: "EVENT", kind: "Information", severity: "Information", category: "Admin",
+        title: "Administration access ready", message: "Your administration workspace is ready for review.", sourceType: "access", sourceId: admin.id, sourceLabel: "Administration",
+        actionDestination: "/settings", actionLabel: "Open settings", metadata: { provenance: "prisma-seed" }, createdAt, updatedAt: createdAt,
+      },
+      {
+        id: "13000000-0000-4000-8000-000000000003", recipientUserId: volunteer.id,
+        deduplicationKey: `seed:condition:training:trn-2026-000004:${volunteer.id}`, mode: "CONDITION", kind: "Action required", severity: "Attention", category: "Training",
+        title: "Training overdue", message: "Assigned crisis response training needs attention.", sourceType: "trainingRecord", sourceId: "trn-2026-000004", sourceLabel: "TRN-2026-000004",
+        conditionType: "training", actionDestination: "/training", actionLabel: "Open training", metadata: { condition: true, conditionType: "training", provenance: "prisma-seed" }, createdAt, updatedAt: createdAt,
+      },
+    ],
+  });
+}
+
 async function main() {
   await seedOrganizations();
   await seedRolesAndUsers();
   await seedDictionaries();
   await seedOperationalData();
+  await seedNotifications();
 }
 
 main()

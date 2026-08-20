@@ -395,14 +395,14 @@ class NotificationRepository {
   }
 
   markAllRead(recipientUserId: string, ids?: string[], at = defaultNow()) {
-    const allowedIds = new Set(this.list(recipientUserId, { limit: 200 }).data.map((item) => item.id));
+    const allowedIds = new Set(Array.from(this.records.values()).filter((item) => item.recipientUserId === recipientUserId).map((item) => item.id));
     const selectedIds = ids?.length ? ids.filter((id) => allowedIds.has(id)) : Array.from(allowedIds);
     for (const id of selectedIds) this.markRead(recipientUserId, id, at);
     return this.list(recipientUserId, { limit: 200 });
   }
 
   counts(recipientUserId: string): NotificationCounts {
-    const data = this.list(recipientUserId, { limit: 200 }).data;
+    const data = Array.from(this.records.values()).filter((item) => item.recipientUserId === recipientUserId).map(toView);
     return {
       total: data.length,
       unread: data.filter((item) => item.unread).length,
@@ -417,7 +417,7 @@ class NotificationRepository {
   }
 
   activeConditionsFor(recipientUserId: string) {
-    return this.list(recipientUserId, { status: "active", limit: 200 }).data.filter((item) => item.metadata?.condition === true);
+    return Array.from(this.records.values()).filter((item) => item.recipientUserId === recipientUserId).map(toView).filter((item) => item.active && item.metadata?.condition === true);
   }
 }
 
@@ -640,8 +640,6 @@ export function createNotificationService(sources: NotificationSources = {}) {
   }
 
   function reconcileForUser(user: NotificationUser) {
-    seedInitialEvents();
-
     const recipientUserId = userKey(user);
     const activeKeys = new Set<string>();
     let canResolve = true;
@@ -731,6 +729,9 @@ export function createNotificationService(sources: NotificationSources = {}) {
   function userOrAnonymous(user?: MaybeUser) {
     return user ?? { userId: "anonymous", email: "anonymous", displayName: "Anonymous", roles: [], permissions: [] };
   }
+
+  // Test-only compatibility fixtures are materialized when the memory adapter is constructed, never by a read.
+  seedInitialEvents();
 
   return {
     repository,
@@ -917,30 +918,4 @@ export function createNotificationService(sources: NotificationSources = {}) {
       return repository.resolveSource(sourceType, sourceId, reason);
     }
   };
-}
-
-const defaultNotificationService = createNotificationService();
-
-export function listNotificationsForUser(user?: MaybeUser, query?: NotificationListQuery) {
-  return defaultNotificationService.list(user, query);
-}
-
-export function notificationCountsForUser(user?: MaybeUser) {
-  return defaultNotificationService.counts(user);
-}
-
-export function getNotificationForUser(user: MaybeUser, id: string) {
-  return defaultNotificationService.get(user, id);
-}
-
-export function markNotificationReadForUser(user: MaybeUser, id: string) {
-  return defaultNotificationService.markRead(user, id);
-}
-
-export function markNotificationUnreadForUser(user: MaybeUser, id: string) {
-  return defaultNotificationService.markUnread(user, id);
-}
-
-export function markNotificationsReadForUser(user: MaybeUser, ids?: string[]) {
-  return defaultNotificationService.markAllRead(user, ids);
 }

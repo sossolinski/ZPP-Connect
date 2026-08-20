@@ -23,6 +23,7 @@ import type { FoundationMemberDirectoryRepository } from "./modules/member-direc
 import type { FoundationRosteringRepository } from "./modules/rostering/rostering-repository.js";
 import type { FoundationTrainingRepository } from "./modules/training/training-repository.js";
 import type { FoundationDocumentRepository } from "./modules/documents/document-repository.js";
+import type { NotificationRepository } from "./modules/notifications/notification-repository.js";
 
 export function createApp(options: {
   incidentRepository?: IncidentRepository;
@@ -40,6 +41,7 @@ export function createApp(options: {
   trainingRepository?: FoundationTrainingRepository;
   trainingClock?: { now(): Date };
   documentRepository?: FoundationDocumentRepository;
+  notificationRepository?: NotificationRepository;
   documentClock?: { now(): Date };
   documentNotificationHook?: (record: Record<string, unknown>) => void;
   assignmentNotificationHook?: (record: Record<string, unknown>, command: string) => void;
@@ -91,6 +93,7 @@ export function createApp(options: {
     trainingRepository: options.trainingRepository,
     trainingClock: options.trainingClock,
     documentRepository: options.documentRepository,
+    notificationRepository: options.notificationRepository,
     documentClock: options.documentClock,
     documentNotificationHook: options.documentNotificationHook,
     assignmentNotificationHook: options.assignmentNotificationHook,

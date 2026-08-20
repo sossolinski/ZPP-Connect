@@ -102,6 +102,8 @@ import type { FoundationTrainingRepository } from "./modules/training/training-r
 import { createDocumentRouter } from "./modules/documents/document-router.js";
 import { createDocumentService } from "./modules/documents/document-service.js";
 import type { FoundationDocumentRepository } from "./modules/documents/document-repository.js";
+import { createNotificationRouter } from "./modules/notifications/notification-router.js";
+import type { createPersistentNotificationService } from "./modules/notifications/notification-service.js";
 import { hydrateReadOnlyProjection, mergeProjectionPage, syncProjectionRow } from "./modules/compatibility/read-only-projection.js";
 
 type Row = Record<string, any>;
@@ -212,7 +214,7 @@ const pendingMatchStatuses = new Set<string>(workflowStates.pendingMatchStatuses
 const terminalStatuses = new Set<string>(workflowStates.terminalRequestStatuses);
 let memberDirectoryForAdmin: ReturnType<typeof createMemberDirectoryRepository> | undefined;
 let rosteringForAdmin: ReturnType<typeof createRosteringRepository> | undefined;
-let notificationsForAdmin: ReturnType<typeof createNotificationService> | undefined;
+let notificationsForAdmin: { create(input: any): unknown } | undefined;
 
 function isNoHold(value?: string | null) {
   return !value || value === "No hold";
@@ -1513,8 +1515,8 @@ function accessHistoryFor(userId: string) {
 
 function notifyAccessChange(userId: string, title: string, message: string, sourceId: string) {
   try {
-    notificationsForAdmin?.create({
-      deduplicationKey: `access:${sourceId}:${userId}:${Date.now()}`,
+    const result = notificationsForAdmin?.create({
+      deduplicationKey: `event:access:${sourceId}:${userId}`,
       recipientUserId: userId,
       kind: "Information",
       severity: "Information",
@@ -1526,6 +1528,7 @@ function notifyAccessChange(userId: string, title: string, message: string, sour
       actionDestination: "/settings",
       actionLabel: "Review account"
     });
+    if (result && typeof (result as Promise<unknown>).catch === "function") void (result as Promise<unknown>).catch(() => undefined);
   } catch {
     // Access mutations must not be rolled back because notification delivery failed.
   }
@@ -1952,6 +1955,8 @@ export function createDemoRouter(options: {
   trainingClock?: { now(): Date };
   documentRepository?: FoundationDocumentRepository;
   documentClock?: { now(): Date };
+  notificationService?: ReturnType<typeof createPersistentNotificationService>;
+  notificationBriefingPublisher?: (record: Record<string, unknown>) => Promise<void>;
   documentNotificationHook?: (record: Record<string, unknown>) => void;
   assignmentNotificationHook?: (record: Record<string, unknown>, command: string) => void;
   rosteringNotificationHook?: (record: Record<string, unknown>, command: string) => void;
@@ -2126,8 +2131,8 @@ export function createDemoRouter(options: {
   const documentsRepository = createDocumentRepository(memberDirectory);
   const readiness = createReadinessService({ directory: memberDirectory, training, documents: documentsRepository, rostering, foundationRostering: foundationRosteringService, foundationTraining: foundationTrainingService, foundationDocuments: foundationDocumentService });
   const activeEvent = createActiveEventService({ users, sessions, assignments, enquiries, familyRecords, passengerRecords, matchingRecords, releases, requests });
-  const notifications = createNotificationService({ users, sessions, assignments, directory: memberDirectory, rostering, training, documents: foundationDocumentService ? undefined : documentsRepository, activeEvent, permissionsForRoleNames });
-  notificationsForAdmin = notifications;
+  const notifications = options.notificationService ? undefined : createNotificationService({ users, sessions, assignments, directory: memberDirectory, rostering, training, documents: foundationDocumentService ? undefined : documentsRepository, activeEvent, permissionsForRoleNames });
+  notificationsForAdmin = options.notificationService ? { create: (input) => options.notificationService!.createEvent(input) } : notifications;
 
   const notifySafely = (handler: () => void) => {
     try {
@@ -2315,9 +2320,9 @@ export function createDemoRouter(options: {
       : undefined,
     onChange: assignmentService.kind === "postgres" ? syncAssignment : undefined,
     onCommitted: (record, command) => {
-      if (["assign", "claim", "reassign"].includes(command)) notifications.notifyAssignmentAssigned(record);
-      if (command === "cancel") notifications.notifyAssignmentCancelled(record);
-      if (command === "complete") notifications.resolveSource("assignment", record.id, "Source completed");
+      if (!options.notificationService && ["assign", "claim", "reassign"].includes(command)) notifications!.notifyAssignmentAssigned(record);
+      if (!options.notificationService && command === "cancel") notifications!.notifyAssignmentCancelled(record);
+      if (!options.notificationService && command === "complete") notifications!.resolveSource("assignment", record.id, "Source completed");
       options.assignmentNotificationHook?.(record, command);
     }
   }));
@@ -2335,8 +2340,8 @@ export function createDemoRouter(options: {
   if (foundationRosteringService) {
     router.use(createRosteringRouter(foundationRosteringService, {
       onShiftCommitted: (record, command) => {
-        if (command === "publish") notifications.notifyRosterShiftPublished(record);
-        if (["confirm", "decline", "cancel", "complete"].includes(command)) notifications.resolveSource("rosterShift", record.id, "Source resolved");
+        if (!options.notificationService && command === "publish") notifications!.notifyRosterShiftPublished(record);
+        if (!options.notificationService && ["confirm", "decline", "cancel", "complete"].includes(command)) notifications!.resolveSource("rosterShift", record.id, "Source resolved");
         options.rosteringNotificationHook?.(record, command);
       },
     }));
@@ -2344,7 +2349,7 @@ export function createDemoRouter(options: {
   if (foundationTrainingService) {
     router.use(createTrainingRouter(foundationTrainingService, {
       onAssigned: (record) => {
-        notifications.notifyTrainingAssigned(record);
+        if (!options.notificationService) notifications!.notifyTrainingAssigned(record);
         options.trainingNotificationHook?.(record, "assign");
       },
     }));
@@ -2353,7 +2358,7 @@ export function createDemoRouter(options: {
     router.use(createDocumentRouter(foundationDocumentService, {
       onPublished: (record) => notifySafely(() => {
         options.documentNotificationHook?.(record);
-        notifications.notifyDocumentVersionPublished(record);
+        if (!options.notificationService) notifications!.notifyDocumentVersionPublished(record);
       }),
     }));
   }
@@ -2398,30 +2403,31 @@ export function createDemoRouter(options: {
       next();
     })().catch(next);
   };
-  router.get("/notifications", requirePermission("session:read"), (req, res) => res.json(notifications.list(req.user, req.query)));
-  router.get("/notifications/counts", requirePermission("session:read"), (req, res) => res.json(notifications.counts(req.user)));
-  router.get("/notifications/:id", requirePermission("session:read"), (req, res) => {
-    const notification = notifications.get(req.user, String(req.params.id));
+  if (options.notificationService) router.use(createNotificationRouter(options.notificationService));
+  else router.get("/notifications", requirePermission("session:read"), (req, res) => res.json(notifications!.list(req.user, req.query)));
+  if (!options.notificationService) router.get("/notifications/counts", requirePermission("session:read"), (req, res) => res.json(notifications!.counts(req.user)));
+  if (!options.notificationService) router.get("/notifications/:id", requirePermission("session:read"), (req, res) => {
+    const notification = notifications!.get(req.user, String(req.params.id));
     if (!notification) {
       res.status(404).json({ error: "Notification not found" });
       return;
     }
     res.json(notification);
   });
-  router.post("/notifications/read-all", requirePermission("session:read"), (req, res) => {
+  if (!options.notificationService) router.post("/notifications/read-all", requirePermission("session:read"), (req, res) => {
     const ids = Array.isArray(req.body?.ids) ? req.body.ids.map(String) : undefined;
-    res.json(notifications.markAllRead(req.user, ids));
+    res.json(notifications!.markAllRead(req.user, ids));
   });
-  router.post("/notifications/:id/read", requirePermission("session:read"), (req, res) => {
-    const notification = notifications.markRead(req.user, String(req.params.id));
+  if (!options.notificationService) router.post("/notifications/:id/read", requirePermission("session:read"), (req, res) => {
+    const notification = notifications!.markRead(req.user, String(req.params.id));
     if (!notification) {
       res.status(404).json({ error: "Notification not found" });
       return;
     }
     res.json(notification);
   });
-  router.post("/notifications/:id/unread", requirePermission("session:read"), (req, res) => {
-    const notification = notifications.markUnread(req.user, String(req.params.id));
+  if (!options.notificationService) router.post("/notifications/:id/unread", requirePermission("session:read"), (req, res) => {
+    const notification = notifications!.markUnread(req.user, String(req.params.id));
     if (!notification) {
       res.status(404).json({ error: "Notification not found" });
       return;
@@ -2499,7 +2505,8 @@ export function createDemoRouter(options: {
       body: result.briefing.title,
       metadata: { revision: result.briefing.revision }
     });
-    notifySafely(() => notifications.notifyBriefingPublished(result.briefing));
+    if (!options.notificationService) notifySafely(() => notifications!.notifyBriefingPublished(result.briefing));
+    if (options.notificationBriefingPublisher) void options.notificationBriefingPublisher(result.briefing).catch(() => undefined);
     return result.briefing;
   }));
 
@@ -2661,11 +2668,11 @@ export function createDemoRouter(options: {
         skippedCount: result.skippedCount,
         recordIds: result.records.map((record) => record.id)
       }, "trainingGroup", result.group.id);
-      notifySafely(() => result.records.forEach((record) => notifications.notifyTrainingAssigned(record)));
+      notifySafely(() => result.records.forEach((record) => notifications!.notifyTrainingAssigned(record)));
       return result;
     }
     addAudit(req, "assign_training", "Training assigned", activeSessionId(req), { recordId: result.id, operationalId: result.operationalId, memberProfileId: result.memberProfileId, courseId: result.courseId }, "trainingRecord", result.id);
-    notifySafely(() => notifications.notifyTrainingAssigned(result));
+    notifySafely(() => notifications!.notifyTrainingAssigned(result));
     return result;
   }, 201));
   router.patch("/training/records/:id", requireAnyPermission(["training:assign", "training:complete-all"]), directoryRoute((req) => {
@@ -2745,7 +2752,7 @@ export function createDemoRouter(options: {
   router.post("/document-versions/:id/publish", requirePermission("document:publish"), directoryRoute((req) => {
     const version = documentsRepository.publishVersion(String(req.params.id), req.body ?? {}, directoryActor(req));
     addAudit(req, "publish_document_version", "Document version published", activeSessionId(req), { documentId: version.documentId, documentVersionId: version.id, versionLabel: version.versionLabel }, "documentVersion", version.id);
-    notifySafely(() => notifications.notifyDocumentVersionPublished(version));
+    notifySafely(() => notifications!.notifyDocumentVersionPublished(version));
     return version;
   }));
   router.post("/document-versions/:id/withdraw", requirePermission("document:publish"), directoryRoute((req) => {
@@ -2820,8 +2827,8 @@ export function createDemoRouter(options: {
       const shift = rostering.moveShift(String(req.params.id), nextStatus, directoryActor(req), req.body?.note);
       addAudit(req, `roster_shift_${action}`, summary, shift.sessionId ?? activeSessionId(req), { rosterShiftId: shift.id, operationalId: shift.operationalId, oldStatus: before.status, newStatus: shift.status }, "rosterShift", shift.id);
       notifySafely(() => {
-        if (nextStatus === "Published") notifications.notifyRosterShiftPublished(shift);
-        if (["Confirmed", "Declined", "Cancelled", "Completed"].includes(nextStatus)) notifications.resolveSource("rosterShift", shift.id, "Source resolved");
+        if (nextStatus === "Published") notifications!.notifyRosterShiftPublished(shift);
+        if (["Confirmed", "Declined", "Cancelled", "Completed"].includes(nextStatus)) notifications!.resolveSource("rosterShift", shift.id, "Source resolved");
       });
       return shift;
     }));

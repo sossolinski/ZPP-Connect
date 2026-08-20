@@ -4,6 +4,7 @@ import { permissionScope } from "../../scope-policy.js";
 import type { DirectoryActor as LegacyDirectoryActor } from "../../member-directory.js";
 import type { IncidentContext } from "../incident-access/incident-access-types.js";
 import type { FoundationRosteringRepository } from "./rostering-repository.js";
+import { enqueueNotification } from "../notifications/notification-outbox.js";
 import type {
   AvailabilityAccess,
   AvailabilityRecord,
@@ -419,6 +420,11 @@ export function createPrismaRosteringRepository(client: PrismaClient): Foundatio
           await logOperation(tx, actor, input.operationId, command, fp, row.version, { rosterShiftId: id });
           await audit(tx, actor, context.actorId, `roster_shift_${nextStatus.toLowerCase()}`, "rosterShift", id, context.incidentId, `Roster shift ${row.operationalId} changed from ${current.status} to ${nextStatus}`, {
             rosterShiftId: id, operationalId: row.operationalId, statusBefore: current.status, statusAfter: nextStatus, memberBefore: current.assignedMemberProfileId, memberAfter: row.assignedMemberProfileId, groupBefore: current.groupId, groupAfter: row.groupId, versionBefore: input.expectedVersion, versionAfter: row.version, operationId: input.operationId, reason: input.reason,
+          });
+          if (nextStatus === "Published" && row.assignedMemberProfileId) await enqueueNotification(tx, {
+            eventType: "ROSTER_PUBLISHED", aggregateType: "rosterShift", aggregateId: id, aggregateVersion: input.operationId,
+            sessionId: context.incidentId,
+            payload: { memberProfileId: row.assignedMemberProfileId, operationalId: row.operationalId, occurredAt: timestamp.toISOString() },
           });
           return shiftResult(tx, id);
         });

@@ -158,6 +158,28 @@ test.describe("ZPP Connect portal", () => {
     await expect(panel).not.toContainText(/demo mode|demo api|in-memory|reset on restart|database not connected|source not connected|temporary storage|local development|data-source/i);
   });
 
+  test("keeps notification read controls, read-all, action links and keyboard close usable", async ({ page }) => {
+    await login(page, "volunteer@lot.pl");
+    await page.getByRole("button", { name: /unread notifications|Notifications/ }).click();
+    let panel = page.getByRole("dialog", { name: "Notification center" });
+    let durableRow = panel.locator("article").filter({ hasText: "Training overdue" });
+    await durableRow.getByRole("button", { name: "Mark read" }).click();
+    await expect(durableRow.getByRole("button", { name: "Mark unread" })).toBeVisible();
+    await page.keyboard.press("Escape");
+    await expect(panel).toHaveCount(0);
+
+    await page.reload();
+    await page.getByRole("button", { name: /unread notifications|Notifications/ }).click();
+    panel = page.getByRole("dialog", { name: "Notification center" });
+    durableRow = panel.locator("article").filter({ hasText: "Training overdue" });
+    await expect(durableRow.getByRole("button", { name: "Mark unread" })).toBeVisible();
+    await durableRow.getByRole("button", { name: "Mark unread" }).click();
+    await expect(durableRow.getByRole("button", { name: "Mark read" })).toBeVisible();
+    await panel.getByRole("button", { name: "Mark read", exact: true }).first().click();
+    await expect(panel.locator("article").getByRole("button", { name: "Mark unread" }).first()).toBeVisible();
+    await expect(panel.locator("article").getByRole("link").first()).toBeVisible();
+  });
+
   test("does not show fallback notifications after the notifications API fails", async ({ page }) => {
     await page.route("**/api/notifications**", async (route) => {
       if (route.request().method() === "GET") {

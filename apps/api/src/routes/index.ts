@@ -25,7 +25,6 @@ import {
 import { normalizeRow, parseWorkbook, pdfSummaryBuffer, workbookBuffer } from "../exporters.js";
 import { resolveStorageKey, storageKeyForFile, upload } from "../storage.js";
 import { openApiDocument } from "../openapi.js";
-import { getNotificationForUser, listNotificationsForUser, markNotificationReadForUser, markNotificationsReadForUser, markNotificationUnreadForUser, notificationCountsForUser } from "../notifications.js";
 import { createPrismaIncidentRepository } from "../modules/incidents/prisma-incident-repository.js";
 import type { IncidentRepository } from "../modules/incidents/incident-repository.js";
 import { createPrismaEnquiryRepository } from "../modules/enquiries/prisma-enquiry-repository.js";
@@ -54,6 +53,13 @@ import { createPrismaTrainingRepository } from "../modules/training/prisma-train
 import type { FoundationTrainingRepository } from "../modules/training/training-repository.js";
 import { createPrismaDocumentRepository } from "../modules/documents/prisma-document-repository.js";
 import type { FoundationDocumentRepository } from "../modules/documents/document-repository.js";
+import { createPrismaNotificationRepository } from "../modules/notifications/prisma-notification-repository.js";
+import type { NotificationRepository } from "../modules/notifications/notification-repository.js";
+import { createPersistentNotificationService } from "../modules/notifications/notification-service.js";
+import { createNotificationDispatcher } from "../modules/notifications/notification-dispatcher.js";
+import { createNotificationProjector } from "../modules/notifications/notification-projector.js";
+import { createNotificationRuntime } from "../modules/notifications/notification-runtime.js";
+import { logger } from "../logger.js";
 
 type Delegate = {
   count(args: unknown): Promise<number>;
@@ -413,61 +419,6 @@ api.get(
       grouped[row.category]!.push(row);
     }
     res.json(grouped);
-  })
-);
-
-api.get(
-  "/notifications",
-  requirePermission("session:read"),
-  asyncHandler(async (req, res) => {
-    res.json(listNotificationsForUser(req.user, req.query));
-  })
-);
-
-api.get(
-  "/notifications/counts",
-  requirePermission("session:read"),
-  asyncHandler(async (req, res) => {
-    res.json(notificationCountsForUser(req.user));
-  })
-);
-
-api.get(
-  "/notifications/:id",
-  requirePermission("session:read"),
-  asyncHandler(async (req, res) => {
-    const notification = getNotificationForUser(req.user, String(req.params.id));
-    if (!notification) throw new HttpError(404, "Notification not found");
-    res.json(notification);
-  })
-);
-
-api.post(
-  "/notifications/read-all",
-  requirePermission("session:read"),
-  asyncHandler(async (req, res) => {
-    const ids = Array.isArray(req.body?.ids) ? req.body.ids.map(String) : undefined;
-    res.json(markNotificationsReadForUser(req.user, ids));
-  })
-);
-
-api.post(
-  "/notifications/:id/read",
-  requirePermission("session:read"),
-  asyncHandler(async (req, res) => {
-    const notification = markNotificationReadForUser(req.user, String(req.params.id));
-    if (!notification) throw new HttpError(404, "Notification not found");
-    res.json(notification);
-  })
-);
-
-api.post(
-  "/notifications/:id/unread",
-  requirePermission("session:read"),
-  asyncHandler(async (req, res) => {
-    const notification = markNotificationUnreadForUser(req.user, String(req.params.id));
-    if (!notification) throw new HttpError(404, "Notification not found");
-    res.json(notification);
   })
 );
 
@@ -1308,13 +1259,14 @@ export function registerRoutes(app: Express, options: {
   trainingRepository?: FoundationTrainingRepository;
   trainingClock?: { now(): Date };
   documentRepository?: FoundationDocumentRepository;
+  notificationRepository?: NotificationRepository;
   documentClock?: { now(): Date };
   documentNotificationHook?: (record: Record<string, unknown>) => void;
   assignmentNotificationHook?: (record: Record<string, unknown>, command: string) => void;
   rosteringNotificationHook?: (record: Record<string, unknown>, command: string) => void;
   trainingNotificationHook?: (record: Record<string, unknown>, command: string) => void;
 } = {}) {
-  const usePostgres = config.persistenceMode === "postgres" || options.incidentRepository?.kind === "postgres" || options.enquiryRepository?.kind === "postgres" || options.passengerRepository?.kind === "postgres" || options.familyRepository?.kind === "postgres" || options.matchingRepository?.kind === "postgres" || options.releaseRepository?.kind === "postgres" || options.requestRepository?.kind === "postgres" || options.assignmentRepository?.kind === "postgres" || options.memberDirectoryRepository?.kind === "postgres" || options.rosteringRepository?.kind === "postgres" || options.trainingRepository?.kind === "postgres" || options.documentRepository?.kind === "postgres";
+  const usePostgres = config.persistenceMode === "postgres" || options.incidentRepository?.kind === "postgres" || options.enquiryRepository?.kind === "postgres" || options.passengerRepository?.kind === "postgres" || options.familyRepository?.kind === "postgres" || options.matchingRepository?.kind === "postgres" || options.releaseRepository?.kind === "postgres" || options.requestRepository?.kind === "postgres" || options.assignmentRepository?.kind === "postgres" || options.memberDirectoryRepository?.kind === "postgres" || options.rosteringRepository?.kind === "postgres" || options.trainingRepository?.kind === "postgres" || options.documentRepository?.kind === "postgres" || options.notificationRepository?.kind === "postgres";
   const incidentRepository = options.incidentRepository ?? (
     usePostgres ? createPrismaIncidentRepository(prisma) : undefined
   );
@@ -1357,5 +1309,22 @@ export function registerRoutes(app: Express, options: {
   const documentRepository = options.documentRepository ?? (
     usePostgres ? createPrismaDocumentRepository(prisma, options.documentClock) : undefined
   );
-  app.use("/api", createDemoRouter({ incidentRepository, enquiryRepository, incidentAccessRepository, incidentAssignmentRepository, passengerRepository, familyRepository, matchingRepository, releaseRepository, requestRepository, assignmentRepository, memberDirectoryRepository, rosteringRepository, trainingRepository, trainingClock: options.trainingClock, documentRepository, documentClock: options.documentClock, documentNotificationHook: options.documentNotificationHook, assignmentNotificationHook: options.assignmentNotificationHook, rosteringNotificationHook: options.rosteringNotificationHook, trainingNotificationHook: options.trainingNotificationHook }));
+  const notificationRepository = options.notificationRepository ?? (usePostgres ? createPrismaNotificationRepository(prisma) : undefined);
+  const notificationService = notificationRepository ? createPersistentNotificationService(notificationRepository) : undefined;
+  const publishBriefing = notificationService ? async (briefing: Record<string, any>) => {
+    const revision = briefing.version ?? briefing.revision;
+    if (revision === undefined || revision === null) return;
+    const users = await prisma.user.findMany({ where: { status: { in: ["active", "Active"] }, incidentAssignments: { some: { incidentId: String(briefing.sessionId), active: true } } }, include: { roles: { include: { role: true } } } });
+    for (const user of users.filter((candidate) => candidate.roles.some(({ role }) => Array.isArray(role.permissions) && (role.permissions.map(String).includes("briefing:read") || role.permissions.map(String).includes("*"))))) {
+      await notificationService.createEvent({ recipientUserId: user.id, deduplicationKey: `event:briefing:${briefing.id}:${revision}:${user.id}`, kind: "Information", severity: "Information", category: "Briefing", title: "Briefing published", message: `Briefing revision ${revision} is available for review.`, sessionId: briefing.sessionId, sourceType: "briefing", sourceId: String(briefing.id), sourceLabel: "Briefing", actionDestination: "/active-event", actionLabel: "Read briefing" });
+    }
+  } : undefined;
+  app.use("/api", createDemoRouter({ incidentRepository, enquiryRepository, incidentAccessRepository, incidentAssignmentRepository, passengerRepository, familyRepository, matchingRepository, releaseRepository, requestRepository, assignmentRepository, memberDirectoryRepository, rosteringRepository, trainingRepository, trainingClock: options.trainingClock, documentRepository, documentClock: options.documentClock, notificationService, notificationBriefingPublisher: publishBriefing, documentNotificationHook: options.documentNotificationHook, assignmentNotificationHook: options.assignmentNotificationHook, rosteringNotificationHook: options.rosteringNotificationHook, trainingNotificationHook: options.trainingNotificationHook }));
+  if (notificationRepository?.kind === "postgres" && trainingRepository && documentRepository) {
+    const dispatcher = createNotificationDispatcher(prisma, notificationRepository, { batchSize: config.notificationDispatchBatchSize, logger });
+    const projector = createNotificationProjector(prisma, notificationRepository, { training: trainingRepository, documents: documentRepository, batchSize: config.notificationProjectBatchSize, maxRows: config.notificationProjectMaxRows });
+    app.locals.notificationRuntime = createNotificationRuntime({ dispatcher, projector, logger, dispatchIntervalMs: config.notificationDispatchIntervalMs, projectIntervalMs: config.notificationProjectIntervalMs });
+    app.locals.notificationDispatcher = dispatcher;
+    app.locals.notificationProjector = projector;
+  }
 }
