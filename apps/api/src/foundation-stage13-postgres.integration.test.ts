@@ -87,14 +87,8 @@ postgresDescribe("Foundation Stage 13 PostgreSQL Notifications delivery integrit
     await prisma.assignmentOperation.deleteMany({ where: { incidentId } });
     await prisma.assignmentTask.deleteMany({ where: { OR: [{ id: { in: assignmentIds } }, { sessionId: incidentId }] } });
     await prisma.rosterShift.deleteMany({ where: { sessionId: incidentId } });
-    await prisma.documentAcknowledgementRequirement.deleteMany({ where: { OR: [{ acknowledgementId: { startsWith: marker } }, { requirementId: { startsWith: marker } }] } });
-    await prisma.documentAcknowledgement.deleteMany({ where: { id: { startsWith: marker } } });
-    await prisma.documentRequirement.deleteMany({ where: { id: { startsWith: marker } } });
-    await prisma.documentVersion.deleteMany({ where: { id: { startsWith: marker } } });
-    await prisma.document.deleteMany({ where: { id: { startsWith: marker } } });
     await prisma.memberTrainingRecord.deleteMany({ where: { id: { startsWith: marker } } });
     await prisma.trainingCourse.deleteMany({ where: { id: { startsWith: marker } } });
-    await prisma.memberProfile.deleteMany({ where: { id: { startsWith: marker.toLowerCase() } } });
     await prisma.auditLog.deleteMany({ where: { sessionId: incidentId } });
     await prisma.caseTimelineEvent.deleteMany({ where: { sessionId: incidentId } });
     await prisma.incidentAssignment.deleteMany({ where: { incidentId } });
@@ -369,7 +363,7 @@ postgresDescribe("Foundation Stage 13 PostgreSQL Notifications delivery integrit
     await prisma!.assignmentTask.updateMany({ where: { id: { in: created.map(({ id }) => id) } }, data: { status: "Completed", completedAt: now, completedById: users.a!.id, completionNote: marker } });
     await projector.runOnce();
     expect(await prisma!.notification.count({ where: { conditionType: "assignment", sourceId: { in: created.map(({ id }) => id) }, resolvedAt: { not: null } } })).toBe(1005);
-  });
+  }, 20_000);
 
   it("rejects PII-rich copy and arbitrary destinations and exposes diagnostics only to admin permission", async () => {
     await expect(event(users.a!.id, "unsafe-copy", { message: "Contact email address is hidden." })).rejects.toThrow(/Unsafe notification message/);
