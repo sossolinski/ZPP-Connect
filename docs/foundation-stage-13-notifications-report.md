@@ -184,9 +184,10 @@ W production nie istnieje aktywny `defaultNotificationService`, `seedInitialEven
 
 ## AI. PostgreSQL tests
 
-- Nowy Stage 13 suite: **15 testów**, lokalnie poprawnie wykryty, lecz pominięty bez `TEST_DATABASE_URL`.
+- Nowy Stage 13 suite: **15/15 PASS** w PostgreSQL CI (`foundation-stage13-postgres.integration.test.ts`, 3.225 s).
 - Local PostgreSQL/Docker runtime: **niedostępny** (`docker: command not found`), dlatego nie deklarujemy lokalnego PostgreSQL PASS.
-- Fresh PostgreSQL 16 migration, exact seed, startup, Stage 1–13 zero-skipped i legacy rehearsal: **PENDING — remote CI dla implementacyjnego SHA**.
+- Fresh PostgreSQL 16 migration (wszystkie 16 migracji, w tym `20260820170000_notifications_foundation`), exact Prisma seed i production startup/health: **PASS**.
+- Stage 1–13 PostgreSQL: **136/136 PASS, 0 skipped** w 14 plikach; exact legacy migration/backfill rehearsal: **PASS**.
 
 ## AJ. Browser tests
 
@@ -196,7 +197,9 @@ W production nie istnieje aktywny `defaultNotificationService`, `seedInitialEven
 
 ## AK. CI
 
-| Gate | Wynik przed pierwszym push |
+Remote gates dla implementacyjnego SHA `74c2cbfefdd2ce82bf26f2c79888998d2c5ee42c` przeszły dwukrotnie, dla zdarzeń `push` i `pull_request` (runs `32420608988` oraz `32420612033`).
+
+| Gate | Wynik |
 | --- | --- |
 | Typecheck | PASS |
 | Unit | PASS — 99/99; 136 PostgreSQL tests skipped lokalnie bez DB |
@@ -204,10 +207,10 @@ W production nie istnieje aktywny `defaultNotificationService`, `seedInitialEven
 | Browser | PASS — 71/71 |
 | Production runtime Dependency Audit | PASS — zero findings |
 | `git diff --check` | PASS |
-| Fresh migration / exact seed / startup | PENDING remote CI |
-| Stage 1–13 PostgreSQL | PENDING remote CI, wymagane zero skipped |
-| Exact legacy rehearsal | PENDING remote CI |
-| Remote GitHub Actions exact SHA | PENDING |
+| Fresh migration / exact seed / startup | PASS |
+| Stage 1–13 PostgreSQL | PASS — 136/136, zero skipped; Stage 13 15/15 |
+| Exact legacy rehearsal | PASS |
+| Remote GitHub Actions exact implementation SHA | PASS — 6/6 checks across both CI triggers |
 
 ## AL. Remaining split-brain
 
@@ -240,7 +243,7 @@ Admin/Identity ma najwięcej aktywnych memory writes o najwyższej security i de
 ## Final verdict
 
 ```text
-NOT READY
+READY
 ```
 
-Blocker przed zmianą verdictu: remote GitHub Actions musi potwierdzić fresh migration/seed/startup, Stage 1–13 PostgreSQL zero skipped, exact legacy rehearsal i wszystkie pozostałe gates dla dokładnego finalnego SHA.
+Foundation Stage 13 spełnia lokalne i zdalne gates. Draft PR pozostaje niescalony do czasu jawnej decyzji review/merge.
