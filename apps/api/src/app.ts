@@ -22,6 +22,7 @@ import type { AssignmentRepository } from "./modules/assignments/assignment-repo
 import type { FoundationMemberDirectoryRepository } from "./modules/member-directory/member-directory-repository.js";
 import type { FoundationRosteringRepository } from "./modules/rostering/rostering-repository.js";
 import type { FoundationTrainingRepository } from "./modules/training/training-repository.js";
+import type { FoundationDocumentRepository } from "./modules/documents/document-repository.js";
 
 export function createApp(options: {
   incidentRepository?: IncidentRepository;
@@ -38,6 +39,9 @@ export function createApp(options: {
   rosteringRepository?: FoundationRosteringRepository;
   trainingRepository?: FoundationTrainingRepository;
   trainingClock?: { now(): Date };
+  documentRepository?: FoundationDocumentRepository;
+  documentClock?: { now(): Date };
+  documentNotificationHook?: (record: Record<string, unknown>) => void;
   assignmentNotificationHook?: (record: Record<string, unknown>, command: string) => void;
   rosteringNotificationHook?: (record: Record<string, unknown>, command: string) => void;
   trainingNotificationHook?: (record: Record<string, unknown>, command: string) => void;
@@ -86,6 +90,9 @@ export function createApp(options: {
     rosteringRepository: options.rosteringRepository,
     trainingRepository: options.trainingRepository,
     trainingClock: options.trainingClock,
+    documentRepository: options.documentRepository,
+    documentClock: options.documentClock,
+    documentNotificationHook: options.documentNotificationHook,
     assignmentNotificationHook: options.assignmentNotificationHook,
     rosteringNotificationHook: options.rosteringNotificationHook,
     trainingNotificationHook: options.trainingNotificationHook

@@ -2,6 +2,7 @@ import type { Permission } from "@zpp/shared";
 import { DirectoryError } from "./member-directory.js";
 import type { DirectoryActor, MemberDirectoryRepository } from "./member-directory.js";
 import type { DocumentRepository } from "./documents.js";
+import type { DocumentService as FoundationDocumentService } from "./modules/documents/document-service.js";
 import type { RosteringRepository } from "./rostering.js";
 import type { RosteringService as FoundationRosteringService } from "./modules/rostering/rostering-service.js";
 import type { TrainingRepository } from "./training.js";
@@ -223,7 +224,8 @@ export function createReadinessService({
   documents,
   rostering,
   foundationRostering,
-  foundationTraining
+  foundationTraining,
+  foundationDocuments
 }: {
   directory: MemberDirectoryRepository;
   training: TrainingRepository;
@@ -231,6 +233,7 @@ export function createReadinessService({
   rostering: RosteringRepository;
   foundationRostering?: FoundationRosteringService | null;
   foundationTraining?: FoundationTrainingService | null;
+  foundationDocuments?: FoundationDocumentService | null;
 }) {
   function evaluationActor(actor: DirectoryActor): DirectoryActor {
     return {
@@ -386,8 +389,10 @@ export function createReadinessService({
     });
   }
 
-  function buildDocumentDimension(member: DirectoryMember, actor: DirectoryActor, evaluationAt: string) {
-    const result = documents.evaluateMemberCompliance(member.id, evaluationActor(actor), { evaluationAt });
+  async function buildDocumentDimension(member: DirectoryMember, actor: DirectoryActor, evaluationAt: string) {
+    const result = foundationDocuments
+      ? await foundationDocuments.evaluateMemberCompliance(evaluationActor(actor), member.id, { evaluationAt })
+      : documents.evaluateMemberCompliance(member.id, evaluationActor(actor), { evaluationAt });
     const factors = result.items.flatMap((item: any) => {
       if (item.status === "Acknowledged" && item.contentAvailable) return [];
       const overdue = item.status === "Overdue" || !item.contentAvailable;
@@ -530,15 +535,16 @@ export function createReadinessService({
   }
 
   async function assessMember(member: DirectoryMember, actor: DirectoryActor, evaluationAt: string) {
-    const [trainingDimension, availabilityDimension, rosterDimension] = await Promise.all([
+    const [trainingDimension, documentDimension, availabilityDimension, rosterDimension] = await Promise.all([
       buildTrainingDimension(member, actor, evaluationAt),
+      buildDocumentDimension(member, actor, evaluationAt),
       buildAvailabilityDimension(member, actor, evaluationAt),
       buildRosterDimension(member, actor, evaluationAt),
     ]);
     const dimensions = [
       buildProfileDimension(member),
       trainingDimension,
-      buildDocumentDimension(member, actor, evaluationAt),
+      documentDimension,
       availabilityDimension,
       rosterDimension
     ];

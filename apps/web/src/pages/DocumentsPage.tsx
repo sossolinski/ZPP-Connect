@@ -22,6 +22,7 @@ type DocumentSummary = AnyRecord & {
   activeRequirementCount?: number;
   acknowledgementCount?: number;
   outstandingCount?: number;
+  version: number;
 };
 
 type DocumentVersion = AnyRecord & {
@@ -37,6 +38,15 @@ type DocumentVersion = AnyRecord & {
   effectiveFrom?: string | null;
   reviewDueAt?: string | null;
   publishedAt?: string | null;
+  publishedById?: string | null;
+  withdrawnAt?: string | null;
+  withdrawnById?: string | null;
+  withdrawReason?: string | null;
+  requirementCount?: number;
+  acknowledgementCount?: number;
+  outstandingCount?: number;
+  basePublishedVersionId?: string | null;
+  version: number;
   updatedAt: string;
 };
 
@@ -51,9 +61,12 @@ type DocumentRequirement = AnyRecord & {
   groupId?: string;
   memberProfileId?: string;
   targetLabel: string;
+  target?: { member?: MemberOption; group?: GroupOption };
   acknowledgementRequired: boolean;
   dueAt?: string | null;
   active: boolean;
+  effective: boolean;
+  recordVersion: number;
   updatedAt: string;
 };
 
@@ -70,7 +83,7 @@ type PersonalDocument = AnyRecord & {
   contentMode: "Internal text" | "External link";
   contentAvailable: boolean;
   dueAt?: string | null;
-  status: "Required" | "Overdue" | "Acknowledged";
+  status: "Awareness" | "Required" | "Overdue" | "Acknowledged";
   acknowledgedAt?: string | null;
   reasons: Array<{ id: string; label: string; targetType: string }>;
   canAcknowledge: boolean;
@@ -84,7 +97,8 @@ type DrawerState =
   | { type: "document"; mode: "create" | "edit"; document?: DocumentSummary }
   | { type: "versions"; document: DocumentSummary }
   | { type: "version"; mode: "create" | "edit"; documentId: string; version?: DocumentVersion }
-  | { type: "requirement"; mode: "create" | "edit"; requirement?: DocumentRequirement };
+  | { type: "requirement"; mode: "create" | "edit"; requirement?: DocumentRequirement }
+  | { type: "acknowledge-behalf"; requirement: DocumentRequirement };
 
 const targetTypes = ["Role", "Group", "MemberProfile"] as const;
 const roleTargets = ["ZPP Member", "TEC Member", "ZPP Group Leader", "TEC Group Leader", "ZPP Coordinator", "TEC Coordinator", "Family Assistance", "Welfare Support", "Rostering"];
@@ -184,6 +198,7 @@ export function DocumentsPage() {
   const canManageVersions = can("document:version:manage");
   const canPublish = can("document:publish");
   const canManageRequirements = can("document:requirement:manage");
+  const canAcknowledgeAll = can("document:acknowledge-all");
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
@@ -195,6 +210,8 @@ export function DocumentsPage() {
   const [acknowledgements, setAcknowledgements] = useState<AnyRecord[]>([]);
   const [members, setMembers] = useState<MemberOption[]>([]);
   const [groups, setGroups] = useState<GroupOption[]>([]);
+  const [memberLookup, setMemberLookup] = useState("");
+  const [groupLookup, setGroupLookup] = useState("");
   const [linkedMember, setLinkedMember] = useState<AnyRecord | null>(null);
   const [versionRows, setVersionRows] = useState<DocumentVersion[]>([]);
   const [contentRecord, setContentRecord] = useState<AnyRecord | null>(null);
@@ -206,6 +223,15 @@ export function DocumentsPage() {
   const [versionBaseline, setVersionBaseline] = useState(blankVersionForm);
   const [requirementForm, setRequirementForm] = useState(blankRequirementForm);
   const [requirementBaseline, setRequirementBaseline] = useState(blankRequirementForm);
+  const [behalfForm, setBehalfForm] = useState({ memberProfileId: "", note: "" });
+  const [documentOffset, setDocumentOffset] = useState(0);
+  const [requirementOffset, setRequirementOffset] = useState(0);
+  const [acknowledgementOffset, setAcknowledgementOffset] = useState(0);
+  const [documentTotal, setDocumentTotal] = useState(0);
+  const [requirementTotal, setRequirementTotal] = useState(0);
+  const [acknowledgementTotal, setAcknowledgementTotal] = useState(0);
+  const [totals, setTotals] = useState<AnyRecord>({});
+  const pageSize = 50;
 
   const publishedVersionOptions = useMemo(
     () => documents
@@ -215,16 +241,12 @@ export function DocumentsPage() {
   );
 
   const filteredDocuments = useMemo(() => {
-    const needle = search.trim().toLowerCase();
-    if (!needle) return documents;
-    return documents.filter((document) => [document.title, document.code, document.category, document.ownerFunction].some((value) => String(value ?? "").toLowerCase().includes(needle)));
-  }, [documents, search]);
+    return documents;
+  }, [documents]);
 
   const filteredPersonalDocuments = useMemo(() => {
-    const needle = search.trim().toLowerCase();
-    if (!needle) return personalDocuments;
-    return personalDocuments.filter((document) => [document.title, document.code, document.category, document.ownerFunction, document.status].some((value) => String(value ?? "").toLowerCase().includes(needle)));
-  }, [personalDocuments, search]);
+    return personalDocuments;
+  }, [personalDocuments]);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -232,23 +254,29 @@ export function DocumentsPage() {
     try {
       if (canReadAll) {
         const [documentList, requirementList, acknowledgementList, memberList, groupList] = await Promise.all([
-          api.documents(),
-          api.documentRequirements().catch(() => ({ total: 0, data: [] })),
-          api.documentAcknowledgements().catch(() => ({ total: 0, data: [] })),
-          api.memberProfiles({ limit: 200 }).catch(() => ({ total: 0, data: [] })),
-          api.groups({ limit: 200 }).catch(() => ({ total: 0, data: [] }))
+          api.documentsPage({ search: search || undefined, limit: pageSize, offset: documentOffset }),
+          api.documentRequirementsPage({ limit: pageSize, offset: requirementOffset }).catch(() => ({ total: 0, data: [] })),
+          api.documentAcknowledgementsPage({ limit: pageSize, offset: acknowledgementOffset }).catch(() => ({ total: 0, data: [] })),
+          api.memberProfilesPage({ status: "Active", limit: 50, offset: 0 }).catch(() => ({ total: 0, data: [] })),
+          api.groupsPage({ status: "Active", limit: 50, offset: 0 }).catch(() => ({ total: 0, data: [] }))
         ]);
         setDocuments(documentList.data as DocumentSummary[]);
         setRequirements(requirementList.data as DocumentRequirement[]);
         setAcknowledgements(acknowledgementList.data);
+        setDocumentTotal(documentList.total ?? documentList.data.length);
+        setRequirementTotal(requirementList.total ?? requirementList.data.length);
+        setAcknowledgementTotal(acknowledgementList.total ?? acknowledgementList.data.length);
+        setTotals((documentList as AnyRecord).totals ?? {});
         setMembers(memberList.data as MemberOption[]);
         setGroups(groupList.data as GroupOption[]);
         setPersonalDocuments([]);
         setLinkedMember(null);
       } else {
-        const personal = await api.documents({ mine: true });
+        const personal = await api.documentsPage({ mine: true, search: search || undefined, limit: pageSize, offset: documentOffset });
         setPersonalDocuments(personal.data as PersonalDocument[]);
         setLinkedMember((personal as AnyRecord).linkedMemberProfile ?? null);
+        setDocumentTotal(personal.total ?? personal.data.length);
+        setTotals((personal as AnyRecord).totals ?? {});
         setDocuments([]);
         setRequirements([]);
         setAcknowledgements([]);
@@ -260,11 +288,30 @@ export function DocumentsPage() {
     } finally {
       setLoading(false);
     }
-  }, [canReadAll]);
+  }, [acknowledgementOffset, canReadAll, documentOffset, requirementOffset, search]);
 
   useEffect(() => {
-    void load();
+    const timeout = window.setTimeout(() => void load(), 200);
+    return () => window.clearTimeout(timeout);
   }, [load]);
+
+  useEffect(() => {
+    if (drawer?.type !== "requirement" && drawer?.type !== "acknowledge-behalf") return;
+    const timeout = window.setTimeout(() => {
+      void Promise.all([
+        api.memberProfilesPage({ status: "Active", search: memberLookup || undefined, limit: 50, offset: 0 }),
+        api.groupsPage({ status: "Active", search: groupLookup || undefined, limit: 50, offset: 0 }),
+      ]).then(([memberResult, groupResult]) => {
+        const selectedMember = drawer.type === "requirement" ? drawer.requirement?.target?.member : drawer.requirement.target?.member;
+        const selectedGroup = drawer.type === "requirement" ? drawer.requirement?.target?.group : drawer.requirement.target?.group;
+        const nextMembers = memberResult.data as MemberOption[];
+        const nextGroups = groupResult.data as GroupOption[];
+        setMembers(selectedMember && !nextMembers.some((member) => member.id === selectedMember.id) ? [selectedMember, ...nextMembers] : nextMembers);
+        setGroups(selectedGroup && !nextGroups.some((group) => group.id === selectedGroup.id) ? [selectedGroup, ...nextGroups] : nextGroups);
+      }).catch((err) => setDrawerError(errorMessage(err)));
+    }, 250);
+    return () => window.clearTimeout(timeout);
+  }, [drawer?.type, groupLookup, memberLookup]);
 
   const reloadAfter = async (message: string) => {
     await load();
@@ -316,8 +363,21 @@ export function DocumentsPage() {
     );
     setRequirementForm(next);
     setRequirementBaseline(next);
+    setMemberLookup("");
+    setGroupLookup("");
     setDrawerError("");
+    if (requirement?.target?.member && !members.some((member) => member.id === requirement.target!.member!.id)) setMembers((current) => [requirement.target!.member!, ...current]);
+    if (requirement?.target?.group && !groups.some((group) => group.id === requirement.target!.group!.id)) setGroups((current) => [requirement.target!.group!, ...current]);
     setDrawer({ type: "requirement", mode, requirement });
+  };
+
+  const openOnBehalfDrawer = (requirement: DocumentRequirement) => {
+    const selected = requirement.targetType === "MemberProfile" ? requirement.memberProfileId ?? "" : "";
+    if (requirement.target?.member && !members.some((member) => member.id === requirement.target!.member!.id)) setMembers((current) => [requirement.target!.member!, ...current]);
+    setBehalfForm({ memberProfileId: selected, note: "" });
+    setMemberLookup("");
+    setDrawerError("");
+    setDrawer({ type: "acknowledge-behalf", requirement });
   };
 
   const openContent = async (versionId: string, title: string, obligation?: PersonalDocument) => {
@@ -337,7 +397,7 @@ export function DocumentsPage() {
     setDrawerError("");
     try {
       if (drawer.mode === "edit" && drawer.document) {
-        await api.updateDocument(drawer.document.id, { ...documentForm, expectedUpdatedAt: drawer.document.updatedAt });
+        await api.updateDocument(drawer.document.id, { ...documentForm, expectedVersion: drawer.document.version });
         setDrawer(null);
         await reloadAfter("Document updated");
       } else {
@@ -356,8 +416,8 @@ export function DocumentsPage() {
     setSaving(true);
     setDrawerError("");
     try {
-      if (document.active) await api.archiveDocument(document.id, { expectedUpdatedAt: document.updatedAt });
-      else await api.reactivateDocument(document.id, { expectedUpdatedAt: document.updatedAt });
+      if (document.active) await api.archiveDocument(document.id, { expectedVersion: document.version });
+      else await api.reactivateDocument(document.id, { expectedVersion: document.version });
       setDrawer(null);
       await reloadAfter(document.active ? "Document archived" : "Document updated");
     } catch (err) {
@@ -378,7 +438,7 @@ export function DocumentsPage() {
         externalUrl: versionForm.contentMode === "External link" ? versionForm.externalUrl : ""
       };
       if (drawer.mode === "edit" && drawer.version) {
-        await api.updateDocumentVersion(drawer.version.id, { ...body, expectedUpdatedAt: drawer.version.updatedAt });
+        await api.updateDocumentVersion(drawer.version.id, { ...body, expectedVersion: drawer.version.version });
         setDrawer(null);
         await reloadAfter("Document version updated");
       } else {
@@ -396,11 +456,21 @@ export function DocumentsPage() {
   };
 
   const publishVersion = async (version: DocumentVersion) => {
+    const document = documents.find((item) => item.id === version.documentId);
+    const current = document?.currentVersion;
+    const confirmed = window.confirm([
+      `Publish ${version.versionLabel}?`,
+      `Current published version: ${current?.versionLabel ?? "None"}`,
+      `Active requirements: ${current?.requirementCount ?? document?.activeRequirementCount ?? 0}`,
+      `Acknowledgements: ${current?.acknowledgementCount ?? document?.acknowledgementCount ?? 0}`,
+      `Outstanding acknowledgements: ${current?.outstandingCount ?? document?.outstandingCount ?? 0}`,
+      "Requirements do not automatically carry forward to the new version.",
+    ].join("\n\n"));
+    if (!confirmed) return;
     setSaving(true);
     setDrawerError("");
     try {
-      await api.publishDocumentVersion(version.id, { expectedUpdatedAt: version.updatedAt });
-      const document = documents.find((item) => item.id === version.documentId);
+      await api.publishDocumentVersion(version.id, { expectedVersion: version.version, operationId: crypto.randomUUID(), expectedCurrentPublishedVersionId: current?.id ?? null });
       if (document) {
         const list = await api.documentVersions(document.id);
         setVersionRows(list.data as DocumentVersion[]);
@@ -414,10 +484,12 @@ export function DocumentsPage() {
   };
 
   const withdrawVersion = async (version: DocumentVersion) => {
+    const reason = version.status === "Published" ? window.prompt("Reason for withdrawing this published version:")?.trim() : "Draft withdrawn";
+    if (version.status === "Published" && (!reason || reason.length < 3)) return;
     setSaving(true);
     setDrawerError("");
     try {
-      await api.withdrawDocumentVersion(version.id, { expectedUpdatedAt: version.updatedAt });
+      await api.withdrawDocumentVersion(version.id, { expectedVersion: version.version, operationId: crypto.randomUUID(), reason });
       const list = await api.documentVersions(version.documentId);
       setVersionRows(list.data as DocumentVersion[]);
       await reloadAfter("Document version withdrawn");
@@ -440,7 +512,7 @@ export function DocumentsPage() {
         memberProfileId: requirementForm.targetType === "MemberProfile" ? requirementForm.memberProfileId : ""
       };
       if (drawer.mode === "edit" && drawer.requirement) {
-        await api.updateDocumentRequirement(drawer.requirement.id, { ...body, expectedUpdatedAt: drawer.requirement.updatedAt });
+        await api.updateDocumentRequirement(drawer.requirement.id, { ...body, expectedVersion: drawer.requirement.recordVersion });
         setDrawer(null);
         await reloadAfter("Document requirement updated");
       } else {
@@ -459,7 +531,7 @@ export function DocumentsPage() {
     setSaving(true);
     setDrawerError("");
     try {
-      await api.endDocumentRequirement(requirement.id, { expectedUpdatedAt: requirement.updatedAt });
+      await api.endDocumentRequirement(requirement.id, { expectedVersion: requirement.recordVersion, operationId: crypto.randomUUID() });
       setDrawer(null);
       await reloadAfter("Document requirement ended");
     } catch (err) {
@@ -473,7 +545,7 @@ export function DocumentsPage() {
     setSaving(true);
     setDrawerError("");
     try {
-      await api.acknowledgeDocumentVersion(obligation.documentVersionId);
+      await api.acknowledgeDocumentVersion(obligation.documentVersionId, { operationId: crypto.randomUUID() });
       setDrawer(null);
       await reloadAfter("Document acknowledged");
     } catch (err) {
@@ -483,9 +555,24 @@ export function DocumentsPage() {
     }
   };
 
+  const acknowledgeOnBehalf = async () => {
+    if (drawer?.type !== "acknowledge-behalf") return;
+    setSaving(true);
+    setDrawerError("");
+    try {
+      await api.acknowledgeDocumentVersion(drawer.requirement.documentVersionId, { operationId: crypto.randomUUID(), memberProfileId: behalfForm.memberProfileId, onBehalf: true, note: behalfForm.note });
+      setDrawer(null);
+      await reloadAfter("Document acknowledged on behalf of member");
+    } catch (err) {
+      setDrawerError(errorMessage(err));
+    } finally {
+      setSaving(false);
+    }
+  };
+
   const totalOutstanding = canReadAll
-    ? documents.reduce((sum, document) => sum + Number(document.outstandingCount ?? 0), 0)
-    : personalDocuments.filter((document) => document.status !== "Acknowledged").length;
+    ? Number(totals.outstanding ?? 0)
+    : Number(totals.outstanding ?? 0);
 
   return (
     <>
@@ -504,9 +591,9 @@ export function DocumentsPage() {
         ) : canReadAll ? (
           <>
             <div className="grid gap-3 md:grid-cols-4">
-              <Card><div className="p-4"><p className="text-xs font-black uppercase text-muted-foreground">Documents</p><p className="mt-2 text-3xl font-black">{documents.length}</p></div></Card>
-              <Card><div className="p-4"><p className="text-xs font-black uppercase text-muted-foreground">Published</p><p className="mt-2 text-3xl font-black">{documents.filter((document) => document.currentVersion).length}</p></div></Card>
-              <Card><div className="p-4"><p className="text-xs font-black uppercase text-muted-foreground">Requirements</p><p className="mt-2 text-3xl font-black">{requirements.filter((requirement) => requirement.active).length}</p></div></Card>
+              <Card><div className="p-4"><p className="text-xs font-black uppercase text-muted-foreground">Documents</p><p className="mt-2 text-3xl font-black">{totals.documents ?? documentTotal}</p></div></Card>
+              <Card><div className="p-4"><p className="text-xs font-black uppercase text-muted-foreground">Published</p><p className="mt-2 text-3xl font-black">{totals.published ?? 0}</p></div></Card>
+              <Card><div className="p-4"><p className="text-xs font-black uppercase text-muted-foreground">Requirements</p><p className="mt-2 text-3xl font-black">{totals.requirements ?? requirementTotal}</p></div></Card>
               <Card><div className="p-4"><p className="text-xs font-black uppercase text-muted-foreground">To acknowledge</p><p className="mt-2 text-3xl font-black">{totalOutstanding}</p></div></Card>
             </div>
 
@@ -517,7 +604,7 @@ export function DocumentsPage() {
                 action={canManageDocuments ? <Button variant="create" icon={Plus} onClick={() => openDocumentDrawer("create")}>New document</Button> : null}
               />
               <div className="grid gap-4 p-4">
-                <Field label="Search documents"><Input aria-label="Search documents" value={search} placeholder="Title, code, category, owner" onChange={(event) => setSearch(event.target.value)} /></Field>
+                <Field label="Search documents"><Input aria-label="Search documents" value={search} placeholder="Title, code, category, owner" onChange={(event) => { setDocumentOffset(0); setSearch(event.target.value); }} /></Field>
                 <Table
                   rows={filteredDocuments}
                   minWidth="min-w-[1000px] w-full"
@@ -543,6 +630,13 @@ export function DocumentsPage() {
                     { key: "status", label: "State", render: (row) => <StatusBadge value={(row as DocumentSummary).status} /> }
                   ]}
                 />
+                <div className="flex items-center justify-between gap-3">
+                  <span className="text-sm font-bold text-muted-foreground">{documentTotal ? documentOffset + 1 : 0}–{Math.min(documentOffset + documents.length, documentTotal)} of {documentTotal}</span>
+                  <div className="flex gap-2">
+                    <Button size="sm" variant="secondary" disabled={documentOffset === 0 || loading} onClick={() => setDocumentOffset((value) => Math.max(0, value - pageSize))}>Previous</Button>
+                    <Button size="sm" variant="secondary" disabled={documentOffset + pageSize >= documentTotal || loading} onClick={() => setDocumentOffset((value) => value + pageSize)}>Next</Button>
+                  </div>
+                </div>
               </div>
             </Card>
 
@@ -559,7 +653,8 @@ export function DocumentsPage() {
                     minWidth="min-w-[820px] w-full"
                     emptyTitle="No document requirements found"
                     emptyDetail="Required documents will appear here when they are assigned."
-                    rowAction={canManageRequirements ? (row) => <Button size="sm" variant="secondary" icon={Edit3} onClick={() => openRequirementDrawer("edit", row as DocumentRequirement)}>Edit</Button> : undefined}
+                    rowAction={(row) => { const requirement = row as DocumentRequirement; return <div className="flex flex-wrap justify-end gap-2">{canAcknowledgeAll && requirement.active && requirement.acknowledgementRequired ? <Button size="sm" variant="create" icon={CheckCircle2} onClick={() => openOnBehalfDrawer(requirement)}>Acknowledge on behalf</Button> : null}{canManageRequirements ? <Button size="sm" variant="secondary" icon={Edit3} onClick={() => openRequirementDrawer("edit", requirement)}>Edit</Button> : null}</div>; }}
+                    actionWidth="w-64"
                     columns={[
                       { key: "document", label: "Document", render: (row) => <div><p className="font-black">{(row as DocumentRequirement).document.title}</p><p className="text-xs font-bold text-muted-foreground">{(row as DocumentRequirement).version.versionLabel}</p></div> },
                       { key: "targetLabel", label: "Target", render: (row) => `${(row as DocumentRequirement).targetType}: ${(row as DocumentRequirement).targetLabel}` },
@@ -567,6 +662,10 @@ export function DocumentsPage() {
                       { key: "active", label: "State", render: (row) => <StatusBadge value={(row as DocumentRequirement).active ? "Active" : "Ended"} /> }
                     ]}
                   />
+                  <div className="mt-3 flex items-center justify-between gap-3">
+                    <span className="text-sm font-bold text-muted-foreground">{requirementTotal ? requirementOffset + 1 : 0}–{Math.min(requirementOffset + requirements.length, requirementTotal)} of {requirementTotal}</span>
+                    <div className="flex gap-2"><Button size="sm" variant="secondary" disabled={requirementOffset === 0 || loading} onClick={() => setRequirementOffset((value) => Math.max(0, value - pageSize))}>Previous</Button><Button size="sm" variant="secondary" disabled={requirementOffset + pageSize >= requirementTotal || loading} onClick={() => setRequirementOffset((value) => value + pageSize)}>Next</Button></div>
+                  </div>
                 </div>
               </Card>
 
@@ -581,9 +680,14 @@ export function DocumentsPage() {
                     columns={[
                       { key: "member", label: "Member", render: (row) => (row as AnyRecord).member?.displayName ?? "" },
                       { key: "document", label: "Document", render: (row) => <div><p className="font-black">{(row as AnyRecord).document?.title}</p><p className="text-xs font-bold text-muted-foreground">{(row as AnyRecord).version?.versionLabel}</p></div> },
-                      { key: "acknowledgedAt", label: "Acknowledged", render: (row) => formatDateTime((row as AnyRecord).acknowledgedAt) }
+                      { key: "acknowledgedAt", label: "Acknowledged", render: (row) => formatDateTime((row as AnyRecord).acknowledgedAt) },
+                      { key: "onBehalf", label: "Mode / evidence", render: (row) => { const acknowledgement = row as AnyRecord; return <div><p className="font-bold">{acknowledgement.onBehalf ? `On behalf · actor ${acknowledgement.acknowledgedById}` : "Self acknowledgement"}</p><p className="text-xs font-bold text-muted-foreground">{acknowledgement.legacyImported ? "Legacy evidence unavailable" : `Sources: ${acknowledgement.sourceRequirementIds?.join(", ") || "None"}`}</p></div>; } }
                     ]}
                   />
+                  <div className="mt-3 flex items-center justify-between gap-3">
+                    <span className="text-sm font-bold text-muted-foreground">{acknowledgementTotal ? acknowledgementOffset + 1 : 0}–{Math.min(acknowledgementOffset + acknowledgements.length, acknowledgementTotal)} of {acknowledgementTotal}</span>
+                    <div className="flex gap-2"><Button size="sm" variant="secondary" disabled={acknowledgementOffset === 0 || loading} onClick={() => setAcknowledgementOffset((value) => Math.max(0, value - pageSize))}>Previous</Button><Button size="sm" variant="secondary" disabled={acknowledgementOffset + pageSize >= acknowledgementTotal || loading} onClick={() => setAcknowledgementOffset((value) => value + pageSize)}>Next</Button></div>
+                  </div>
                 </div>
               </Card>
             </div>
@@ -595,7 +699,7 @@ export function DocumentsPage() {
               description={linkedMember ? `${linkedMember.displayName} · ${linkedMember.memberId}` : "Your linked member profile controls this list."}
             />
             <div className="grid gap-4 p-4">
-              <Field label="Search my documents"><Input aria-label="Search my documents" value={search} placeholder="Title, code, category" onChange={(event) => setSearch(event.target.value)} /></Field>
+              <Field label="Search my documents"><Input aria-label="Search my documents" value={search} placeholder="Title, code, category" onChange={(event) => { setDocumentOffset(0); setSearch(event.target.value); }} /></Field>
               {!linkedMember ? (
                 <EmptyState title="No linked member profile" detail="Ask a coordinator to link your account before personal documents appear." />
               ) : filteredPersonalDocuments.length ? (
@@ -629,6 +733,10 @@ export function DocumentsPage() {
               ) : (
                 <EmptyState title="No documents assigned" detail="Required documents will appear here when they are assigned to your profile, group or role." />
               )}
+              <div className="flex items-center justify-between gap-3">
+                <span className="text-sm font-bold text-muted-foreground">{documentTotal ? documentOffset + 1 : 0}–{Math.min(documentOffset + personalDocuments.length, documentTotal)} of {documentTotal}</span>
+                <div className="flex gap-2"><Button size="sm" variant="secondary" disabled={documentOffset === 0 || loading} onClick={() => setDocumentOffset((value) => Math.max(0, value - pageSize))}>Previous</Button><Button size="sm" variant="secondary" disabled={documentOffset + pageSize >= documentTotal || loading} onClick={() => setDocumentOffset((value) => value + pageSize)}>Next</Button></div>
+              </div>
             </div>
           </Card>
         )}
@@ -655,7 +763,7 @@ export function DocumentsPage() {
             {contentRecord?.contentMode === "Internal text" ? (
               <div className="whitespace-pre-wrap rounded-lg border border-border bg-muted p-4 text-sm font-semibold leading-7 text-foreground">{contentRecord.contentBody}</div>
             ) : contentRecord?.externalUrl ? (
-              <a className="focus-ring inline-flex items-center gap-2 rounded-md border border-border bg-muted px-3 py-2 text-sm font-black text-foreground hover:bg-card" href={contentRecord.externalUrl} target="_blank" rel="noreferrer">
+              <a className="focus-ring inline-flex items-center gap-2 rounded-md border border-border bg-muted px-3 py-2 text-sm font-black text-foreground hover:bg-card" href={contentRecord.externalUrl} target="_blank" rel="noopener noreferrer">
                 <ExternalLink className="h-4 w-4" />
                 Open external document
               </a>
@@ -751,7 +859,7 @@ export function DocumentsPage() {
                 { key: "versionLabel", label: "Version", render: (row) => <div><p className="font-black">{(row as DocumentVersion).versionLabel}</p><p className="text-xs font-bold text-muted-foreground">{(row as DocumentVersion).changeSummary || "No summary"}</p></div> },
                 { key: "status", label: "State", render: (row) => <StatusBadge value={(row as DocumentVersion).status} /> },
                 { key: "contentMode", label: "Content" },
-                { key: "publishedAt", label: "Published", render: (row) => formatDateTime((row as DocumentVersion).publishedAt) },
+                { key: "publishedAt", label: "Published / withdrawn", render: (row) => { const version = row as DocumentVersion; return <div><p>{version.publishedAt ? `${formatDateTime(version.publishedAt)} · ${version.publishedById ?? "actor unavailable"}` : "Not published"}</p>{version.withdrawnAt ? <p className="text-xs font-bold text-muted-foreground">Withdrawn {formatDateTime(version.withdrawnAt)} · {version.withdrawnById ?? "actor unavailable"}{version.withdrawReason ? ` · ${version.withdrawReason}` : ""}</p> : null}</div>; } },
                 { key: "reviewDueAt", label: "Review due", render: (row) => formatDateTime((row as DocumentVersion).reviewDueAt) }
               ]}
             />
@@ -794,7 +902,7 @@ export function DocumentsPage() {
               {versionForm.contentMode === "Internal text" ? (
                 <Field label="Content" required><Textarea className="min-h-48" value={versionForm.contentBody} onChange={(event) => setVersionForm((form) => ({ ...form, contentBody: event.target.value }))} /></Field>
               ) : (
-                <Field label="External link" required><Input value={versionForm.externalUrl} onChange={(event) => setVersionForm((form) => ({ ...form, externalUrl: event.target.value }))} /></Field>
+                <Field label="External link" required><Input type="url" inputMode="url" value={versionForm.externalUrl} onChange={(event) => setVersionForm((form) => ({ ...form, externalUrl: event.target.value }))} /></Field>
               )}
             </div>
             <div className="border-t border-border bg-card p-4">
@@ -844,19 +952,21 @@ export function DocumentsPage() {
                     </Select>
                   </Field>
                 ) : requirementForm.targetType === "Group" ? (
-                  <Field label="Group" required>
-                    <Select value={requirementForm.groupId} onChange={(event) => setRequirementForm((form) => ({ ...form, groupId: event.target.value }))}>
-                      <option value="">Select group</option>
-                      {groups.map((group) => <option key={group.id} value={group.id}>{group.name} · {group.memberCount ?? 0} members</option>)}
-                    </Select>
-                  </Field>
+                  <div className="grid content-start gap-3">
+                    <Field label="Find group"><Input aria-label="Search groups" value={groupLookup} placeholder="Search groups" onChange={(event) => setGroupLookup(event.target.value)} /></Field>
+                    <Field label="Group" required><Select value={requirementForm.groupId} onChange={(event) => setRequirementForm((form) => ({ ...form, groupId: event.target.value }))}>
+                        <option value="">Select group</option>
+                        {groups.map((group) => <option key={group.id} value={group.id}>{group.name} · {group.memberCount ?? 0} members</option>)}
+                      </Select></Field>
+                  </div>
                 ) : (
-                  <Field label="Member" required>
-                    <Select value={requirementForm.memberProfileId} onChange={(event) => setRequirementForm((form) => ({ ...form, memberProfileId: event.target.value }))}>
-                      <option value="">Select member</option>
-                      {members.map((member) => <option key={member.id} value={member.id}>{member.displayName} · {member.memberId}</option>)}
-                    </Select>
-                  </Field>
+                  <div className="grid content-start gap-3">
+                    <Field label="Find member"><Input aria-label="Search members" value={memberLookup} placeholder="Search members" onChange={(event) => setMemberLookup(event.target.value)} /></Field>
+                    <Field label="Member" required><Select value={requirementForm.memberProfileId} onChange={(event) => setRequirementForm((form) => ({ ...form, memberProfileId: event.target.value }))}>
+                        <option value="">Select member</option>
+                        {members.map((member) => <option key={member.id} value={member.id}>{member.displayName} · {member.memberId}</option>)}
+                      </Select></Field>
+                  </div>
                 )}
                 <Field label="Due"><Input type="datetime-local" value={requirementForm.dueAt} onChange={(event) => setRequirementForm((form) => ({ ...form, dueAt: event.target.value }))} /></Field>
                 <label className="flex items-center gap-2 self-end rounded-md border border-border bg-muted px-3 py-2 text-sm font-bold text-foreground">
@@ -871,6 +981,34 @@ export function DocumentsPage() {
               ) : <span />}
               <Button type="submit" variant="create" icon={CheckCircle2} disabled={saving}>{saving ? "Saving..." : "Save requirement"}</Button>
             </div>
+          </form>
+        </DialogSurface>
+      ) : null}
+
+      {drawer?.type === "acknowledge-behalf" ? (
+        <DialogSurface
+          title="Acknowledge on behalf"
+          onClose={() => setDrawer(null)}
+          busy={saving}
+          dirty={Boolean(behalfForm.memberProfileId || behalfForm.note)}
+          initialFocus="first-control"
+          className="fixed inset-y-0 right-0 z-50 flex w-full max-w-2xl flex-col border-l border-border bg-card text-foreground shadow-2xl"
+        >
+          <form className="flex min-h-0 flex-1 flex-col" onSubmit={(event) => { event.preventDefault(); void acknowledgeOnBehalf(); }}>
+            <div className="border-b border-border p-5">
+              <div className="flex items-start justify-between gap-3">
+                <div><h2 data-dialog-heading="true" tabIndex={-1} className="text-xl font-black text-foreground">Acknowledge on behalf</h2><p className="mt-1 text-sm font-semibold text-muted-foreground">{drawer.requirement.document.title} · {drawer.requirement.version.versionLabel}</p></div>
+                <Button variant="ghost" type="button" onClick={() => setDrawer(null)}>Close</Button>
+              </div>
+            </div>
+            <div className="scrollbar-soft grid flex-1 content-start gap-4 overflow-y-auto p-5">
+              <AlertBox tone="warning">This records the authenticated actor separately from the member and cannot be edited or deleted.</AlertBox>
+              <ErrorSummary title="Acknowledgement could not be recorded" errors={drawerError ? [{ message: drawerError }] : []} />
+              <Field label="Find member"><Input data-dialog-initial-focus="true" aria-label="Search members for acknowledgement" value={memberLookup} placeholder="Name or member ID" onChange={(event) => setMemberLookup(event.target.value)} /></Field>
+              <Field label="Member" required><Select value={behalfForm.memberProfileId} onChange={(event) => setBehalfForm((form) => ({ ...form, memberProfileId: event.target.value }))}><option value="">Select member</option>{members.map((member) => <option key={member.id} value={member.id}>{member.displayName} · {member.memberId}</option>)}</Select></Field>
+              <Field label="Reason / note" required><Textarea value={behalfForm.note} onChange={(event) => setBehalfForm((form) => ({ ...form, note: event.target.value }))} /></Field>
+            </div>
+            <div className="border-t border-border bg-card p-4"><Button type="submit" variant="create" icon={CheckCircle2} disabled={saving || !behalfForm.memberProfileId || behalfForm.note.trim().length < 3} className="w-full">{saving ? "Saving..." : "Record acknowledgement"}</Button></div>
           </form>
         </DialogSurface>
       ) : null}

@@ -1,4 +1,4 @@
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { PrismaClient } from "@prisma/client";
 import { defaultOrganizations, defaultProfile, defaultRoles, dictionaries } from "@zpp/shared";
 
@@ -336,6 +336,77 @@ async function seedTraining(input: { adminId: string; coordinatorId: string; zpp
   await prisma.$queryRaw`SELECT setval('"MemberTrainingRecord_id_seq"', GREATEST(COALESCE((SELECT MAX(substring("id" FROM '([0-9]+)$')::BIGINT) FROM "MemberTrainingRecord"), 0) + 1, 1), false)`;
 }
 
+async function seedDocuments(input: { adminId: string; zppId: string }) {
+  const timestamp = new Date("2026-07-09T09:00:00.000Z");
+  const documents = [
+    ["doc-2026-000001", "ERP-ROLE-CARDS", "ERP Role Cards", "Role cards for response functions during an active session.", "Coordination", "Crisis Coordination", true, null],
+    ["doc-2026-000002", "TEC-CALL-GUIDE", "TEC Call Intake Guide", "Call intake guidance for enquiries without disclosing passenger or casualty status.", "TEC", "Telephone Enquiry Center", true, null],
+    ["doc-2026-000003", "FAC-HANDOVER", "Family Assistance Handover", "Handover notes and minimum briefing content for FAC teams.", "Family Assistance", "Family Assistance Team", true, null],
+    ["doc-2026-000004", "DATA-SENSITIVE", "Sensitive Data Handling", "Rules for protecting passenger, crew and family information.", "Data Protection", "Data Protection", true, null],
+    ["doc-2026-000005", "ROSTER-BRIEF", "Roster Coverage Briefing", "Draft briefing format for roster coverage reviews.", "Rostering", "Member Rostering", true, null],
+    ["doc-2026-000006", "AIRPORT-RECEPTION", "Airport Reception Checklist", "Historical checklist retained for reference.", "Airport Support", "Airport Support", false, "2026-07-01T09:00:00.000Z"],
+  ] as const;
+  for (const [id, code, title, description, category, ownerFunction, active, archivedAt] of documents) {
+    const data = { code, normalizedCode: code, title, description, category, ownerFunction, active, archivedAt: archivedAt ? new Date(archivedAt) : null, legacyImported: true, legacyMetadata: { provenance: "memory-seed" }, createdById: input.adminId, updatedById: input.adminId };
+    await prisma.document.upsert({ where: { id }, update: data, create: { id, ...data, createdAt: timestamp, updatedAt: timestamp } });
+  }
+
+  const roleCardsV1 = "Earlier role-card guidance retained for audit history.";
+  const roleCardsV2 = [
+    "Use these role cards before taking work in a specialist queue.", "", "1. Confirm the active session and your assigned function.",
+    "2. Open your own work queue before searching wider records.", "3. Escalate anything that involves disclosure, identity uncertainty or a welfare risk.",
+    "4. Leave a concise handover note when work moves to another person.",
+  ].join("\n");
+  const tecGuide = "Capture who is calling, how to contact them, what they reported and whether support action is needed. Do not confirm passenger, casualty or NOK status from this workflow.";
+  const facHandover = "Before handover, record the family reference, agreed next contact, open welfare needs, owner and any disclosure restriction. Keep handover notes concise and suitable for the next response member.";
+  const versions = [
+    { id: "dver-2026-000001", documentId: "doc-2026-000001", versionLabel: "v1.0", status: "Superseded", changeSummary: "Initial role-card set.", effectiveFrom: "2026-05-01T08:00:00.000Z", reviewDueAt: "2026-08-01T08:00:00.000Z", publishedAt: "2026-05-01T08:00:00.000Z", publishedById: input.adminId, contentMode: "Internal text", contentBody: roleCardsV1, externalUrl: null, basePublishedVersionId: null, actorId: input.adminId },
+    { id: "dver-2026-000002", documentId: "doc-2026-000001", versionLabel: "v2.0", status: "Published", changeSummary: "Clarifies first action, escalation and handover checks.", effectiveFrom: "2026-07-09T08:00:00.000Z", reviewDueAt: "2026-10-01T08:00:00.000Z", publishedAt: "2026-07-09T08:00:00.000Z", publishedById: input.adminId, contentMode: "Internal text", contentBody: roleCardsV2, externalUrl: null, basePublishedVersionId: "dver-2026-000001", actorId: input.adminId },
+    { id: "dver-2026-000003", documentId: "doc-2026-000002", versionLabel: "v1.1", status: "Published", changeSummary: "Adds caller-contact confirmation before enquiry save.", effectiveFrom: "2026-07-09T08:00:00.000Z", reviewDueAt: "2026-09-15T08:00:00.000Z", publishedAt: "2026-07-09T08:00:00.000Z", publishedById: input.adminId, contentMode: "Internal text", contentBody: tecGuide, externalUrl: null, basePublishedVersionId: null, actorId: input.adminId },
+    { id: "dver-2026-000004", documentId: "doc-2026-000003", versionLabel: "v1.0", status: "Published", changeSummary: "First controlled handover guide.", effectiveFrom: "2026-07-09T08:00:00.000Z", reviewDueAt: "2026-09-01T08:00:00.000Z", publishedAt: "2026-07-09T08:00:00.000Z", publishedById: input.zppId, contentMode: "Internal text", contentBody: facHandover, externalUrl: null, basePublishedVersionId: null, actorId: input.zppId },
+    { id: "dver-2026-000005", documentId: "doc-2026-000004", versionLabel: "v3.0", status: "Published", changeSummary: "Links to the current sensitive data handling standard.", effectiveFrom: "2026-07-09T08:00:00.000Z", reviewDueAt: "2026-12-01T08:00:00.000Z", publishedAt: "2026-07-09T08:00:00.000Z", publishedById: input.adminId, contentMode: "External link", contentBody: null, externalUrl: "https://example.com/zpp/sensitive-data-handling", basePublishedVersionId: null, actorId: input.adminId },
+    { id: "dver-2026-000006", documentId: "doc-2026-000005", versionLabel: "draft-2026-07", status: "Draft", changeSummary: "Draft roster briefing structure.", effectiveFrom: null, reviewDueAt: null, publishedAt: null, publishedById: null, contentMode: "Internal text", contentBody: "Draft: identify gaps, confirm owners and record next contact time.", externalUrl: null, basePublishedVersionId: null, actorId: input.zppId },
+  ] as const;
+  for (const version of versions) {
+    const contentDigest = version.status !== "Draft" && version.contentMode === "Internal text" ? createHash("sha256").update(version.contentBody!, "utf8").digest("hex") : null;
+    const data = { documentId: version.documentId, versionLabel: version.versionLabel, normalizedVersionLabel: version.versionLabel.toLowerCase(), status: version.status, changeSummary: version.changeSummary, effectiveFrom: version.effectiveFrom ? new Date(version.effectiveFrom) : null, reviewDueAt: version.reviewDueAt ? new Date(version.reviewDueAt) : null, publishedAt: version.publishedAt ? new Date(version.publishedAt) : null, publishedById: version.publishedById, contentMode: version.contentMode, contentBody: version.contentBody, externalUrl: version.externalUrl, contentDigest, basePublishedVersionId: version.basePublishedVersionId, legacyImported: true, legacyMetadata: { provenance: "memory-seed" }, createdById: version.actorId, updatedById: version.actorId };
+    await prisma.documentVersion.upsert({ where: { id: version.id }, update: data, create: { id: version.id, ...data, createdAt: timestamp, updatedAt: timestamp } });
+  }
+
+  const requirements = [
+    ["dreq-2026-000001", "dver-2026-000002", "Role", "ZPP Member", null, null, true, "2026-07-30T12:00:00.000Z", input.adminId],
+    ["dreq-2026-000002", "dver-2026-000003", "Role", "TEC Member", null, null, true, "2026-07-20T12:00:00.000Z", input.adminId],
+    ["dreq-2026-000003", "dver-2026-000004", "Group", null, "grp-2026-000001", null, true, "2026-07-22T12:00:00.000Z", input.zppId],
+    ["dreq-2026-000004", "dver-2026-000005", "MemberProfile", null, null, "mem-2026-000001", true, null, input.adminId],
+    ["dreq-2026-000005", "dver-2026-000002", "Group", null, "grp-2026-000001", null, true, "2026-07-25T12:00:00.000Z", input.zppId],
+  ] as const;
+  for (const [id, documentVersionId, targetType, targetRole, groupId, memberProfileId, acknowledgementRequired, dueAt, actorId] of requirements) {
+    const data = { documentVersionId, targetType, targetRole, groupId, memberProfileId, acknowledgementRequired, effectiveFrom: new Date("2026-07-09T08:00:00.000Z"), dueAt: dueAt ? new Date(dueAt) : null, active: true, provenance: { source: "memory-seed" }, endedAt: null, endedById: null, createdById: actorId, updatedById: actorId };
+    await prisma.documentRequirement.upsert({ where: { id }, update: data, create: { id, ...data, createdAt: timestamp, updatedAt: timestamp } });
+  }
+
+  let acknowledgement = await prisma.documentAcknowledgement.findUnique({ where: { id: "dack-2026-000001" } });
+  if (!acknowledgement) acknowledgement = await prisma.documentAcknowledgement.create({
+    data: {
+      id: "dack-2026-000001", documentVersionId: "dver-2026-000002", memberProfileId: "mem-2026-000003",
+      acknowledgedAt: new Date("2026-07-10T09:00:00.000Z"), acknowledgedById: input.zppId,
+      acknowledgementStatementVersion: "standard-v1", note: null, onBehalf: true,
+      documentCode: "ERP-ROLE-CARDS", documentTitle: "ERP Role Cards", versionLabel: "v2.0", contentMode: "Internal text",
+      contentDigestSnapshot: null, legacyImported: true,
+      legacyMetadata: { provenance: "memory-seed", historicalEvidenceUnavailable: true, onBehalfNoteUnavailable: true },
+      createdAt: new Date("2026-07-10T09:00:00.000Z"),
+    },
+  });
+  for (const requirementId of ["dreq-2026-000001", "dreq-2026-000005"]) {
+    const link = await prisma.documentAcknowledgementRequirement.findUnique({ where: { acknowledgementId_requirementId: { acknowledgementId: acknowledgement.id, requirementId } } });
+    if (!link) await prisma.documentAcknowledgementRequirement.create({ data: { acknowledgementId: acknowledgement.id, requirementId } });
+  }
+  await prisma.$queryRaw`SELECT setval('"Document_id_seq"', GREATEST(COALESCE((SELECT MAX(substring("id" FROM '([0-9]+)$')::BIGINT) FROM "Document"), 0) + 1, 1), false)`;
+  await prisma.$queryRaw`SELECT setval('"DocumentVersion_id_seq"', GREATEST(COALESCE((SELECT MAX(substring("id" FROM '([0-9]+)$')::BIGINT) FROM "DocumentVersion"), 0) + 1, 1), false)`;
+  await prisma.$queryRaw`SELECT setval('"DocumentRequirement_id_seq"', GREATEST(COALESCE((SELECT MAX(substring("id" FROM '([0-9]+)$')::BIGINT) FROM "DocumentRequirement"), 0) + 1, 1), false)`;
+  await prisma.$queryRaw`SELECT setval('"DocumentAcknowledgement_id_seq"', GREATEST(COALESCE((SELECT MAX(substring("id" FROM '([0-9]+)$')::BIGINT) FROM "DocumentAcknowledgement"), 0) + 1, 1), false)`;
+}
+
 async function seedOperationalData() {
   const coordinator = await prisma.user.findUniqueOrThrow({ where: { email: "coordinator@lot.pl" } });
   const admin = await prisma.user.findUniqueOrThrow({ where: { email: "admin@lot.pl" } });
@@ -381,6 +452,7 @@ async function seedOperationalData() {
 
   await seedMemberDirectory({ incidentId: session.id, adminId: admin.id, tecId: tec.id, zppId: zpp.id, volunteerId: volunteer.id });
   await seedTraining({ adminId: admin.id, coordinatorId: coordinator.id, zppId: zpp.id });
+  await seedDocuments({ adminId: admin.id, zppId: zpp.id });
 
   const rosterTimestamp = new Date("2026-07-09T09:00:00.000Z");
   const rosterShifts = [

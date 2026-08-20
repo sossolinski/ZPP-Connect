@@ -52,6 +52,8 @@ import { createPrismaRosteringRepository } from "../modules/rostering/prisma-ros
 import type { FoundationRosteringRepository } from "../modules/rostering/rostering-repository.js";
 import { createPrismaTrainingRepository } from "../modules/training/prisma-training-repository.js";
 import type { FoundationTrainingRepository } from "../modules/training/training-repository.js";
+import { createPrismaDocumentRepository } from "../modules/documents/prisma-document-repository.js";
+import type { FoundationDocumentRepository } from "../modules/documents/document-repository.js";
 
 type Delegate = {
   count(args: unknown): Promise<number>;
@@ -1305,11 +1307,14 @@ export function registerRoutes(app: Express, options: {
   rosteringRepository?: FoundationRosteringRepository;
   trainingRepository?: FoundationTrainingRepository;
   trainingClock?: { now(): Date };
+  documentRepository?: FoundationDocumentRepository;
+  documentClock?: { now(): Date };
+  documentNotificationHook?: (record: Record<string, unknown>) => void;
   assignmentNotificationHook?: (record: Record<string, unknown>, command: string) => void;
   rosteringNotificationHook?: (record: Record<string, unknown>, command: string) => void;
   trainingNotificationHook?: (record: Record<string, unknown>, command: string) => void;
 } = {}) {
-  const usePostgres = config.persistenceMode === "postgres" || options.incidentRepository?.kind === "postgres" || options.enquiryRepository?.kind === "postgres" || options.passengerRepository?.kind === "postgres" || options.familyRepository?.kind === "postgres" || options.matchingRepository?.kind === "postgres" || options.releaseRepository?.kind === "postgres" || options.requestRepository?.kind === "postgres" || options.assignmentRepository?.kind === "postgres" || options.memberDirectoryRepository?.kind === "postgres" || options.rosteringRepository?.kind === "postgres" || options.trainingRepository?.kind === "postgres";
+  const usePostgres = config.persistenceMode === "postgres" || options.incidentRepository?.kind === "postgres" || options.enquiryRepository?.kind === "postgres" || options.passengerRepository?.kind === "postgres" || options.familyRepository?.kind === "postgres" || options.matchingRepository?.kind === "postgres" || options.releaseRepository?.kind === "postgres" || options.requestRepository?.kind === "postgres" || options.assignmentRepository?.kind === "postgres" || options.memberDirectoryRepository?.kind === "postgres" || options.rosteringRepository?.kind === "postgres" || options.trainingRepository?.kind === "postgres" || options.documentRepository?.kind === "postgres";
   const incidentRepository = options.incidentRepository ?? (
     usePostgres ? createPrismaIncidentRepository(prisma) : undefined
   );
@@ -1349,5 +1354,8 @@ export function registerRoutes(app: Express, options: {
   const rosteringRepository = options.rosteringRepository ?? (
     usePostgres ? createPrismaRosteringRepository(prisma) : undefined
   );
-  app.use("/api", createDemoRouter({ incidentRepository, enquiryRepository, incidentAccessRepository, incidentAssignmentRepository, passengerRepository, familyRepository, matchingRepository, releaseRepository, requestRepository, assignmentRepository, memberDirectoryRepository, rosteringRepository, trainingRepository, trainingClock: options.trainingClock, assignmentNotificationHook: options.assignmentNotificationHook, rosteringNotificationHook: options.rosteringNotificationHook, trainingNotificationHook: options.trainingNotificationHook }));
+  const documentRepository = options.documentRepository ?? (
+    usePostgres ? createPrismaDocumentRepository(prisma, options.documentClock) : undefined
+  );
+  app.use("/api", createDemoRouter({ incidentRepository, enquiryRepository, incidentAccessRepository, incidentAssignmentRepository, passengerRepository, familyRepository, matchingRepository, releaseRepository, requestRepository, assignmentRepository, memberDirectoryRepository, rosteringRepository, trainingRepository, trainingClock: options.trainingClock, documentRepository, documentClock: options.documentClock, documentNotificationHook: options.documentNotificationHook, assignmentNotificationHook: options.assignmentNotificationHook, rosteringNotificationHook: options.rosteringNotificationHook, trainingNotificationHook: options.trainingNotificationHook }));
 }
