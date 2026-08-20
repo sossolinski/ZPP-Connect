@@ -16,8 +16,8 @@ const prisma = databaseUrl ? new PrismaClient({ datasources: { db: { url: databa
 const as = (email: string) => ({ "x-user-email": email });
 
 postgresDescribe("Foundation Stage 13 PostgreSQL Notifications delivery integrity", () => {
-  const marker = `F13-${Date.now()}`;
-  let now = new Date("2026-08-20T17:00:00.000Z");
+  const marker = `F13-${randomUUID().replaceAll("-", "").slice(0, 8)}`;
+  let now = new Date("2036-08-20T17:00:00.000Z");
   const clock = { now: () => new Date(now) };
   const users: Record<string, { id: string; email: string }> = {};
   const userIds: string[] = [];

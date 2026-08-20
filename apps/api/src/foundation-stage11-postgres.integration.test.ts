@@ -114,6 +114,8 @@ postgresDescribe("Foundation Stage 11 PostgreSQL Training", () => {
 
   afterAll(async () => {
     if (!prisma) return;
+    await prisma.notification.deleteMany({ where: { OR: [{ sessionId: { in: incidentIds } }, { recipientUserId: { in: userIds } }] } });
+    await prisma.notificationOutbox.deleteMany({ where: { OR: [{ sessionId: { in: incidentIds } }, { recipientUserId: { in: userIds } }] } });
     await prisma.trainingOperation.deleteMany({ where: { OR: [{ memberTrainingId: { in: recordIds } }, { result: { path: ["course", "title"], string_contains: marker } }] } }).catch(() => undefined);
     await prisma.memberTrainingRecord.deleteMany({ where: { OR: [{ id: { in: recordIds } }, { memberProfileId: { in: memberIds } }, { courseId: { in: courseIds } }] } });
     await prisma.trainingRequirement.deleteMany({ where: { OR: [{ id: { in: requirementIds } }, { courseId: { in: courseIds } }] } });

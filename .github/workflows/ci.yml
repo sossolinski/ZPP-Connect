@@ -63,7 +63,7 @@ jobs:
 
       - name: Start API against PostgreSQL
         run: |
-          npm start -w @zpp/api > api-startup.log 2>&1 &
+          node apps/api/dist/src/index.js > api-startup.log 2>&1 &
           api_pid=$!
           trap 'kill "$api_pid" 2>/dev/null || true' EXIT
           ready=false

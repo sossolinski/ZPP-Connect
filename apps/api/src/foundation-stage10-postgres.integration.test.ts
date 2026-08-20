@@ -129,6 +129,8 @@ postgresDescribe("Foundation Stage 10 PostgreSQL Rostering and Availability", ()
     if (!prisma) return;
     const persistedShiftIds = shiftIds.filter((value): value is string => typeof value === "string");
     const persistedAvailabilityIds = availabilityIds.filter((value): value is string => typeof value === "string");
+    await prisma.notification.deleteMany({ where: { OR: [{ sessionId: { in: incidentIds } }, { recipientUserId: { in: userIds } }] } });
+    await prisma.notificationOutbox.deleteMany({ where: { OR: [{ sessionId: { in: incidentIds } }, { recipientUserId: { in: userIds } }] } });
     await prisma.rosteringOperation.deleteMany({ where: { OR: [{ rosterShiftId: { in: persistedShiftIds } }, { availabilityId: { in: persistedAvailabilityIds } }] } });
     await prisma.rosterShift.deleteMany({ where: { OR: [{ id: { in: persistedShiftIds } }, { sessionId: { in: incidentIds } }] } });
     await prisma.availability.deleteMany({ where: { OR: [{ id: { in: persistedAvailabilityIds } }, { memberProfileId: { in: memberIds } }] } });
