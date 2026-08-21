@@ -7,10 +7,12 @@ const app = createApp();
 
 const server = app.listen(config.port, () => {
   logger.info({ port: config.port, authMode: config.authMode }, "ZPP Connect API started");
+  app.locals.notificationRuntime?.start();
 });
 
 async function shutdown(signal: string) {
   logger.info({ signal }, "Shutting down API");
+  await app.locals.notificationRuntime?.stop();
   server.close(async () => {
     await prisma.$disconnect();
     process.exit(0);

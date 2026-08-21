@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 import { Prisma, type PrismaClient } from "@prisma/client";
 import type { FoundationDocumentRepository, MutationResult } from "./document-repository.js";
+import { enqueueNotification } from "../notifications/notification-outbox.js";
 import type {
   AcknowledgementQuery,
   AcknowledgeInput,
@@ -595,6 +596,11 @@ export function createPrismaDocumentRepository(client: PrismaClient, clock: { no
             acknowledgementRequired: input.acknowledgementRequired, effectiveFrom, dueAt: input.dueAt, createdById: actor.id, updatedById: actor.id,
           } });
           const record = await requirementRecord(tx, (await loadedRequirement(tx, row.id))!, clock.now());
+          await enqueueNotification(tx, {
+            eventType: "DOCUMENT_REQUIREMENT_CREATED", aggregateType: "documentRequirement", aggregateId: row.id, aggregateVersion: String(row.version),
+            sessionId: incidentId,
+            payload: { requirementId: row.id, occurredAt: row.createdAt.toISOString() },
+          });
           await audit(tx, actor, "create_document_requirement", "documentRequirement", row.id, "Document requirement created", incidentId, { documentVersionId: input.documentVersionId, requirementId: row.id, targetType: row.targetType, targetRole: row.targetRole, groupId: row.groupId, memberProfileId: row.memberProfileId, acknowledgementRequired: row.acknowledgementRequired, versionAfter: 1 });
           return { record, conflict: false };
         });
@@ -642,6 +648,11 @@ export function createPrismaDocumentRepository(client: PrismaClient, clock: { no
           } });
           if (changed.count !== 1) return { record: null, conflict: true, reason: "stale" };
           const record = await requirementRecord(tx, (await loadedRequirement(tx, id))!, clock.now());
+          await enqueueNotification(tx, {
+            eventType: "DOCUMENT_REQUIREMENT_UPDATED", aggregateType: "documentRequirement", aggregateId: id, aggregateVersion: String(record.recordVersion),
+            sessionId: incidentId,
+            payload: { requirementId: id, occurredAt: record.updatedAt },
+          });
           await audit(tx, actor, "update_document_requirement", "documentRequirement", id, "Document requirement updated", incidentId, { requirementId: id, documentVersionId, targetType: nextTargetType, targetRole, groupId, memberProfileId, changedFields: Object.keys(input), versionBefore: expectedVersion, versionAfter: record.recordVersion });
           return { record, conflict: false };
         });

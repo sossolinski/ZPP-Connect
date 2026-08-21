@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 import { Prisma, type PrismaClient } from "@prisma/client";
 import type { FoundationTrainingRepository, MutationResult } from "./training-repository.js";
+import { enqueueNotification } from "../notifications/notification-outbox.js";
 import type {
   AssignTrainingInput,
   AssignTrainingResult,
@@ -559,6 +560,10 @@ export function createPrismaTrainingRepository(client: PrismaClient, clock: { no
           if (!input.groupId && createdRows.length !== 1) return { record: null, conflict: true, reason: "active-duplicate" };
           if (input.groupId && !createdRows.length && skippedCount === 0) return { record: null, conflict: true, reason: "empty-target" };
           const records = createdRows.map((row) => recordRecord(row, now));
+          for (const record of records) await enqueueNotification(tx, {
+            eventType: "TRAINING_ASSIGNED", aggregateType: "trainingRecord", aggregateId: record.id, aggregateVersion: input.operationId,
+            payload: { memberProfileId: record.memberProfileId, operationalId: record.operationalId, occurredAt: new Date(record.assignedAt).toISOString() },
+          });
           const snapshot: AssignTrainingResult = input.groupId && group ? { targetType: "Group", group: groupRecord(group), course: courseRecord(course), assignedCount: records.length, skippedCount, records } : records[0]!;
           await tx.trainingOperation.create({ data: { operationId: input.operationId, memberTrainingId: input.groupId ? null : records[0]!.id, command: "assign", commandFingerprint: fp, resultVersion: 1, result: stable(snapshot) as Prisma.InputJsonValue, requestId: actor.requestId } });
           await audit(tx, actor, "assign_training", input.groupId ? "trainingGroup" : "trainingRecord", input.groupId ?? records[0]!.id, input.groupId ? "Training assigned to group" : "Training assigned", input.groupId ? incidentId : null, { courseId: input.courseId, groupId: input.groupId ?? null, memberProfileId: input.memberProfileId ?? null, assignedCount: records.length, skippedCount, recordIds: records.map((record) => record.id), operationId: input.operationId });

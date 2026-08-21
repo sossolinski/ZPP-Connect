@@ -2,6 +2,7 @@ import { Prisma, type PrismaClient } from "@prisma/client";
 import { HttpError } from "../../errors.js";
 import type { IncidentContext } from "../incident-access/incident-access-types.js";
 import type { AssignmentRepository } from "./assignment-repository.js";
+import { enqueueNotification } from "../notifications/notification-outbox.js";
 import {
   toAssignmentCompatibility,
   type AssignmentActor,
@@ -250,6 +251,11 @@ export function createPrismaAssignmentRepository(client: PrismaClient): Assignme
           : `Assignment ${current.operationalId} ${verb} ${command === "CLAIM" ? "by" : "to"} ${newAssigneeDisplayName}`;
         await audit(tx, context, actor, action, current, summary, metadata);
         await timeline(tx, context, current, summary, input.reason ?? null, metadata);
+        await enqueueNotification(tx, {
+          eventType: "ASSIGNMENT_ASSIGNED", aggregateType: "assignment", aggregateId: id, aggregateVersion: input.operationId,
+          recipientUserId: targetUserId, sessionId: context.incidentId,
+          payload: { operationalId: current.operationalId, command, occurredAt: new Date(current.updatedAt).toISOString() },
+        });
         return result(tx, context, id);
       }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
     } catch (error) {
@@ -298,6 +304,11 @@ export function createPrismaAssignmentRepository(client: PrismaClient): Assignme
         const verb = command === "COMPLETE" ? "completed" : "cancelled";
         await audit(tx, context, actor, `${verb}_assignment`, current, `Assignment ${current.operationalId} ${verb}`, metadata);
         await timeline(tx, context, current, `Assignment ${current.operationalId} ${verb}`, reason, metadata);
+        if (command === "CANCEL" && current.assignedUserId) await enqueueNotification(tx, {
+          eventType: "ASSIGNMENT_CANCELLED", aggregateType: "assignment", aggregateId: id, aggregateVersion: input.operationId,
+          recipientUserId: current.assignedUserId, sessionId: context.incidentId,
+          payload: { operationalId: current.operationalId, occurredAt: new Date(current.updatedAt).toISOString() },
+        });
         return result(tx, context, id);
       }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
     } catch (error) {
@@ -389,6 +400,11 @@ export function createPrismaAssignmentRepository(client: PrismaClient): Assignme
           const commandPast = command === "start" ? "started" : command === "escalate" ? "escalated" : "resumed";
           await audit(tx, context, actor, `${command}_assignment`, current, `Assignment ${current.operationalId} ${commandPast}`, metadata);
           await timeline(tx, context, current, `Assignment ${current.operationalId} moved to ${current.status}`, reason ?? null, metadata);
+          if (target === "Escalated") await enqueueNotification(tx, {
+            eventType: "ASSIGNMENT_ESCALATED", aggregateType: "assignment", aggregateId: id, aggregateVersion: String(current.version),
+            recipientUserId: current.assignedUserId, sessionId: context.incidentId,
+            payload: { operationalId: current.operationalId, occurredAt: new Date(current.updatedAt).toISOString() },
+          });
           return result(tx, context, id);
         }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
       } catch (error) {

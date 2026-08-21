@@ -67,6 +67,7 @@ model User {
   cancelledRequests               Request[]                          @relation("RequestCancelledBy")
   verifiedTrainingRecords         MemberTrainingRecord[]             @relation("TrainingRecordVerifiedBy")
   auditLogs                       AuditLog[]                         @relation("ActorAudit")
+  notifications                  Notification[]                    @relation("NotificationRecipient")
 
   @@index([organizationId])
 }
@@ -155,6 +156,7 @@ model Session {
   operationalGroups     OperationalGroup[]
   rosterShifts          RosterShift[]
   auditLogs             AuditLog[]
+  notifications         Notification[]
 
   @@index([mode, status])
 }
@@ -634,6 +636,72 @@ model RosteringOperation {
 
   @@index([rosterShiftId, createdAt])
   @@index([availabilityId, createdAt])
+}
+
+model Notification {
+  id                 String    @id @default(uuid()) @db.Uuid
+  recipientUserId    String    @db.Uuid
+  deduplicationKey   String
+  mode               String
+  kind               String
+  severity           String
+  category           String
+  title              String
+  message            String
+  sessionId          String?   @db.Uuid
+  sessionLabel       String?
+  sourceType         String
+  sourceId           String
+  sourceLabel        String?
+  conditionType      String?
+  actionDestination  String?
+  actionLabel        String?
+  metadata           Json      @default("{}")
+  readAt             DateTime?
+  resolvedAt         DateTime?
+  resolutionReason   String?
+  version            Int       @default(1)
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
+  recipient          User      @relation("NotificationRecipient", fields: [recipientUserId], references: [id], onDelete: Restrict)
+  session            Session?  @relation(fields: [sessionId], references: [id], onDelete: Restrict)
+
+  @@unique([recipientUserId, deduplicationKey])
+  @@index([recipientUserId, createdAt])
+  @@index([recipientUserId, readAt, createdAt])
+  @@index([recipientUserId, resolvedAt, createdAt])
+  @@index([recipientUserId, category])
+  @@index([sourceType, sourceId, conditionType])
+  @@index([sessionId, recipientUserId])
+}
+
+model NotificationOutbox {
+  id                String    @id @default(uuid()) @db.Uuid
+  eventType         String
+  aggregateType     String
+  aggregateId       String
+  aggregateVersion  String
+  recipientUserId   String?   @db.Uuid
+  sessionId         String?   @db.Uuid
+  payload           Json
+  status            String    @default("PENDING")
+  attemptCount      Int       @default(0)
+  maxAttempts       Int       @default(8)
+  availableAt       DateTime  @default(now())
+  lockedAt          DateTime?
+  leaseUntil        DateTime?
+  lockedBy          String?
+  deliveredAt       DateTime?
+  failedAt          DateTime?
+  lastError         String?
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+
+  @@unique([eventType, aggregateType, aggregateId, aggregateVersion])
+  @@index([status, availableAt, createdAt])
+  @@index([leaseUntil, status])
+  @@index([recipientUserId, status])
+  @@index([aggregateType, aggregateId, status])
 }
 
 model Enquiry {

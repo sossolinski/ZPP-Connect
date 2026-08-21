@@ -21,7 +21,18 @@ export type AppConfig = {
   entraAudience?: string;
   entraJwksUri?: string;
   logLevel: string;
+  notificationDispatchIntervalMs: number;
+  notificationProjectIntervalMs: number;
+  notificationDispatchBatchSize: number;
+  notificationProjectBatchSize: number;
+  notificationProjectMaxRows: number;
 };
+
+function positiveInteger(name: string, value: string | undefined, fallback: number) {
+  const parsed = Number(value ?? fallback);
+  if (!Number.isInteger(parsed) || parsed < 1) throw new Error(`${name} must be a positive integer`);
+  return parsed;
+}
 
 function enumValue<T extends string>(name: string, value: string, allowed: readonly T[]): T {
   if (!allowed.includes(value as T)) {
@@ -52,7 +63,12 @@ export function resolveConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     entraIssuer: env.ENTRA_ISSUER ?? env.JWT_ISSUER,
     entraAudience: env.ENTRA_AUDIENCE ?? env.JWT_AUDIENCE,
     entraJwksUri: env.ENTRA_JWKS_URI ?? env.JWKS_URI,
-    logLevel: env.LOG_LEVEL ?? (nodeEnv === "test" ? "silent" : "info")
+    logLevel: env.LOG_LEVEL ?? (nodeEnv === "test" ? "silent" : "info"),
+    notificationDispatchIntervalMs: positiveInteger("NOTIFICATION_DISPATCH_INTERVAL_MS", env.NOTIFICATION_DISPATCH_INTERVAL_MS, 5_000),
+    notificationProjectIntervalMs: positiveInteger("NOTIFICATION_PROJECT_INTERVAL_MS", env.NOTIFICATION_PROJECT_INTERVAL_MS, 60_000),
+    notificationDispatchBatchSize: positiveInteger("NOTIFICATION_DISPATCH_BATCH_SIZE", env.NOTIFICATION_DISPATCH_BATCH_SIZE, 100),
+    notificationProjectBatchSize: positiveInteger("NOTIFICATION_PROJECT_BATCH_SIZE", env.NOTIFICATION_PROJECT_BATCH_SIZE, 200),
+    notificationProjectMaxRows: positiveInteger("NOTIFICATION_PROJECT_MAX_ROWS", env.NOTIFICATION_PROJECT_MAX_ROWS, 10_000)
   };
 }
 

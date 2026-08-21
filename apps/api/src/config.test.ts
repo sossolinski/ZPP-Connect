@@ -44,4 +44,12 @@ describe("runtime configuration boundaries", () => {
     const testConfig = resolveConfig({ NODE_ENV: "test", AUTH_MODE: "dev", PERSISTENCE_MODE: "memory" });
     expect(() => validateRuntimeConfig(testConfig)).not.toThrow();
   });
+
+  it("rejects invalid notification worker intervals and batch bounds", () => {
+    expect(() => resolveConfig({ NODE_ENV: "test", NOTIFICATION_DISPATCH_INTERVAL_MS: "0" })).toThrow(/NOTIFICATION_DISPATCH_INTERVAL_MS/);
+    expect(() => resolveConfig({ NODE_ENV: "test", NOTIFICATION_PROJECT_INTERVAL_MS: "1.5" })).toThrow(/NOTIFICATION_PROJECT_INTERVAL_MS/);
+    expect(() => resolveConfig({ NODE_ENV: "test", NOTIFICATION_DISPATCH_BATCH_SIZE: "NaN" })).toThrow(/NOTIFICATION_DISPATCH_BATCH_SIZE/);
+    expect(() => resolveConfig({ NODE_ENV: "test", NOTIFICATION_PROJECT_BATCH_SIZE: "-1" })).toThrow(/NOTIFICATION_PROJECT_BATCH_SIZE/);
+    expect(() => resolveConfig({ NODE_ENV: "test", NOTIFICATION_PROJECT_MAX_ROWS: "0" })).toThrow(/NOTIFICATION_PROJECT_MAX_ROWS/);
+  });
 });

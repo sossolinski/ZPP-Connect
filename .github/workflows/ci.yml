@@ -63,7 +63,7 @@ jobs:
 
       - name: Start API against PostgreSQL
         run: |
-          npm start -w @zpp/api > api-startup.log 2>&1 &
+          node apps/api/dist/src/index.js > api-startup.log 2>&1 &
           api_pid=$!
           trap 'kill "$api_pid" 2>/dev/null || true' EXIT
           ready=false
@@ -82,7 +82,7 @@ jobs:
           kill "$api_pid"
           wait "$api_pid" || true
 
-      - name: PostgreSQL Foundation Stage 1 through 12 integration tests (zero skipped)
+      - name: PostgreSQL Foundation Stage 1 through 13 integration tests (zero skipped)
         run: npm run test:postgres
 
       - name: Rehearse IncidentAssignment backfill from pre-Stage-2 data
