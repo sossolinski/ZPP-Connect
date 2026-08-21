@@ -3,122 +3,61 @@ import type { NextFunction, Request, Response } from "express";
 import { config } from "./config.js";
 import { HttpError } from "./errors.js";
 import { prisma } from "./prisma.js";
-import type { AuthenticatedUser } from "./types.js";
+import { IdentityAuthService, type VerifiedEntraClaims } from "./modules/identity/identity-auth-service.js";
+import { developmentSession } from "./modules/identity/development-session-store.js";
 
 let jwks: ReturnType<typeof createRemoteJWKSet> | undefined;
 
-function permissionsFromUser(user: Awaited<ReturnType<typeof loadUserByEmail>>): AuthenticatedUser["permissions"] {
-  const permissionSet = new Set<string>();
-  for (const userRole of user?.roles ?? []) {
-    const scoped = user?.groupRoleAssignments.filter((assignment) => assignment.roleId === userRole.roleId) ?? [];
-    if (userRole.scopeType === "GROUP" && !scoped.some((assignment) => assignment.status === "Active" && assignment.group.status !== "Archived")) continue;
-    const permissions = userRole.role.permissions;
-    if (Array.isArray(permissions)) {
-      permissions.forEach((permission) => permissionSet.add(String(permission)));
-    }
-  }
-  return Array.from(permissionSet) as AuthenticatedUser["permissions"];
+export async function validateEntraJwt(
+  token: string,
+  keySet: Parameters<typeof jwtVerify>[1],
+  issuer: string,
+  audience: string
+) {
+  return jwtVerify(token, keySet, { issuer, audience });
 }
 
-async function loadUserByEmail(email: string) {
-  return prisma.user.findUnique({
-    where: { email: email.toLowerCase() },
-    include: {
-      organization: true,
-      roles: { include: { role: true } },
-      groupRoleAssignments: {
-        include: { role: true, group: true }
-      }
-    }
-  });
-}
-
-async function emailFromEntra(req: Request) {
+async function verifiedEntraClaims(req: Request): Promise<VerifiedEntraClaims> {
   const header = req.header("authorization");
   const token = header?.startsWith("Bearer ") ? header.slice("Bearer ".length) : undefined;
-  if (!token) return undefined;
+  if (!token) throw new HttpError(401, "Authentication required");
   if (!config.entraJwksUri || !config.entraIssuer || !config.entraAudience) {
     throw new HttpError(500, "Entra authentication is not configured");
   }
 
   jwks ??= createRemoteJWKSet(new URL(config.entraJwksUri));
-  const result = await jwtVerify(token, jwks, {
-    issuer: config.entraIssuer,
-    audience: config.entraAudience
-  });
-
+  const result = await validateEntraJwt(token, jwks, config.entraIssuer, config.entraAudience);
   const payload = result.payload as Record<string, unknown>;
-  return String(payload.email ?? payload.preferred_username ?? payload.upn ?? "").toLowerCase();
-}
-
-async function resolveEmail(req: Request) {
-  if (config.authMode === "entra") {
-    return emailFromEntra(req);
-  }
-  return req.header("x-user-email")?.toLowerCase();
+  const subject = String(payload.sub ?? "").trim();
+  if (!subject) throw new HttpError(401, "Verified token has no stable subject");
+  return {
+    issuer: String(payload.iss ?? config.entraIssuer),
+    subject,
+    tenantId: String(payload.tid ?? "").trim() || undefined,
+    objectId: String(payload.oid ?? "").trim() || undefined,
+    email: String(payload.email ?? payload.preferred_username ?? payload.upn ?? "").trim() || undefined
+  };
 }
 
 export async function authenticate(req: Request, _res: Response, next: NextFunction) {
   try {
-    const email = await resolveEmail(req);
-    if (!email) throw new HttpError(401, "Authentication required");
-
-    const user = await loadUserByEmail(email);
-    if (!user || user.status !== "active") {
-      throw new HttpError(401, "User is not provisioned or active");
-    }
-
-    const roleAssignments = user.roles.reduce<NonNullable<AuthenticatedUser["roleAssignments"]>>((result, item) => {
-      const scoped = user.groupRoleAssignments.filter((assignment) => assignment.roleId === item.roleId);
-      if (item.scopeType === "GROUP") {
-        result.push(...scoped.map((assignment) => ({
-          id: assignment.id,
-          userId: user.id,
-          roleName: item.role.name,
-          scopeType: "GROUP" as const,
-          scopeId: assignment.groupId,
-          status: assignment.status === "Active" && assignment.group.status !== "Archived" ? "Active" as const : "Revoked" as const,
-          assignedAt: assignment.assignedAt.toISOString(),
-          assignedByUserId: assignment.assignedBy,
-          permissions: Array.isArray(item.role.permissions) ? item.role.permissions.map(String) as AuthenticatedUser["permissions"] : []
-        })));
+    const service = new IdentityAuthService(prisma);
+    if (config.authMode === "entra") {
+      req.user = await service.authenticateEntra(await verifiedEntraClaims(req));
+    } else {
+      if (config.nodeEnv === "production") throw new HttpError(500, "Development authentication is disabled in production");
+      const bearer = req.header("authorization")?.match(/^Bearer\s+(.+)$/i)?.[1]?.trim();
+      const session = bearer ? developmentSession(bearer) : undefined;
+      if (session) {
+        const user = await prisma.user.findUnique({ where: { id: session.userId }, select: { email: true } });
+        if (!user) throw new HttpError(401, "Authentication required");
+        req.user = await service.authenticateDevelopmentEmail(user.email);
       } else {
-        result.push({
-          id: `global:${user.id}:${item.roleId}`,
-          userId: user.id,
-          roleName: item.role.name,
-          scopeType: "GLOBAL",
-          scopeId: null,
-          status: "Active",
-          assignedAt: item.assignedAt.toISOString(),
-          assignedByUserId: null,
-          permissions: Array.isArray(item.role.permissions) ? item.role.permissions.map(String) as AuthenticatedUser["permissions"] : []
-        });
+        const email = req.header("x-user-email")?.trim();
+        if (!email) throw new HttpError(401, "Authentication required");
+        req.user = await service.authenticateDevelopmentEmail(email);
       }
-      return result;
-    }, []);
-
-    req.user = {
-      id: user.id,
-      userId: user.id,
-      email: user.email,
-      displayName: user.displayName,
-      department: user.department,
-      organizationId: user.organizationId,
-      organization: user.organization
-        ? {
-            id: user.organization.id,
-            key: user.organization.key,
-            name: user.organization.name,
-            type: user.organization.type,
-            status: user.organization.status,
-            contactEmail: user.organization.contactEmail
-          }
-        : null,
-      roles: user.roles.map((item) => item.role.name),
-      roleAssignments,
-      permissions: permissionsFromUser(user)
-    };
+    }
     next();
   } catch (error) {
     next(error);

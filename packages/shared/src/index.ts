@@ -31,7 +31,7 @@ export const defaultOrganizations = [
     key: "lot",
     name: "LOT Polish Airlines",
     type: "Airline",
-    status: "active",
+    status: "Active",
     contactEmail: "erp@lot.pl",
     description: "Primary airline organization operating ZPP Connect."
   },
@@ -39,7 +39,7 @@ export const defaultOrganizations = [
     key: "zpp",
     name: "Zespół Pomocy Poszkodowanym",
     type: "Response team",
-    status: "active",
+    status: "Active",
     contactEmail: "erp@lot.pl",
     description: "Family assistance and reunification response team."
   },
@@ -47,7 +47,7 @@ export const defaultOrganizations = [
     key: "tec",
     name: "Telephone Enquiry Centre",
     type: "Support unit",
-    status: "active",
+    status: "Active",
     contactEmail: "tec@lot.pl",
     description: "Call intake and enquiry triage desk."
   }

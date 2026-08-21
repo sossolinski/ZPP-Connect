@@ -10,10 +10,26 @@ datasource db {
 model User {
   id                              String                             @id @default(uuid()) @db.Uuid
   email                           String                             @unique
+  normalizedEmail                 String                             @unique @default("")
   displayName                     String
+  employeeId                      String?
   department                      String?
   organizationId                  String?                            @db.Uuid
-  status                          String                             @default("active")
+  status                          String                             @default("Active")
+  authenticationPolicy            String                             @default("SSO_ONLY")
+  version                         Int                                @default(1)
+  activatedAt                     DateTime?
+  suspendedAt                     DateTime?
+  archivedAt                      DateTime?
+  restoredAt                      DateTime?
+  lastSuccessfulSignInAt          DateTime?
+  createdById                     String?                            @db.Uuid
+  updatedById                     String?                            @db.Uuid
+  suspendedById                   String?                            @db.Uuid
+  archivedById                    String?                            @db.Uuid
+  restoredById                    String?                            @db.Uuid
+  suspensionReason                String?
+  archiveReason                   String?
   createdAt                       DateTime                           @default(now())
   updatedAt                       DateTime                           @updatedAt
   organization                    Organization?                      @relation(fields: [organizationId], references: [id], onDelete: SetNull)
@@ -39,6 +55,10 @@ model User {
   addedGroupMemberships           GroupMembership[]                  @relation("GroupMembershipAddedBy")
   removedGroupMemberships         GroupMembership[]                  @relation("GroupMembershipRemovedBy")
   groupRoleAssignments            GroupRoleAssignment[]
+  externalIdentities              ExternalIdentity[]
+  invitations                     UserInvitation[]
+  permissionOverrides             PermissionOverride[]
+  identityOperations              IdentityOperation[]                @relation("IdentityOperationTarget")
   createdRosterShifts             RosterShift[]                      @relation("RosterShiftCreatedBy")
   updatedRosterShifts             RosterShift[]                      @relation("RosterShiftUpdatedBy")
   publishedRosterShifts           RosterShift[]                      @relation("RosterShiftPublishedBy")
@@ -67,22 +87,29 @@ model User {
   cancelledRequests               Request[]                          @relation("RequestCancelledBy")
   verifiedTrainingRecords         MemberTrainingRecord[]             @relation("TrainingRecordVerifiedBy")
   auditLogs                       AuditLog[]                         @relation("ActorAudit")
-  notifications                  Notification[]                    @relation("NotificationRecipient")
+  notifications                   Notification[]                     @relation("NotificationRecipient")
 
   @@index([organizationId])
+  @@index([status, displayName, id])
 }
 
 model Organization {
-  id           String   @id @default(uuid()) @db.Uuid
-  key          String   @unique
-  name         String
-  type         String?
-  status       String   @default("active")
-  contactEmail String?
-  description  String?
-  createdAt    DateTime @default(now())
-  updatedAt    DateTime @updatedAt
-  users        User[]
+  id            String    @id @default(uuid()) @db.Uuid
+  key           String    @unique
+  normalizedKey String    @unique @default("")
+  name          String
+  type          String?
+  status        String    @default("Active")
+  contactEmail  String?
+  description   String?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+  version       Int       @default(1)
+  createdById   String?   @db.Uuid
+  updatedById   String?   @db.Uuid
+  archivedAt    DateTime?
+  archivedById  String?   @db.Uuid
+  users         User[]
 
   @@index([status, name])
 }
@@ -90,9 +117,21 @@ model Organization {
 model Role {
   id               String                @id @default(uuid()) @db.Uuid
   name             String                @unique
+  normalizedName   String                @unique @default("")
   displayName      String
   description      String?
   permissions      Json
+  scopeTypes       String[]              @default(["GLOBAL"])
+  pool             String                @default("ALL")
+  protected        Boolean               @default(false)
+  custom           Boolean               @default(false)
+  operationalRole  Boolean               @default(false)
+  status           String                @default("Active")
+  version          Int                   @default(1)
+  createdById      String?               @db.Uuid
+  updatedById      String?               @db.Uuid
+  archivedAt       DateTime?
+  archivedById     String?               @db.Uuid
   createdAt        DateTime              @default(now())
   updatedAt        DateTime              @updatedAt
   users            UserRole[]
@@ -100,6 +139,7 @@ model Role {
 }
 
 model UserRole {
+  id         String   @unique @default(uuid()) @db.Uuid
   userId     String   @db.Uuid
   roleId     String   @db.Uuid
   scopeType  String   @default("GLOBAL")
@@ -110,6 +150,23 @@ model UserRole {
 
   @@id([userId, roleId])
   @@index([userId, scopeType])
+}
+
+model RoleAssignmentHistory {
+  id                String   @id @default(uuid()) @db.Uuid
+  assignmentId      String   @db.Uuid
+  userId            String   @db.Uuid
+  roleId            String   @db.Uuid
+  scopeType         String
+  scopeId           String?
+  action            String
+  actorUserId       String?  @db.Uuid
+  reason            String?
+  assignmentVersion Int
+  occurredAt        DateTime @default(now())
+
+  @@index([userId, occurredAt])
+  @@index([assignmentId, occurredAt])
 }
 
 model Session {
@@ -162,37 +219,37 @@ model Session {
 }
 
 model MemberProfile {
-  id                     String            @id
-  memberId               String            @unique
-  linkedUserId           String?           @db.Uuid
-  firstName              String
-  lastName               String
-  pool                   String
-  role                   String
-  assignedFunction       String
-  contactEmail           String?
-  normalizedContactEmail String?
-  phone                  String?
-  languages              String[]
-  status                 String            @default("Active")
-  version                Int               @default(1)
-  legacyAvailability     String?
-  legacyTrainingStatus   String?
-  legacyRosterStatus     String?
-  legacyAssignedLeader   String?
-  createdAt              DateTime          @default(now())
-  updatedAt              DateTime          @updatedAt
-  createdById            String?           @db.Uuid
-  updatedById            String?           @db.Uuid
-  linkedUser             User?             @relation("MemberProfileLinkedUser", fields: [linkedUserId], references: [id], onDelete: Restrict)
-  createdBy              User?             @relation("MemberProfileCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
-  updatedBy              User?             @relation("MemberProfileUpdatedBy", fields: [updatedById], references: [id], onDelete: SetNull)
-  memberships            GroupMembership[]
-  rosterShifts           RosterShift[]
-  availabilityRecords    Availability[]
-  trainingRequirements   TrainingRequirement[]
-  trainingRecords        MemberTrainingRecord[]
-  documentRequirements   DocumentRequirement[]
+  id                       String                    @id
+  memberId                 String                    @unique
+  linkedUserId             String?                   @unique @db.Uuid
+  firstName                String
+  lastName                 String
+  pool                     String
+  role                     String
+  assignedFunction         String
+  contactEmail             String?
+  normalizedContactEmail   String?
+  phone                    String?
+  languages                String[]
+  status                   String                    @default("Active")
+  version                  Int                       @default(1)
+  legacyAvailability       String?
+  legacyTrainingStatus     String?
+  legacyRosterStatus       String?
+  legacyAssignedLeader     String?
+  createdAt                DateTime                  @default(now())
+  updatedAt                DateTime                  @updatedAt
+  createdById              String?                   @db.Uuid
+  updatedById              String?                   @db.Uuid
+  linkedUser               User?                     @relation("MemberProfileLinkedUser", fields: [linkedUserId], references: [id], onDelete: Restrict)
+  createdBy                User?                     @relation("MemberProfileCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
+  updatedBy                User?                     @relation("MemberProfileUpdatedBy", fields: [updatedById], references: [id], onDelete: SetNull)
+  memberships              GroupMembership[]
+  rosterShifts             RosterShift[]
+  availabilityRecords      Availability[]
+  trainingRequirements     TrainingRequirement[]
+  trainingRecords          MemberTrainingRecord[]
+  documentRequirements     DocumentRequirement[]
   documentAcknowledgements DocumentAcknowledgement[]
 
   @@index([status, pool, updatedAt])
@@ -201,25 +258,25 @@ model MemberProfile {
 }
 
 model OperationalGroup {
-  id              String                @id
-  operationalId   String                @unique
-  incidentId      String                @db.Uuid
-  name            String
-  pool            String
-  functionName    String
-  status          String                @default("Active")
-  notes           String?
-  version         Int                   @default(1)
-  createdAt       DateTime              @default(now())
-  updatedAt       DateTime              @updatedAt
-  createdById     String?               @db.Uuid
-  updatedById     String?               @db.Uuid
-  incident        Session               @relation(fields: [incidentId], references: [id], onDelete: Restrict)
-  createdBy       User?                 @relation("OperationalGroupCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
-  updatedBy       User?                 @relation("OperationalGroupUpdatedBy", fields: [updatedById], references: [id], onDelete: SetNull)
-  memberships     GroupMembership[]
-  roleAssignments GroupRoleAssignment[]
-  rosterShifts    RosterShift[]
+  id                   String                @id
+  operationalId        String                @unique
+  incidentId           String                @db.Uuid
+  name                 String
+  pool                 String
+  functionName         String
+  status               String                @default("Active")
+  notes                String?
+  version              Int                   @default(1)
+  createdAt            DateTime              @default(now())
+  updatedAt            DateTime              @updatedAt
+  createdById          String?               @db.Uuid
+  updatedById          String?               @db.Uuid
+  incident             Session               @relation(fields: [incidentId], references: [id], onDelete: Restrict)
+  createdBy            User?                 @relation("OperationalGroupCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
+  updatedBy            User?                 @relation("OperationalGroupUpdatedBy", fields: [updatedById], references: [id], onDelete: SetNull)
+  memberships          GroupMembership[]
+  roleAssignments      GroupRoleAssignment[]
+  rosterShifts         RosterShift[]
   trainingRequirements TrainingRequirement[]
   documentRequirements DocumentRequirement[]
 
@@ -248,76 +305,160 @@ model GroupMembership {
 }
 
 model GroupRoleAssignment {
-  id         String           @id
-  userId     String           @db.Uuid
-  roleId     String           @db.Uuid
-  groupId    String
-  status     String           @default("Active")
-  assignedAt DateTime         @default(now())
-  assignedBy String?          @db.Uuid
-  revokedAt  DateTime?
-  revokedBy  String?          @db.Uuid
-  version    Int              @default(1)
-  user       User             @relation(fields: [userId], references: [id], onDelete: Restrict)
-  role       Role             @relation(fields: [roleId], references: [id], onDelete: Restrict)
-  group      OperationalGroup @relation(fields: [groupId], references: [id], onDelete: Restrict)
+  id           String           @id
+  userId       String           @db.Uuid
+  roleId       String           @db.Uuid
+  groupId      String
+  status       String           @default("Active")
+  assignedAt   DateTime         @default(now())
+  assignedBy   String?          @db.Uuid
+  revokedAt    DateTime?
+  revokedBy    String?          @db.Uuid
+  revokeReason String?
+  version      Int              @default(1)
+  user         User             @relation(fields: [userId], references: [id], onDelete: Restrict)
+  role         Role             @relation(fields: [roleId], references: [id], onDelete: Restrict)
+  group        OperationalGroup @relation(fields: [groupId], references: [id], onDelete: Restrict)
 
   @@index([userId, status])
   @@index([groupId, status])
 }
 
+model PermissionOverride {
+  id           String    @id @default(uuid()) @db.Uuid
+  userId       String    @db.Uuid
+  permission   String
+  effect       String
+  active       Boolean   @default(true)
+  reason       String
+  expiresAt    DateTime?
+  createdAt    DateTime  @default(now())
+  createdById  String    @db.Uuid
+  revokedAt    DateTime?
+  revokedById  String?   @db.Uuid
+  revokeReason String?
+  version      Int       @default(1)
+  user         User      @relation(fields: [userId], references: [id], onDelete: Restrict)
+
+  @@index([userId, active, expiresAt])
+}
+
+model ExternalIdentity {
+  id                             String    @id @default(uuid()) @db.Uuid
+  userId                         String    @db.Uuid
+  providerType                   String
+  issuer                         String
+  tenantId                       String?
+  providerSubject                String
+  directoryObjectId              String?
+  authenticationMethod           String
+  emailSnapshot                  String?
+  linkedAt                       DateTime  @default(now())
+  linkedById                     String?   @db.Uuid
+  lastSeenAt                     DateTime?
+  lastSuccessfulAuthenticationAt DateTime?
+  disabledAt                     DateTime?
+  disabledById                   String?   @db.Uuid
+  disableReason                  String?
+  version                        Int       @default(1)
+  user                           User      @relation(fields: [userId], references: [id], onDelete: Restrict)
+
+  @@unique([providerType, issuer, providerSubject])
+  @@unique([providerType, tenantId, directoryObjectId])
+  @@index([userId, disabledAt])
+}
+
+model UserInvitation {
+  id                           String    @id @default(uuid()) @db.Uuid
+  userId                       String    @db.Uuid
+  invitedEmailSnapshot         String
+  intendedAuthenticationPolicy String
+  status                       String    @default("Prepared")
+  tokenHash                    String    @unique
+  tokenExpiresAt               DateTime
+  createdById                  String    @db.Uuid
+  createdAt                    DateTime  @default(now())
+  sentAt                       DateTime?
+  acceptedAt                   DateTime?
+  revokedAt                    DateTime?
+  revokedById                  String?   @db.Uuid
+  revokeReason                 String?
+  resendGeneration             Int       @default(1)
+  version                      Int       @default(1)
+  user                         User      @relation(fields: [userId], references: [id], onDelete: Restrict)
+
+  @@index([userId, createdAt])
+  @@index([status, tokenExpiresAt])
+}
+
+model IdentityOperation {
+  id                 String   @id @default(uuid()) @db.Uuid
+  operationId        String   @unique @db.Uuid
+  targetUserId       String?  @db.Uuid
+  command            String
+  commandFingerprint String
+  resultEntityType   String
+  resultEntityId     String
+  resultVersion      Int
+  requestId          String?
+  createdAt          DateTime @default(now())
+  targetUser         User?    @relation("IdentityOperationTarget", fields: [targetUserId], references: [id], onDelete: Restrict)
+
+  @@index([targetUserId, createdAt])
+}
+
 model TrainingCourse {
-  id               String                 @id
-  code             String
-  normalizedCode   String                 @unique
-  title            String
-  description      String?
-  category         String
-  deliveryType     String
-  validityMonths   Int?
-  active           Boolean                @default(true)
-  selfCompletable  Boolean                @default(false)
-  externalRef      String?
-  version          Int                    @default(1)
-  deactivatedAt    DateTime?
-  reactivatedAt    DateTime?
-  legacyImported   Boolean                @default(false)
-  legacyMetadata   Json?
-  createdAt        DateTime               @default(now())
-  updatedAt        DateTime               @updatedAt
-  createdById      String?                @db.Uuid
-  updatedById      String?                @db.Uuid
-  requirements     TrainingRequirement[]
-  records          MemberTrainingRecord[]
+  id              String                 @id
+  code            String
+  normalizedCode  String                 @unique
+  title           String
+  description     String?
+  category        String
+  deliveryType    String
+  validityMonths  Int?
+  active          Boolean                @default(true)
+  selfCompletable Boolean                @default(false)
+  externalRef     String?
+  version         Int                    @default(1)
+  deactivatedAt   DateTime?
+  reactivatedAt   DateTime?
+  legacyImported  Boolean                @default(false)
+  legacyMetadata  Json?
+  createdAt       DateTime               @default(now())
+  updatedAt       DateTime               @updatedAt
+  createdById     String?                @db.Uuid
+  updatedById     String?                @db.Uuid
+  requirements    TrainingRequirement[]
+  records         MemberTrainingRecord[]
 
   @@index([active, category, title])
   @@index([updatedAt])
 }
 
 model TrainingRequirement {
-  id               String                 @id
-  courseId         String
-  targetType       String
-  targetRole       String?
-  groupId          String?
-  memberProfileId  String?
-  requiredStatus   String
-  dueAt            DateTime?
-  effectiveFrom    DateTime?
-  effectiveTo      DateTime?
-  active           Boolean                @default(true)
-  version          Int                    @default(1)
-  provenance       Json?
-  endedAt          DateTime?
-  endedById        String?                @db.Uuid
-  createdAt        DateTime               @default(now())
-  updatedAt        DateTime               @updatedAt
-  createdById      String?                @db.Uuid
-  updatedById      String?                @db.Uuid
-  course           TrainingCourse         @relation(fields: [courseId], references: [id], onDelete: Restrict)
-  group            OperationalGroup?      @relation(fields: [groupId], references: [id], onDelete: Restrict)
-  memberProfile    MemberProfile?         @relation(fields: [memberProfileId], references: [id], onDelete: Restrict)
-  records          MemberTrainingRecord[]
+  id              String                 @id
+  courseId        String
+  targetType      String
+  targetRole      String?
+  groupId         String?
+  memberProfileId String?
+  requiredStatus  String
+  dueAt           DateTime?
+  effectiveFrom   DateTime?
+  effectiveTo     DateTime?
+  active          Boolean                @default(true)
+  version         Int                    @default(1)
+  provenance      Json?
+  endedAt         DateTime?
+  endedById       String?                @db.Uuid
+  createdAt       DateTime               @default(now())
+  updatedAt       DateTime               @updatedAt
+  createdById     String?                @db.Uuid
+  updatedById     String?                @db.Uuid
+  course          TrainingCourse         @relation(fields: [courseId], references: [id], onDelete: Restrict)
+  group           OperationalGroup?      @relation(fields: [groupId], references: [id], onDelete: Restrict)
+  memberProfile   MemberProfile?         @relation(fields: [memberProfileId], references: [id], onDelete: Restrict)
+  records         MemberTrainingRecord[]
 
   @@unique([id, courseId])
   @@index([courseId, active, effectiveFrom, effectiveTo])
@@ -327,44 +468,44 @@ model TrainingRequirement {
 }
 
 model MemberTrainingRecord {
-  id                    String                @id
-  operationalId         String                @unique
-  memberProfileId       String
-  courseId              String
-  sourceRequirementId   String?
-  assignedAt            DateTime
-  assignedById          String?               @db.Uuid
-  dueAt                  DateTime?
-  status                 String                @default("Assigned")
-  startedAt              DateTime?
-  startedById            String?               @db.Uuid
-  completedAt            DateTime?
-  completedById          String?               @db.Uuid
-  expiryAt               DateTime?
-  score                  Int?
-  completionNote         String?
-  completionRef          String?
-  verifiedById           String?               @db.Uuid
-  verifiedAt             DateTime?
-  waivedAt               DateTime?
-  waivedById             String?               @db.Uuid
-  waiverReason           String?
-  cancelledAt            DateTime?
-  cancelledById          String?               @db.Uuid
-  cancelledReason        String?
-  version                Int                   @default(1)
-  provenance             Json?
-  legacyImported         Boolean               @default(false)
-  legacyMetadata         Json?
-  createdAt              DateTime              @default(now())
-  updatedAt              DateTime              @updatedAt
-  createdById            String?               @db.Uuid
-  updatedById            String?               @db.Uuid
-  memberProfile          MemberProfile         @relation(fields: [memberProfileId], references: [id], onDelete: Restrict)
-  course                 TrainingCourse        @relation(fields: [courseId], references: [id], onDelete: Restrict)
-  sourceRequirement      TrainingRequirement?  @relation(fields: [sourceRequirementId, courseId], references: [id, courseId], onDelete: Restrict)
-  verifiedBy             User?                 @relation("TrainingRecordVerifiedBy", fields: [verifiedById], references: [id], onDelete: Restrict)
-  operations             TrainingOperation[]
+  id                  String               @id
+  operationalId       String               @unique
+  memberProfileId     String
+  courseId            String
+  sourceRequirementId String?
+  assignedAt          DateTime
+  assignedById        String?              @db.Uuid
+  dueAt               DateTime?
+  status              String               @default("Assigned")
+  startedAt           DateTime?
+  startedById         String?              @db.Uuid
+  completedAt         DateTime?
+  completedById       String?              @db.Uuid
+  expiryAt            DateTime?
+  score               Int?
+  completionNote      String?
+  completionRef       String?
+  verifiedById        String?              @db.Uuid
+  verifiedAt          DateTime?
+  waivedAt            DateTime?
+  waivedById          String?              @db.Uuid
+  waiverReason        String?
+  cancelledAt         DateTime?
+  cancelledById       String?              @db.Uuid
+  cancelledReason     String?
+  version             Int                  @default(1)
+  provenance          Json?
+  legacyImported      Boolean              @default(false)
+  legacyMetadata      Json?
+  createdAt           DateTime             @default(now())
+  updatedAt           DateTime             @updatedAt
+  createdById         String?              @db.Uuid
+  updatedById         String?              @db.Uuid
+  memberProfile       MemberProfile        @relation(fields: [memberProfileId], references: [id], onDelete: Restrict)
+  course              TrainingCourse       @relation(fields: [courseId], references: [id], onDelete: Restrict)
+  sourceRequirement   TrainingRequirement? @relation(fields: [sourceRequirementId, courseId], references: [id, courseId], onDelete: Restrict)
+  verifiedBy          User?                @relation("TrainingRecordVerifiedBy", fields: [verifiedById], references: [id], onDelete: Restrict)
+  operations          TrainingOperation[]
 
   @@index([memberProfileId, courseId, status])
   @@index([courseId, status, dueAt])
@@ -388,24 +529,24 @@ model TrainingOperation {
 }
 
 model Document {
-  id               String            @id
-  code             String
-  normalizedCode   String            @unique
-  title            String
-  description      String?
-  category         String
-  ownerFunction    String
-  active           Boolean           @default(true)
-  version          Int               @default(1)
-  archivedAt       DateTime?
-  reactivatedAt    DateTime?
-  legacyImported   Boolean           @default(false)
-  legacyMetadata   Json?
-  createdAt        DateTime           @default(now())
-  updatedAt        DateTime           @updatedAt
-  createdById      String?            @db.Uuid
-  updatedById      String?            @db.Uuid
-  versions         DocumentVersion[]
+  id             String            @id
+  code           String
+  normalizedCode String            @unique
+  title          String
+  description    String?
+  category       String
+  ownerFunction  String
+  active         Boolean           @default(true)
+  version        Int               @default(1)
+  archivedAt     DateTime?
+  reactivatedAt  DateTime?
+  legacyImported Boolean           @default(false)
+  legacyMetadata Json?
+  createdAt      DateTime          @default(now())
+  updatedAt      DateTime          @updatedAt
+  createdById    String?           @db.Uuid
+  updatedById    String?           @db.Uuid
+  versions       DocumentVersion[]
 
   @@index([active, category, title])
   @@index([ownerFunction, active])
@@ -413,39 +554,39 @@ model Document {
 }
 
 model DocumentVersion {
-  id                       String                    @id
-  documentId               String
-  versionLabel             String
-  normalizedVersionLabel   String
-  titleOverride            String?
-  changeSummary            String?
-  status                   String                    @default("Draft")
-  effectiveFrom            DateTime?
-  reviewDueAt              DateTime?
-  publishedAt              DateTime?
-  publishedById            String?                   @db.Uuid
-  withdrawnAt              DateTime?
-  withdrawnById            String?                   @db.Uuid
-  withdrawReason           String?
-  contentMode              String
-  contentBody              String?
-  externalUrl              String?
-  contentDigest            String?
-  basePublishedVersionId   String?
-  version                  Int                       @default(1)
-  provenance               Json?
-  legacyImported           Boolean                   @default(false)
-  legacyMetadata           Json?
-  createdAt                DateTime                  @default(now())
-  updatedAt                DateTime                  @updatedAt
-  createdById              String?                   @db.Uuid
-  updatedById              String?                   @db.Uuid
-  document                 Document                  @relation(fields: [documentId], references: [id], onDelete: Restrict)
-  basePublishedVersion     DocumentVersion?          @relation("DocumentVersionBase", fields: [basePublishedVersionId], references: [id], onDelete: Restrict)
-  basedDrafts              DocumentVersion[]         @relation("DocumentVersionBase")
-  requirements             DocumentRequirement[]
-  acknowledgements         DocumentAcknowledgement[]
-  operations               DocumentOperation[]
+  id                     String                    @id
+  documentId             String
+  versionLabel           String
+  normalizedVersionLabel String
+  titleOverride          String?
+  changeSummary          String?
+  status                 String                    @default("Draft")
+  effectiveFrom          DateTime?
+  reviewDueAt            DateTime?
+  publishedAt            DateTime?
+  publishedById          String?                   @db.Uuid
+  withdrawnAt            DateTime?
+  withdrawnById          String?                   @db.Uuid
+  withdrawReason         String?
+  contentMode            String
+  contentBody            String?
+  externalUrl            String?
+  contentDigest          String?
+  basePublishedVersionId String?
+  version                Int                       @default(1)
+  provenance             Json?
+  legacyImported         Boolean                   @default(false)
+  legacyMetadata         Json?
+  createdAt              DateTime                  @default(now())
+  updatedAt              DateTime                  @updatedAt
+  createdById            String?                   @db.Uuid
+  updatedById            String?                   @db.Uuid
+  document               Document                  @relation(fields: [documentId], references: [id], onDelete: Restrict)
+  basePublishedVersion   DocumentVersion?          @relation("DocumentVersionBase", fields: [basePublishedVersionId], references: [id], onDelete: Restrict)
+  basedDrafts            DocumentVersion[]         @relation("DocumentVersionBase")
+  requirements           DocumentRequirement[]
+  acknowledgements       DocumentAcknowledgement[]
+  operations             DocumentOperation[]
 
   @@unique([documentId, normalizedVersionLabel])
   @@index([documentId, status, createdAt])
@@ -453,30 +594,30 @@ model DocumentVersion {
 }
 
 model DocumentRequirement {
-  id                       String                               @id
-  documentVersionId        String
-  targetType               String
-  targetRole               String?
-  groupId                  String?
-  memberProfileId          String?
+  id                      String                               @id
+  documentVersionId       String
+  targetType              String
+  targetRole              String?
+  groupId                 String?
+  memberProfileId         String?
   acknowledgementRequired Boolean                              @default(true)
-  effectiveFrom            DateTime?
-  dueAt                    DateTime?
-  effectiveTo              DateTime?
-  active                   Boolean                             @default(true)
-  version                  Int                                 @default(1)
-  provenance               Json?
-  endedAt                  DateTime?
-  endedById                String?                             @db.Uuid
-  createdAt                DateTime                            @default(now())
-  updatedAt                DateTime                            @updatedAt
-  createdById              String?                             @db.Uuid
-  updatedById              String?                             @db.Uuid
-  documentVersion          DocumentVersion                     @relation(fields: [documentVersionId], references: [id], onDelete: Restrict)
-  group                    OperationalGroup?                   @relation(fields: [groupId], references: [id], onDelete: Restrict)
-  memberProfile            MemberProfile?                      @relation(fields: [memberProfileId], references: [id], onDelete: Restrict)
-  acknowledgementSources   DocumentAcknowledgementRequirement[]
-  operations               DocumentOperation[]
+  effectiveFrom           DateTime?
+  dueAt                   DateTime?
+  effectiveTo             DateTime?
+  active                  Boolean                              @default(true)
+  version                 Int                                  @default(1)
+  provenance              Json?
+  endedAt                 DateTime?
+  endedById               String?                              @db.Uuid
+  createdAt               DateTime                             @default(now())
+  updatedAt               DateTime                             @updatedAt
+  createdById             String?                              @db.Uuid
+  updatedById             String?                              @db.Uuid
+  documentVersion         DocumentVersion                      @relation(fields: [documentVersionId], references: [id], onDelete: Restrict)
+  group                   OperationalGroup?                    @relation(fields: [groupId], references: [id], onDelete: Restrict)
+  memberProfile           MemberProfile?                       @relation(fields: [memberProfileId], references: [id], onDelete: Restrict)
+  acknowledgementSources  DocumentAcknowledgementRequirement[]
+  operations              DocumentOperation[]
 
   @@index([documentVersionId, active, effectiveFrom, effectiveTo])
   @@index([targetType, targetRole, active])
@@ -503,8 +644,8 @@ model DocumentAcknowledgement {
   legacyImported                  Boolean                              @default(false)
   legacyMetadata                  Json?
   createdAt                       DateTime                             @default(now())
-  documentVersion                 DocumentVersion                     @relation(fields: [documentVersionId], references: [id], onDelete: Restrict)
-  memberProfile                   MemberProfile                       @relation(fields: [memberProfileId], references: [id], onDelete: Restrict)
+  documentVersion                 DocumentVersion                      @relation(fields: [documentVersionId], references: [id], onDelete: Restrict)
+  memberProfile                   MemberProfile                        @relation(fields: [memberProfileId], references: [id], onDelete: Restrict)
   sourceRequirements              DocumentAcknowledgementRequirement[]
   operations                      DocumentOperation[]
 
@@ -529,7 +670,7 @@ model DocumentOperation {
   operationId        String                   @unique @db.Uuid
   documentVersionId  String?
   requirementId      String?
-  acknowledgementId String?
+  acknowledgementId  String?
   command            String
   commandFingerprint String
   resultVersion      Int
@@ -639,32 +780,32 @@ model RosteringOperation {
 }
 
 model Notification {
-  id                 String    @id @default(uuid()) @db.Uuid
-  recipientUserId    String    @db.Uuid
-  deduplicationKey   String
-  mode               String
-  kind               String
-  severity           String
-  category           String
-  title              String
-  message            String
-  sessionId          String?   @db.Uuid
-  sessionLabel       String?
-  sourceType         String
-  sourceId           String
-  sourceLabel        String?
-  conditionType      String?
-  actionDestination  String?
-  actionLabel        String?
-  metadata           Json      @default("{}")
-  readAt             DateTime?
-  resolvedAt         DateTime?
-  resolutionReason   String?
-  version            Int       @default(1)
-  createdAt          DateTime  @default(now())
-  updatedAt          DateTime  @updatedAt
-  recipient          User      @relation("NotificationRecipient", fields: [recipientUserId], references: [id], onDelete: Restrict)
-  session            Session?  @relation(fields: [sessionId], references: [id], onDelete: Restrict)
+  id                String    @id @default(uuid()) @db.Uuid
+  recipientUserId   String    @db.Uuid
+  deduplicationKey  String
+  mode              String
+  kind              String
+  severity          String
+  category          String
+  title             String
+  message           String
+  sessionId         String?   @db.Uuid
+  sessionLabel      String?
+  sourceType        String
+  sourceId          String
+  sourceLabel       String?
+  conditionType     String?
+  actionDestination String?
+  actionLabel       String?
+  metadata          Json      @default("{}")
+  readAt            DateTime?
+  resolvedAt        DateTime?
+  resolutionReason  String?
+  version           Int       @default(1)
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+  recipient         User      @relation("NotificationRecipient", fields: [recipientUserId], references: [id], onDelete: Restrict)
+  session           Session?  @relation(fields: [sessionId], references: [id], onDelete: Restrict)
 
   @@unique([recipientUserId, deduplicationKey])
   @@index([recipientUserId, createdAt])
@@ -676,26 +817,26 @@ model Notification {
 }
 
 model NotificationOutbox {
-  id                String    @id @default(uuid()) @db.Uuid
-  eventType         String
-  aggregateType     String
-  aggregateId       String
-  aggregateVersion  String
-  recipientUserId   String?   @db.Uuid
-  sessionId         String?   @db.Uuid
-  payload           Json
-  status            String    @default("PENDING")
-  attemptCount      Int       @default(0)
-  maxAttempts       Int       @default(8)
-  availableAt       DateTime  @default(now())
-  lockedAt          DateTime?
-  leaseUntil        DateTime?
-  lockedBy          String?
-  deliveredAt       DateTime?
-  failedAt          DateTime?
-  lastError         String?
-  createdAt         DateTime  @default(now())
-  updatedAt         DateTime  @updatedAt
+  id               String    @id @default(uuid()) @db.Uuid
+  eventType        String
+  aggregateType    String
+  aggregateId      String
+  aggregateVersion String
+  recipientUserId  String?   @db.Uuid
+  sessionId        String?   @db.Uuid
+  payload          Json
+  status           String    @default("PENDING")
+  attemptCount     Int       @default(0)
+  maxAttempts      Int       @default(8)
+  availableAt      DateTime  @default(now())
+  lockedAt         DateTime?
+  leaseUntil       DateTime?
+  lockedBy         String?
+  deliveredAt      DateTime?
+  failedAt         DateTime?
+  lastError        String?
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
 
   @@unique([eventType, aggregateType, aggregateId, aggregateVersion])
   @@index([status, availableAt, createdAt])

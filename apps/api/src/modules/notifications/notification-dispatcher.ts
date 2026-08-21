@@ -4,7 +4,7 @@ import type { Logger } from "pino";
 import type { NotificationRepository } from "./notification-repository.js";
 import type { ClaimedOutbox, NotificationClock, NotificationInput } from "./notification-types.js";
 
-const activeStatus = { in: ["active", "Active"] };
+const activeStatus = "Active";
 function value(payload: Record<string, unknown>, key: string, fallback: string) { const text = String(payload[key] ?? "").trim(); return text || fallback; }
 function route(type: string, id: string) { return type === "session" ? "/sessions" : type === "assignment" ? `/assignments?assignmentId=${encodeURIComponent(id)}` : type === "rosterShift" ? "/rostering" : type === "trainingRecord" ? "/training" : type.startsWith("document") ? "/documents" : "/"; }
 
@@ -70,6 +70,7 @@ export function createNotificationDispatcher(client: PrismaClient, repository: N
     if (row.eventType === "ASSIGNMENT_ASSIGNED") return { ...base, category: "Assignment", title: "Assignment assigned to you", message: `${value(p, "operationalId", "Assignment")} is assigned to you.`, sourceType: "assignment", sourceLabel: value(p, "operationalId", "Assignment"), actionDestination: route("assignment", row.aggregateId), actionLabel: "Open assignment" };
     if (row.eventType === "ROSTER_PUBLISHED") return { ...base, category: "Rostering", title: "Roster shift published", message: `${value(p, "operationalId", "Roster shift")} is ready for confirmation.`, sourceType: "rosterShift", sourceLabel: value(p, "operationalId", "Roster shift"), actionDestination: route("rosterShift", row.aggregateId), actionLabel: "Review roster" };
     if (row.eventType === "TRAINING_ASSIGNED") return { ...base, category: "Training", title: "Training assigned", message: `${value(p, "operationalId", "Training")} has been assigned to you.`, sourceType: "trainingRecord", sourceLabel: value(p, "operationalId", "Training"), actionDestination: route("trainingRecord", row.aggregateId), actionLabel: "Open training" };
+    if (row.eventType === "ACCESS_CHANGED") return { ...base, category: "Admin", title: value(p, "title", "Account access changed"), message: value(p, "message", "Your account access was updated."), sourceType: "access", sourceLabel: "Account access", actionDestination: "/settings", actionLabel: "Review account" };
     return { ...base, category: "Documents", title: "Document acknowledgement required", message: "A published document requires your attention.", sourceType: "documentRequirement", sourceLabel: "Document requirement", actionDestination: route("documentRequirement", row.aggregateId), actionLabel: "Open documents" };
   }
 

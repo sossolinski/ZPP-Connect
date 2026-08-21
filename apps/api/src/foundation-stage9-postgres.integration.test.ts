@@ -246,7 +246,7 @@ postgresDescribe("Foundation Stage 9 PostgreSQL Member Profiles and Groups", () 
     expect(added.status, JSON.stringify(added.body)).toBe(201);
     groupA = added.body;
     expect((await request(application()).get("/api/member-profiles").set(as(actors["membership-only"]!.email))).status).toBe(403);
-    expect((await request(application()).get(`/api/groups/${groupA.id}`).query({ sessionId: incidentA }).set(as(actors["no-incident"]!.email))).status).toBe(404);
+    expect((await request(application()).get(`/api/groups/${groupA.id}`).query({ sessionId: incidentA }).set(as(actors["no-incident"]!.email))).status).toBe(403);
 
     await prisma!.groupRoleAssignment.update({ where: { id: `${marker}-GRA` }, data: { status: "Revoked", revokedAt: new Date(), version: { increment: 1 } } });
     expect((await request(application()).get("/api/member-profiles").set(as(actors["group-reader"]!.email))).status).toBe(403);
@@ -256,14 +256,13 @@ postgresDescribe("Foundation Stage 9 PostgreSQL Member Profiles and Groups", () 
     expect(adminGroups.body.data.map((group: { id: string }) => group.id)).toContain(groupA.id);
 
     const viewer = await prisma!.user.findUniqueOrThrow({ where: { email: "viewer@lot.pl" } });
-    const viewerCompatibilityId = "00000000-0000-4000-8000-000000000006";
-    const persistedScope = await request(application()).post(`/api/admin/users/${viewerCompatibilityId}/role-assignments`).set(as("admin@lot.pl")).send({ roleName: "zpp-group-leader", scopeType: "GROUP", scopeId: groupA.id });
+    const persistedScope = await request(application()).post(`/api/admin/users/${viewer.id}/role-assignments`).set(as("admin@lot.pl")).send({ roleName: "zpp-group-leader", scopeType: "GROUP", scopeId: groupA.id });
     expect(persistedScope.status, JSON.stringify(persistedScope.body)).toBe(201);
     const zppLeaderRole = await prisma!.role.findUniqueOrThrow({ where: { name: "zpp-group-leader" } });
     expect(await prisma!.userRole.findUniqueOrThrow({ where: { userId_roleId: { userId: viewer.id, roleId: zppLeaderRole.id } } })).toMatchObject({ scopeType: "GROUP" });
     expect(await prisma!.groupRoleAssignment.count({ where: { userId: viewer.id, roleId: zppLeaderRole.id, groupId: groupA.id, status: "Active" } })).toBe(1);
-    expect((await request(application()).get(`/api/groups/${groupA.id}`).query({ sessionId: incidentA }).set(as(viewer.email))).status).toBe(404);
-    const revokedScope = await request(application()).post(`/api/admin/users/${viewerCompatibilityId}/role-assignments/${persistedScope.body.id}/revoke`).set(as("admin@lot.pl")).send({});
+    expect((await request(application()).get(`/api/groups/${groupA.id}`).query({ sessionId: incidentA }).set(as(viewer.email))).status).toBe(403);
+    const revokedScope = await request(application()).post(`/api/admin/users/${viewer.id}/role-assignments/${persistedScope.body.id}/revoke`).set(as("admin@lot.pl")).send({});
     expect(revokedScope.status, JSON.stringify(revokedScope.body)).toBe(200);
     expect(await prisma!.groupRoleAssignment.count({ where: { userId: viewer.id, roleId: zppLeaderRole.id, groupId: groupA.id, status: "Active" } })).toBe(0);
   });

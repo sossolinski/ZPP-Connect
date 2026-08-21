@@ -82,7 +82,7 @@ jobs:
           kill "$api_pid"
           wait "$api_pid" || true
 
-      - name: PostgreSQL Foundation Stage 1 through 13 integration tests (zero skipped)
+      - name: PostgreSQL Foundation Stage 1 through 14 integration tests (zero skipped)
         run: npm run test:postgres
 
       - name: Rehearse IncidentAssignment backfill from pre-Stage-2 data

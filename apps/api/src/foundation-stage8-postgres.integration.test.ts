@@ -70,7 +70,7 @@ postgresDescribe("Foundation Stage 8 PostgreSQL Operational Assignment safety", 
     await actor("reader", ["session:read", "assignment:read"]);
     await actor("no-reader", ["session:read"]);
     await actor("inactive-candidate", ["session:read", "assignment:read"]);
-    await prisma!.user.update({ where: { id: actors["inactive-candidate"]!.id }, data: { status: "suspended" } });
+    await prisma!.user.update({ where: { id: actors["inactive-candidate"]!.id }, data: { status: "Suspended" } });
   });
 
   afterAll(async () => {

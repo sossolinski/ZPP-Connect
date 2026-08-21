@@ -11,7 +11,7 @@ export function createPrismaIncidentAccessRepository(client: PrismaClient): Inci
           mode: true,
           status: true,
           incidentAssignments: {
-            where: { active: true, user: { email: actorEmail.toLowerCase(), status: "active" } },
+            where: { active: true, user: { normalizedEmail: actorEmail.toLowerCase(), status: "Active" } },
             select: { userId: true },
             take: 1
           }
@@ -19,7 +19,7 @@ export function createPrismaIncidentAccessRepository(client: PrismaClient): Inci
       });
       if (!incident) return null;
       const user = await client.user.findUnique({
-        where: { email: actorEmail.toLowerCase() },
+        where: { normalizedEmail: actorEmail.trim().toLowerCase() },
         select: { id: true }
       });
       return {
@@ -33,7 +33,7 @@ export function createPrismaIncidentAccessRepository(client: PrismaClient): Inci
 
     async listAssignedIncidentIds(actorEmail) {
       const rows = await client.incidentAssignment.findMany({
-        where: { active: true, user: { email: actorEmail.toLowerCase(), status: "active" } },
+        where: { active: true, user: { normalizedEmail: actorEmail.toLowerCase(), status: "Active" } },
         select: { incidentId: true }
       });
       return rows.map((row) => row.incidentId);

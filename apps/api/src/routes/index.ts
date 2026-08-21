@@ -60,6 +60,7 @@ import { createNotificationDispatcher } from "../modules/notifications/notificat
 import { createNotificationProjector } from "../modules/notifications/notification-projector.js";
 import { createNotificationRuntime } from "../modules/notifications/notification-runtime.js";
 import { logger } from "../logger.js";
+import { createIdentityRouter } from "../modules/identity/identity-router.js";
 
 type Delegate = {
   count(args: unknown): Promise<number>;
@@ -1144,6 +1145,7 @@ api.post(
     const organization = await prisma.organization.create({
       data: {
         key: String(body.key),
+        normalizedKey: String(body.key).trim().toLowerCase(),
         name: String(body.name),
         type: body.type ? String(body.type) : undefined,
         status: body.status ? String(body.status) : "active",
@@ -1314,11 +1316,12 @@ export function registerRoutes(app: Express, options: {
   const publishBriefing = notificationService ? async (briefing: Record<string, any>) => {
     const revision = briefing.version ?? briefing.revision;
     if (revision === undefined || revision === null) return;
-    const users = await prisma.user.findMany({ where: { status: { in: ["active", "Active"] }, incidentAssignments: { some: { incidentId: String(briefing.sessionId), active: true } } }, include: { roles: { include: { role: true } } } });
+    const users = await prisma.user.findMany({ where: { status: "Active", incidentAssignments: { some: { incidentId: String(briefing.sessionId), active: true } } }, include: { roles: { include: { role: true } } } });
     for (const user of users.filter((candidate) => candidate.roles.some(({ role }) => Array.isArray(role.permissions) && (role.permissions.map(String).includes("briefing:read") || role.permissions.map(String).includes("*"))))) {
       await notificationService.createEvent({ recipientUserId: user.id, deduplicationKey: `event:briefing:${briefing.id}:${revision}:${user.id}`, kind: "Information", severity: "Information", category: "Briefing", title: "Briefing published", message: `Briefing revision ${revision} is available for review.`, sessionId: briefing.sessionId, sourceType: "briefing", sourceId: String(briefing.id), sourceLabel: "Briefing", actionDestination: "/active-event", actionLabel: "Read briefing" });
     }
   } : undefined;
+  if (usePostgres) app.use("/api", createIdentityRouter(prisma));
   app.use("/api", createDemoRouter({ incidentRepository, enquiryRepository, incidentAccessRepository, incidentAssignmentRepository, passengerRepository, familyRepository, matchingRepository, releaseRepository, requestRepository, assignmentRepository, memberDirectoryRepository, rosteringRepository, trainingRepository, trainingClock: options.trainingClock, documentRepository, documentClock: options.documentClock, notificationService, notificationBriefingPublisher: publishBriefing, documentNotificationHook: options.documentNotificationHook, assignmentNotificationHook: options.assignmentNotificationHook, rosteringNotificationHook: options.rosteringNotificationHook, trainingNotificationHook: options.trainingNotificationHook }));
   if (notificationRepository?.kind === "postgres" && trainingRepository && documentRepository) {
     const dispatcher = createNotificationDispatcher(prisma, notificationRepository, { batchSize: config.notificationDispatchBatchSize, logger });

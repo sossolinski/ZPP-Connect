@@ -6,7 +6,7 @@ const API_LIST_ALL_MAX_RECORDS = 5000;
 const API_SESSION_TOKEN_KEY = "zpp:sessionToken";
 
 export type AuthenticationPolicy = "SSO_ONLY" | "PASSWORD_ONLY" | "SSO_OR_PASSWORD";
-export type ProductAuthenticationMethod = "MICROSOFT_SSO" | "EMAIL_PASSWORD";
+export type ProductAuthenticationMethod = "MICROSOFT_SSO";
 
 export type AuthenticationDiscovery = {
   accountEligible: boolean;

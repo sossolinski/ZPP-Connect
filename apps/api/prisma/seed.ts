@@ -30,13 +30,14 @@ async function seedOrganizations() {
     await prisma.organization.upsert({
       where: { key: organization.key },
       update: {
+        normalizedKey: organization.key.trim().toLowerCase(),
         name: organization.name,
         type: organization.type,
         status: organization.status,
         contactEmail: organization.contactEmail,
         description: organization.description
       },
-      create: organization
+      create: { ...organization, normalizedKey: organization.key.trim().toLowerCase() }
     });
   }
 }
@@ -46,15 +47,29 @@ async function seedRolesAndUsers() {
     await prisma.role.upsert({
       where: { name: role.name },
       update: {
+        normalizedName: role.name.trim().toLowerCase(),
         displayName: role.displayName,
         description: role.description,
-        permissions: role.permissions
+        permissions: role.permissions,
+        scopeTypes: role.scopeTypes,
+        pool: role.pool ?? "ALL",
+        protected: true,
+        custom: false,
+        operationalRole: role.operationalRole,
+        status: "Active"
       },
       create: {
         name: role.name,
+        normalizedName: role.name.trim().toLowerCase(),
         displayName: role.displayName,
         description: role.description,
-        permissions: role.permissions
+        permissions: role.permissions,
+        scopeTypes: role.scopeTypes,
+        pool: role.pool ?? "ALL",
+        protected: true,
+        custom: false,
+        operationalRole: role.operationalRole,
+        status: "Active"
       }
     });
   }
@@ -65,9 +80,13 @@ async function seedRolesAndUsers() {
     });
     const userData = {
       email: user.email,
+      normalizedEmail: user.email.trim().toLowerCase(),
       displayName: user.displayName,
       department: user.department,
-      organizationId: organization?.id
+      organizationId: organization?.id,
+      status: "Active",
+      authenticationPolicy: "SSO_ONLY",
+      activatedAt: new Date()
     };
     const dbUser = await prisma.user.upsert({
       where: { email: user.email },

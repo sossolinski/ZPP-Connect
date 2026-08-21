@@ -67,7 +67,7 @@ async function eligibleUserIds(db: PrismaClient | Prisma.TransactionClient, inci
       incidentId,
       active: true,
       ...(userIds ? { userId: { in: userIds } } : {}),
-      user: { status: { in: ["active", "Active"] } },
+      user: { status: "Active" },
     },
     select: { userId: true, user: { select: { roles: { select: { role: { select: { permissions: true } } } } } } },
   });
@@ -327,7 +327,7 @@ export function createPrismaAssignmentRepository(client: PrismaClient): Assignme
     },
     async listAssignees(context, search, limit, offset) {
       const rows = await client.incidentAssignment.findMany({
-        where: { incidentId: context.incidentId, active: true, user: { status: { in: ["active", "Active"] }, ...(search ? { OR: [{ displayName: { contains: search, mode: "insensitive" } }] } : {}) } },
+        where: { incidentId: context.incidentId, active: true, user: { status: "Active", ...(search ? { OR: [{ displayName: { contains: search, mode: "insensitive" } }] } : {}) } },
         select: { user: { select: { id: true, displayName: true, roles: { select: { role: { select: { name: true, permissions: true } } } } } } },
         orderBy: { user: { displayName: "asc" } },
       });

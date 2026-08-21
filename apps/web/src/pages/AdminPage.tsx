@@ -84,7 +84,7 @@ function emptyInvitationDraft() {
     employeeId: "",
     department: "",
     organizationId: "",
-    authenticationPolicy: "SSO_OR_PASSWORD",
+    authenticationPolicy: "SSO_ONLY",
     memberProfileId: "",
     expiresAt: "",
     roleAssignments: [emptyInvitationRoleAssignmentDraft()]
@@ -158,17 +158,15 @@ function roleScopeTypes(role?: AnyRecord) {
 }
 
 function authenticationPolicyLabel(value: unknown) {
-  const policy = String(value ?? "SSO_OR_PASSWORD");
+  const policy = String(value ?? "SSO_ONLY");
   if (policy === "SSO_ONLY") return "Microsoft SSO";
-  if (policy === "PASSWORD_ONLY") return "Email/password";
-  return "Microsoft SSO or email/password";
+  return "Unsupported legacy policy";
 }
 
 function localOnboardingActionLabel(value: unknown) {
-  const policy = String(value ?? "SSO_OR_PASSWORD");
+  const policy = String(value ?? "SSO_ONLY");
   if (policy === "SSO_ONLY") return "Complete local SSO onboarding";
-  if (policy === "PASSWORD_ONLY") return "Complete local password onboarding";
-  return "Complete local onboarding";
+  return "Unsupported local onboarding policy";
 }
 
 function groupLabel(group?: AnyRecord | null) {
@@ -280,7 +278,7 @@ export function AdminPage({ initialTab = "users" }: AdminPageProps) {
   const [roleAssignmentDraft, setRoleAssignmentDraft] = useState(emptyRoleAssignmentDraft);
   const [overrideDraft, setOverrideDraft] = useState(emptyOverrideDraft);
   const [memberLinkDraft, setMemberLinkDraft] = useState("");
-  const [policyDraft, setPolicyDraft] = useState("SSO_OR_PASSWORD");
+  const [policyDraft, setPolicyDraft] = useState("SSO_ONLY");
   const [lifecycleDialog, setLifecycleDialog] = useState<LifecycleDialogState | null>(null);
   const [policyDialog, setPolicyDialog] = useState<PolicyDialogState | null>(null);
   const [accessSearch, setAccessSearch] = useState("");
@@ -341,7 +339,7 @@ export function AdminPage({ initialTab = "users" }: AdminPageProps) {
     setSelectedUser(userDetail);
     setUserDraft(userDraftFrom(userDetail));
     setMemberLinkDraft(String(userDetail.linkedMemberProfileId ?? ""));
-    setPolicyDraft(String(userDetail.authenticationPolicy ?? "SSO_OR_PASSWORD"));
+    setPolicyDraft(String(userDetail.authenticationPolicy ?? "SSO_ONLY"));
     setEffectiveAccess(accessDetail);
     setAccessHistory(history.data ?? []);
   }
@@ -542,7 +540,7 @@ export function AdminPage({ initialTab = "users" }: AdminPageProps) {
 
   function openPolicyDialog() {
     if (!selectedUser) return;
-    if (policyDraft === String(selectedUser.authenticationPolicy ?? "SSO_OR_PASSWORD")) {
+    if (policyDraft === String(selectedUser.authenticationPolicy ?? "SSO_ONLY")) {
       setError("Choose a different authentication policy.");
       return;
     }
@@ -749,7 +747,7 @@ export function AdminPage({ initialTab = "users" }: AdminPageProps) {
       employeeId: String(invitationDraft.employeeId ?? "").trim(),
       department: String(invitationDraft.department ?? "").trim(),
       organizationId: String(invitationDraft.organizationId ?? "") || undefined,
-      authenticationPolicy: String(invitationDraft.authenticationPolicy ?? "SSO_OR_PASSWORD"),
+      authenticationPolicy: "SSO_ONLY",
       memberProfileId: String(invitationDraft.memberProfileId ?? "") || undefined,
       expiresAt: invitationDraft.expiresAt ? new Date(String(invitationDraft.expiresAt)).toISOString() : undefined,
       roleAssignments: (Array.isArray(invitationDraft.roleAssignments) ? invitationDraft.roleAssignments : []).map((assignment: AnyRecord) => ({
@@ -1067,8 +1065,6 @@ export function AdminPage({ initialTab = "users" }: AdminPageProps) {
                   <Select value={userFilters.authenticationPolicy} onChange={(event) => updateUserFilter("authenticationPolicy", event.target.value)}>
                     <option value="">All policies</option>
                     <option value="SSO_ONLY">Microsoft SSO</option>
-                    <option value="PASSWORD_ONLY">Email/password</option>
-                    <option value="SSO_OR_PASSWORD">SSO or email/password</option>
                   </Select>
                 </Field>
                 <Field label="Invitation">
@@ -1433,8 +1429,6 @@ export function AdminPage({ initialTab = "users" }: AdminPageProps) {
                       <Field label="Authentication policy">
                         <Select value={policyDraft} onChange={(event) => setPolicyDraft(event.target.value)}>
                           <option value="SSO_ONLY">Microsoft SSO</option>
-                          <option value="PASSWORD_ONLY">Email/password</option>
-                          <option value="SSO_OR_PASSWORD">Microsoft SSO or email/password</option>
                         </Select>
                       </Field>
                       <div className="grid gap-2 rounded-md border border-border bg-muted p-3 text-sm font-semibold text-muted-foreground">
@@ -1445,7 +1439,7 @@ export function AdminPage({ initialTab = "users" }: AdminPageProps) {
                         type="button"
                         variant="primary"
                         icon={KeyRound}
-                        disabled={policyDraft === String(selectedUser.authenticationPolicy ?? "SSO_OR_PASSWORD") || savingAction === "authentication-policy"}
+                        disabled={policyDraft === String(selectedUser.authenticationPolicy ?? "SSO_ONLY") || savingAction === "authentication-policy"}
                         onClick={openPolicyDialog}
                       >
                         Review policy change
@@ -1517,9 +1511,7 @@ export function AdminPage({ initialTab = "users" }: AdminPageProps) {
                 </Field>
                 <Field label="Authentication policy" required>
                   <Select value={invitationDraft.authenticationPolicy} onChange={(event) => updateInvitationDraftField("authenticationPolicy", event.target.value)}>
-                    <option value="SSO_OR_PASSWORD">Microsoft SSO or email/password</option>
                     <option value="SSO_ONLY">Microsoft SSO</option>
-                    <option value="PASSWORD_ONLY">Email/password</option>
                   </Select>
                 </Field>
                 <Field label="Invitation expiry">
@@ -1695,9 +1687,7 @@ export function AdminPage({ initialTab = "users" }: AdminPageProps) {
                 <Field label="Authentication policy">
                   <Select value={invitationFilters.authenticationPolicy} onChange={(event) => updateInvitationFilter("authenticationPolicy", event.target.value)}>
                     <option value="">All policies</option>
-                    <option value="SSO_OR_PASSWORD">Microsoft SSO or email/password</option>
                     <option value="SSO_ONLY">Microsoft SSO</option>
-                    <option value="PASSWORD_ONLY">Email/password</option>
                   </Select>
                 </Field>
               </div>

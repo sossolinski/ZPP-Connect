@@ -10,6 +10,7 @@ const payloadKeys: Record<NotificationOutboxInput["eventType"], ReadonlySet<stri
   TRAINING_ASSIGNED: new Set(["memberProfileId", "operationalId", "occurredAt"]),
   DOCUMENT_REQUIREMENT_CREATED: new Set(["requirementId", "occurredAt"]),
   DOCUMENT_REQUIREMENT_UPDATED: new Set(["requirementId", "occurredAt"]),
+  ACCESS_CHANGED: new Set(["title", "message", "occurredAt"]),
 };
 
 function safePayload(input: NotificationOutboxInput) {
