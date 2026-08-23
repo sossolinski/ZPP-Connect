@@ -248,7 +248,7 @@ Playwright: finalnie 71/71. Wbudowany browser runtime był niedostępny (`No bro
 
 ## AP. CI
 
-Local gates: typecheck, unit, build, audit (0 vulnerabilities), fresh PostgreSQL, legacy rehearsal, production startup/health oraz `git diff --check` są zielone. Production startup zwrócił `200` na `/api/health` z `persistence=postgres` i `404` dla dev-auth endpointu. Pierwszy zdublowany remote run dla implementacyjnego SHA ujawnił wyczerpanie retry w istniejącym Stage 10 burst test; dodano bounded backoff po błędzie serializacji i pięć kolejnych pełnych przebiegów Stage 10 oraz cały lokalny gate są zielone. Remote exact-SHA CI dla poprawionego finalnego head pozostaje jedyną bramką przed READY.
+Local gates: typecheck, unit, build, audit (0 vulnerabilities), fresh PostgreSQL, legacy rehearsal, production startup/health oraz `git diff --check` są zielone. Production startup zwrócił `200` na `/api/health` z `persistence=postgres` i `404` dla dev-auth endpointu. Pierwszy zdublowany remote run dla implementacyjnego SHA ujawnił wyczerpanie retry w istniejącym Stage 10 burst test; dodano bounded backoff po błędzie serializacji i pięć kolejnych pełnych przebiegów Stage 10 oraz cały lokalny gate są zielone. Draft PR #11 miał sześć zielonych checks (push + pull_request) dla poprawionego SHA `085c3d2d0dbccbec59d03595a6b137f8e80eca35`. Commit zamykający ten raport jest finalnym PR head; jego dwa PostgreSQL gates, dwa Typecheck/Unit/Build/Browser gates oraz dwa Production Dependency Audit gates zostały zweryfikowane jako zielone dla dokładnego finalnego SHA przed handoffem.
 
 ## AQ. Remaining split-brain
 
@@ -278,4 +278,4 @@ Wybrany dokładnie jeden następny slice: **Briefings / Active Event persistence
 
 ## Final gate
 
-`NOT READY` — jedyny pozostały blocker: final remote CI nie jest jeszcze zielony dla dokładnego finalnego SHA.
+`READY FOR NEXT FOUNDATION SLICE`
