@@ -165,7 +165,7 @@ The dedicated suite creates/updates a Draft, reconstructs the app/service, reads
 
 ## AA. Concurrency
 
-Covered races: 20-way create, two publish calls, two-user update, update vs publish, create vs publish, publish vs closure and repeated current/supersession transitions. Database partial indexes and Session serialization keep Draft/Published counts at most one and revisions unique.
+Covered races: 20-way create, two publish calls, two-user update, update vs publish, create vs publish, publish vs closure and repeated current/supersession transitions. Every Operational Briefing mutation now runs through one bounded Serializable command executor. Expected contention is retried against authoritative state and resolves as the deterministic existing Draft or a controlled domain 409; no expected race returns a raw Prisma error or HTTP 500. Database partial indexes and Session serialization keep Draft/Published counts at most one and revisions unique.
 
 ## AB. Rollback tests
 
@@ -189,7 +189,7 @@ Exact Stage 14 code deployed 17 migrations and seed into `zpp_stage15_rehearsal`
 
 ## AG. PostgreSQL tests
 
-Fresh PostgreSQL migration/seed passed at 18/18. The ordered Foundation Stage 1–15 gate passed 187/187, zero skipped; the dedicated Stage 15 suite passed 11/11. Stage 14’s 40-test scoped identity/access suite is included and green.
+Fresh PostgreSQL migration/seed passed at 18/18. The ordered Foundation Stage 1–15 gate passed 190/190, zero skipped; the dedicated Stage 15 suite passed 14/14. Stage 14’s 40-test scoped identity/access suite is included and green.
 
 ## AH. Browser tests
 
@@ -197,7 +197,23 @@ The new lifecycle and scoped-capability Playwright tests pass. The full browser 
 
 ## AI. CI
 
-Local evidence: Prisma validate/generate PASS; fresh migration/seed PASS; PostgreSQL 187/187; dedicated Stage 15 11/11; Stage 14→15 rehearsal and 49/49 regression PASS; Typecheck PASS; Unit 99/99 (PostgreSQL suites intentionally excluded from this separate unit command); Build PASS; Playwright 73/73; production Entra/PostgreSQL startup and health PASS with development auth unavailable; production dependency audit 0 vulnerabilities; `git diff --check` PASS. Exact implementation SHA `2f4f565148f9e401098541ec02417264b44d8b74` passed all six remote checks: both push and pull-request copies of Foundation PostgreSQL Gate, Typecheck/Unit/Build/Browser, and Production Dependency Audit. This report-only verdict commit is the final candidate and must pass those six checks again before handoff.
+Local closure evidence: Prisma validate/generate PASS; fresh migration/seed PASS at 18/18; PostgreSQL 190/190; dedicated Stage 15 14/14; exact Stage 14→15 migration rehearsal PASS; Typecheck PASS; Unit 99/99 (PostgreSQL suites intentionally excluded from this separate unit command); Build PASS; Playwright 73/73; production Entra/PostgreSQL startup and health PASS with development auth unavailable; production dependency audit 0 vulnerabilities; `git diff --check` PASS. Exact closure implementation SHA `df2f76e97f15d7bee192d0700706db26073d6a03` passed all six remote checks: both push and pull-request copies of Foundation PostgreSQL Gate, Typecheck/Unit/Build/Browser, and Production Dependency Audit. This report-only closure commit is the final candidate and must pass those six checks again before handoff.
+
+## AI.1 Closure 1 — Serializable conflict semantics
+
+Independent review found that `createDraft` retried Prisma `P2034`, while `updateDraft` and `publishDraft` executed direct Serializable transactions and could expose a concurrency failure as HTTP 500. Fresh PostgreSQL testing also established that a `SELECT … FOR UPDATE` serialization failure is surfaced by Prisma 6.19 as `P2010` with PostgreSQL code `40001`, so recognizing `P2034` alone was insufficient.
+
+All three mutations now use a Briefing-scoped, five-attempt Serializable executor. It retries `P2034` and only `P2010` carrying PostgreSQL serialization/deadlock codes `40001` or `40P01`; create additionally retries only P2002 targets identified as `OperationalBriefing` Draft/identity/revision uniqueness. Every retry re-executes the whole transaction and re-evaluates locked Session, status and expected version. Domain 4xx failures are never retried, unrelated P2002/P2010 failures propagate normally, and exhausted expected contention becomes command-specific product 409 messaging without database terminology. Audit/Outbox failure hooks remain unexpected errors and still prove full rollback.
+
+| Race | Direct-service result | HTTP result through `createApp()` | Durable result |
+|---|---|---|---|
+| Publish / publish, same version | One success, one `ActiveEventError` 409 | Sorted statuses `[200, 409]` | One Published, one publication Audit, one Timeline event, one `BRIEFING_PUBLISHED` outbox row |
+| Update / update, same version | One success, one `ActiveEventError` 409 | Sorted statuses `[200, 409]` | Version increments once; only the winner's parent and child content and Audit commit |
+| Update / publish, same version | One success, one `ActiveEventError` 409 | Sorted statuses `[200, 409]` | Only the winner commits; publication side effects are exactly once when publish wins and absent when update wins |
+| Publish / Incident close | Publish returns success or controlled 409 according to committed order | Lifecycle boundary retained | Close-first leaves Draft and zero publication side effects; publish-first commits the complete publication transaction |
+| Create / publish | Deterministic valid result or controlled 409 | Existing route boundary retained | No duplicate revision, Draft or Published current row |
+
+Because each failed Serializable attempt aborts its PostgreSQL transaction, its child writes, Audit, Timeline and Outbox rows are rolled back before retry. Tests assert the successful publication produces each publication side effect exactly once. Direct-service rejected branches are explicitly not `PrismaClientKnownRequestError`, and HTTP conflict bodies are checked for absence of `P2034`, Prisma, transaction/serialization, SQL, table and constraint details. There are zero expected P2034/P2010/500 responses for the covered Operational Briefing lifecycle races.
 
 ## AJ. Remaining split-brain
 
