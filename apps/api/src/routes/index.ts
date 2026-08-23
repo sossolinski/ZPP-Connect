@@ -61,6 +61,7 @@ import { createNotificationProjector } from "../modules/notifications/notificati
 import { createNotificationRuntime } from "../modules/notifications/notification-runtime.js";
 import { logger } from "../logger.js";
 import { createIdentityRouter } from "../modules/identity/identity-router.js";
+import { EffectiveAccessService } from "../modules/identity/effective-access-service.js";
 
 type Delegate = {
   count(args: unknown): Promise<number>;
@@ -1316,9 +1317,9 @@ export function registerRoutes(app: Express, options: {
   const publishBriefing = notificationService ? async (briefing: Record<string, any>) => {
     const revision = briefing.version ?? briefing.revision;
     if (revision === undefined || revision === null) return;
-    const users = await prisma.user.findMany({ where: { status: "Active", incidentAssignments: { some: { incidentId: String(briefing.sessionId), active: true } } }, include: { roles: { include: { role: true } } } });
-    for (const user of users.filter((candidate) => candidate.roles.some(({ role }) => Array.isArray(role.permissions) && (role.permissions.map(String).includes("briefing:read") || role.permissions.map(String).includes("*"))))) {
-      await notificationService.createEvent({ recipientUserId: user.id, deduplicationKey: `event:briefing:${briefing.id}:${revision}:${user.id}`, kind: "Information", severity: "Information", category: "Briefing", title: "Briefing published", message: `Briefing revision ${revision} is available for review.`, sessionId: briefing.sessionId, sourceType: "briefing", sourceId: String(briefing.id), sourceLabel: "Briefing", actionDestination: "/active-event", actionLabel: "Read briefing" });
+    const recipients = await new EffectiveAccessService(prisma).eligibleUsersForPermission("briefing:read", { incidentId: String(briefing.sessionId) });
+    for (const recipientUserId of recipients) {
+      await notificationService.createEvent({ recipientUserId, deduplicationKey: `event:briefing:${briefing.id}:${revision}:${recipientUserId}`, kind: "Information", severity: "Information", category: "Briefing", title: "Briefing published", message: `Briefing revision ${revision} is available for review.`, sessionId: briefing.sessionId, sourceType: "briefing", sourceId: String(briefing.id), sourceLabel: "Briefing", actionDestination: "/active-event", actionLabel: "Read briefing" });
     }
   } : undefined;
   if (usePostgres) app.use("/api", createIdentityRouter(prisma));

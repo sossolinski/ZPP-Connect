@@ -184,7 +184,7 @@ Ephemeral development session przechowuje tylko transport token→User ID; User 
 
 ## AD. Effective access service
 
-`EffectiveAccessService` jest wspólnym kalkulatorem dla auth middleware oraz Admin effective-access. Łączy protected/global roles, poprawnie kwalifikowane group roles i aktywne overrides; DENY ma precedence. Zwraca null dla nie-Active User.
+`EffectiveAccessService` jest wspólnym kalkulatorem dla auth middleware, Admin effective-access oraz permission-based Notification recipient resolution. Łączy protected/global roles, poprawnie kwalifikowane group roles i aktywne overrides; DENY ma precedence. Zwraca null dla nie-Active User. `forUser`, `hasEffectivePermission` i batched `eligibleUsersForPermission` korzystają z jednego evaluator graph; scoped projection wymaga aktywnego IncidentAssignment i wiąże GROUP grant z incidentem jego aktywnej grupy.
 
 ## AE. Auth middleware integration
 
@@ -198,6 +198,8 @@ Każdy global identity command zapisuje `AuditLog.sessionId=null`, actor, reques
 
 Identity command zapisuje `ACCESS_CHANGED` w `NotificationOutbox` w tej samej transakcji. Dispatcher używa bezpiecznej trasy `/settings`, globalnego `sessionId=null` i trwałego dedup key. Delivery failure nie cofa access state; retry/diagnostics pozostają Stage 13 semantics.
 
+`SESSION_CLOSED` rozwiązuje `session:read` wyłącznie przez `EffectiveAccessService.eligibleUsersForPermission`; istniejący postgresowy publisher Briefing używa tego samego entry point dla `briefing:read`, bez dodania Stage 15 ani nowego eventu. GROUP scope nie jest globalizowany przez sam `IncidentAssignment`: role przypisane w grupie incidentu A nie kwalifikują użytkownika do broadcastu incidentu B. Active/expired/revoked GRANT/DENY mają identyczną semantykę jak request authorization. `NotificationDispatcher` nie zawiera osobnego produkcyjnego permission evaluator; direct-recipient events zachowują swoje domain-specific reguły.
+
 ## AH. Concurrency
 
 DB unique/partial unique, row locks, wspólny last-admin advisory lock i optimistic versions zamykają: normalized e-mail, duplicate assignment, active group assignment, override, invitation e-mail, stable identity bind, role archive↔assignment i combined last-admin races. Group role assignment oraz Group archive używają wspólnego logical advisory locka i `READ COMMITTED`, dzięki czemu transakcja oczekująca widzi commit zwycięzcy zamiast utrwalonego wcześniejszego snapshotu. Dedykowane testy obejmują wszystkie wyścigi z sekcji 74 oraz właściwe kombinacje z sekcji 75; zmiana authentication policy nie jest trzecią drogą usunięcia admina, ponieważ production policy jest wyłącznie `SSO_ONLY`.
@@ -206,11 +208,11 @@ Idempotency została oceniona dla lifecycle User, role assignment/revoke, overri
 
 ## AI. Security tests
 
-Pokryto wrong issuer/audience, unknown identity, e-mail takeover/recycling, disabled identity, brak ważnego invitation dla Pending, production dev-auth rejection, self-elevation, final admin, group-without-incident oraz notification safe route.
+Pokryto wrong issuer/audience, unknown identity, e-mail takeover/recycling, disabled identity, brak ważnego invitation dla Pending, production dev-auth rejection, self-elevation, final admin, group-without-incident oraz notification safe route. Closure dodaje jawne przypadki GLOBAL, GROUP correct/wrong incident, GRANT, active/expired/revoked DENY, inactive User, archived Role, revoked GroupRoleAssignment, archived Group, brak IncidentAssignment oraz consistency między scoped `forUser` i recipient eligibility.
 
 ## AJ. Paging / scale
 
-Users, invitations, organizations i roles używają server-side `limit/offset`, stabilnego sortowania i total. Test Users tworzy 225 rekordów i weryfikuje trzecią stronę 75 elementów; limit endpointu jest bounded do 200.
+Users, invitations, organizations i roles używają server-side `limit/offset`, stabilnego sortowania i total. Test Users tworzy 225 rekordów i weryfikuje trzecią stronę 75 elementów; limit endpointu jest bounded do 200. Recipient discovery wykonuje stałą liczbę batched zapytań relacyjnych, bez per-user N+1 i bez `take`/pierwszej strony; test kwalifikuje wszystkich 1005 przygotowanych kandydatów.
 
 ## AK. Frontend
 
@@ -218,7 +220,7 @@ Zachowano Admin information architecture. Users & Access korzysta z trwałych de
 
 ## AL. Backfill / seed
 
-Migracja ma preflight duplicate checks, normalizację e-maili/nazw/statusów, constraints/indexes, nowe tabele, protected role backfill i assignment history. Fresh deploy wykonał 17/17 migracji. Exact legacy rehearsal z merge Stage 13 (`5038dfb…`), jego 16 migracjami i seedem, a następnie Stage 14 deployem przeszedł; dedykowane 29/29 testów działa na upgraded DB.
+Migracja ma preflight duplicate checks, normalizację e-maili/nazw/statusów, constraints/indexes, nowe tabele, protected role backfill i assignment history. Closure fresh deploy wykonał 17/17 migracji oraz seed. Exact legacy rehearsal z merge Stage 13 (`5038dfb…`), jego 16 migracjami i seedem, a następnie Stage 14 deployem przeszedł; dedykowane 37/37 testów działa na fresh i upgraded DB.
 
 ## AM. Legacy removed + LOC
 
@@ -227,19 +229,19 @@ Migracja ma preflight duplicate checks, normalizację e-maili/nazw/statusów, co
 | `demo-router.ts` | 4208 | 4208 | tylko adapter testowy; Admin/Auth routes są shadowed przez identity router w postgres |
 | `auth.ts` | 126 | 65 | PostgreSQL IdentityAuth/EffectiveAccess |
 | `access-control.ts` | 187 | 187 | permission helper; fakty z request DB projection |
-| `routes/index.ts` | 1330 | 1333 | postgres composition root; identity router montowany przed demo adapterem |
+| `routes/index.ts` | 1330 | 1334 | postgres composition root; identity router montowany przed demo adapterem; permission broadcast przez EffectiveAccess |
 | `app.ts` | 108 | 108 | runtime validation + composition |
 | `AdminPage.tsx` | 2168 | 2158 | durable Admin API, SSO-only UI |
-| `modules/identity/*` | 0 | 745 | auth, effective access, durable commands, dev transport |
+| `modules/identity/*` | 0 | 776 | auth, scoped effective access, durable commands, dev transport |
 | Prisma schema | 1409 | 1550 | canonical identity graph |
-| Stage 14 migration / PG test | 0 | 270 / 552 | backfill+constraints / dedicated gate |
+| Stage 14 migration / PG test | 0 | 270 / 718 | backfill+constraints / dedicated gate |
 
-Mandatory search nadal znajduje memory writers w `demo-router.ts` (`roles.push`, `users.push`, `externalIdentities.push` i tablica invitations), lecz production `postgres` route order shadowuje wszystkie jego `/auth` i identity `/admin` routes. Różnica route setu to wyłącznie `/admin/dictionaries` (odrębna, jawnie pozostała domena) oraz alias parametru legacy bulk roles, który jest shadowed przez ten sam Express path. `member-directory.ts` lokalne `users.push`/`groups.push` należą do jawnego memory adaptera/testów lub pomocniczej kolekcji wyniku, nie są production identity authority. Nie znaleziono reachowalnego default in-memory Admin identity service ani wywołań `updateUser(memory...)` / `refreshUserRoleSnapshot(memory...)` w production postgres path.
+Mandatory search nadal znajduje memory writers w `demo-router.ts` (`roles.push`, `users.push`, `externalIdentities.push` i tablica invitations), lecz production `postgres` route order shadowuje wszystkie jego `/auth` i identity `/admin` routes. Różnica route setu to wyłącznie `/admin/dictionaries` (odrębna, jawnie pozostała domena) oraz alias parametru legacy bulk roles, który jest shadowed przez ten sam Express path. `member-directory.ts` lokalne `users.push`/`groups.push` należą do jawnego memory adaptera/testów lub pomocniczej kolekcji wyniku, nie są production identity authority. Legacy in-memory `notifications.ts` pozostaje wyłącznie adapterem automated-test mode. Produkcyjne generic permission recipient scans w `NotificationDispatcher` i composition-root Briefing publisher zostały zastąpione wspólnym `EffectiveAccessService`; pozostały scan w Assignment repository kwalifikuje assignee do commandu, nie odbiorcę broadcastu. Nie znaleziono innego produkcyjnego permission-based Notification evaluator.
 
 ## AN. PostgreSQL tests
 
-- Dedicated Stage 14: 29/29 na fresh oraz upgraded Stage 13 DB.
-- Pełny Stage 1–14 PostgreSQL: 15 files, 165/165, zero skipów.
+- Dedicated Stage 14: 37/37 na fresh oraz upgraded Stage 13 DB.
+- Pełny Stage 1–14 PostgreSQL: 15 files, 173/173, zero skipów.
 - Unit/API bez PostgreSQL: 13 files, 99/99; PostgreSQL suites są świadomie niewłączane do tej komendy, ale mandatory CI gate wywołuje je osobno.
 
 ## AO. Browser tests
@@ -248,11 +250,11 @@ Playwright: finalnie 71/71. Wbudowany browser runtime był niedostępny (`No bro
 
 ## AP. CI
 
-Local gates: typecheck, unit, build, audit (0 vulnerabilities), fresh PostgreSQL, legacy rehearsal, production startup/health oraz `git diff --check` są zielone. Production startup zwrócił `200` na `/api/health` z `persistence=postgres` i `404` dla dev-auth endpointu. Pierwszy zdublowany remote run dla implementacyjnego SHA ujawnił wyczerpanie retry w istniejącym Stage 10 burst test; dodano bounded backoff po błędzie serializacji i pięć kolejnych pełnych przebiegów Stage 10 oraz cały lokalny gate są zielone. Draft PR #11 miał sześć zielonych checks (push + pull_request) dla poprawionego SHA `085c3d2d0dbccbec59d03595a6b137f8e80eca35`. Commit zamykający ten raport jest finalnym PR head; jego dwa PostgreSQL gates, dwa Typecheck/Unit/Build/Browser gates oraz dwa Production Dependency Audit gates zostały zweryfikowane jako zielone dla dokładnego finalnego SHA przed handoffem.
+Closure local gates: typecheck, Unit 99/99, build, Playwright 71/71, audit (0 vulnerabilities), fresh PostgreSQL 17/17 + seed, legacy Stage 13→14 rehearsal, production startup/health oraz `git diff --check` są zielone. Pełny PostgreSQL ma 173/173, dedicated Stage 14 37/37. Production startup zwrócił `200` na `/api/health` z `persistence=postgres` i `404` dla dev-auth endpointu. Remote exact-SHA closure gate pozostaje wymagany po pushu implementacji oraz ponownie po ewentualnym dokumentacyjnym commicie READY.
 
 ## AQ. Remaining split-brain
 
-Production identity split-brain jest usunięty. Memory Admin/Auth adapter pozostaje wyłącznie dla automated test mode i nie jest authority w postgres. Pozostałe niezależne production memory writes: Briefings/Active Event, Imports, Reports/Exports derivation, Readiness/config projection oraz Admin Dictionaries.
+Production identity split-brain jest usunięty. Memory Admin/Auth i memory Notifications adapter pozostają wyłącznie dla automated test mode i nie są authority w postgres. Permission-based Notifications korzystają z tego samego access graph co authorization. Pozostałe niezależne production memory writes: Briefings/Active Event, Imports, Reports/Exports derivation, Readiness/config projection oraz Admin Dictionaries.
 
 ## AR. Risks — max 10
 
@@ -261,6 +263,7 @@ Production identity split-brain jest usunięty. Memory Admin/Auth adapter pozost
 3. Invitation tokenHash nie jest pełnym production secret delivery flow; production accept opiera się na verified Entra first login.
 4. Idempotency jest wdrożone dla invitation commands; pozostałe identity commands polegają na version/unique semantics.
 5. Frontend bundle nadal raportuje istniejące ostrzeżenie >500 kB.
+6. Recipient discovery nie ma page limitu i używa batched relation loading; przy znacznie większej niż przetestowane 1005 populacji może wymagać SQL-side candidate reduction bez rozdzielania semantyki polityki.
 
 ## AS. Next decision
 
@@ -278,4 +281,4 @@ Wybrany dokładnie jeden następny slice: **Briefings / Active Event persistence
 
 ## Final gate
 
-`READY FOR NEXT FOUNDATION SLICE`
+`NOT READY` — local closure gates są zielone; wymagane jest exact-final-SHA remote CI dla draft PR #11.

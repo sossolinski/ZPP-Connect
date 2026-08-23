@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import type { PrismaClient } from "@prisma/client";
 import type { Logger } from "pino";
+import { EffectiveAccessService } from "../identity/effective-access-service.js";
 import type { NotificationRepository } from "./notification-repository.js";
 import type { ClaimedOutbox, NotificationClock, NotificationInput } from "./notification-types.js";
 
@@ -15,14 +16,10 @@ export function createNotificationDispatcher(client: PrismaClient, repository: N
   const leaseMs = options.leaseMs ?? 30_000;
   const retryBaseMs = options.retryBaseMs ?? 1_000;
   const log = options.logger;
+  const effectiveAccess = new EffectiveAccessService(client, clock);
 
   async function activeRecipient(id: string, sessionId?: string | null) {
     return client.user.findFirst({ where: { id, status: activeStatus, ...(sessionId ? { incidentAssignments: { some: { incidentId: sessionId, active: true } } } : {}) }, select: { id: true } });
-  }
-
-  async function permissionRecipients(permission: string, sessionId?: string | null) {
-    const users = await client.user.findMany({ where: { status: activeStatus, ...(sessionId ? { incidentAssignments: { some: { incidentId: sessionId, active: true } } } : {}) }, include: { roles: { include: { role: true } } } });
-    return users.filter((user) => user.roles.some(({ role }) => { const permissions = Array.isArray(role.permissions) ? role.permissions.map(String) : []; return permissions.includes("*") || permissions.includes(permission); })).map((user) => user.id);
   }
 
   async function memberRecipient(memberProfileId: string, sessionId?: string | null) {
@@ -55,7 +52,7 @@ export function createNotificationDispatcher(client: PrismaClient, repository: N
 
   async function recipients(row: ClaimedOutbox) {
     if (row.recipientUserId) return { ids: (await activeRecipient(row.recipientUserId, row.sessionId)) ? [row.recipientUserId] : [], waiting: false };
-    if (row.eventType === "SESSION_CLOSED") return { ids: await permissionRecipients("session:read", row.sessionId), waiting: false };
+    if (row.eventType === "SESSION_CLOSED") return { ids: await effectiveAccess.eligibleUsersForPermission("session:read", { incidentId: row.sessionId }), waiting: false };
     if (row.eventType === "ROSTER_PUBLISHED" || row.eventType === "TRAINING_ASSIGNED") return memberRecipient(value(row.payload, "memberProfileId", ""), row.sessionId);
     if (row.eventType.startsWith("DOCUMENT_REQUIREMENT_")) return { ids: await documentRecipients(value(row.payload, "requirementId", row.aggregateId), row.sessionId), waiting: false };
     return { ids: [], waiting: false };

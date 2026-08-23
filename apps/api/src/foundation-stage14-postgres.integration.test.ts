@@ -60,6 +60,28 @@ postgresDescribe("Foundation Stage 14 PostgreSQL Admin and identity access integ
     return role;
   }
 
+  async function createIncident(suffix: string) {
+    const incident = await prisma!.session.create({ data: { operationalId: `${marker}-${suffix}`, mode: "EXERCISE", status: "Active", eventType: marker, createdById: admin.id } });
+    incidentIds.push(incident.id);
+    return incident;
+  }
+
+  async function assignIncident(userId: string, incidentId: string) {
+    return prisma!.incidentAssignment.create({ data: { incidentId, userId, function: marker, createdById: admin.id } });
+  }
+
+  async function dispatchSessionClosed(incidentId: string, suffix: string) {
+    const outbox = await prisma!.notificationOutbox.create({ data: {
+      eventType: "SESSION_CLOSED", aggregateType: "session", aggregateId: incidentId,
+      aggregateVersion: `${suffix}-${randomUUID()}`, sessionId: incidentId,
+      payload: { operationalId: `${marker}-${suffix}`, occurredAt: new Date().toISOString() }
+    } });
+    const dispatcher = createNotificationDispatcher(prisma!, createPrismaNotificationRepository(prisma!), { workerId: `${marker}-${suffix}`, batchSize: 10_000 });
+    await dispatcher.runOnce();
+    const notifications = await prisma!.notification.findMany({ where: { deduplicationKey: `event:outbox:${outbox.id}` }, orderBy: { recipientUserId: "asc" } });
+    return { outbox, notifications };
+  }
+
   async function createInvitation(suffix: string) {
     const response = await request(application()).post("/api/admin/invitations").set(as(admin.email)).send({
       operationId: randomUUID(), email: `${markerEmail}-${suffix}@example.test`, displayName: `${marker} ${suffix}`, roles: ["zpp-member"]
@@ -83,7 +105,7 @@ postgresDescribe("Foundation Stage 14 PostgreSQL Admin and identity access integ
     // A failed invariant test must never leave the durable seed administrator inactive.
     await prisma.user.updateMany({ where: { id: admin?.id }, data: { status: "Active", suspensionReason: null } });
     await prisma.notification.deleteMany({ where: { recipientUserId: { in: userIds } } });
-    await prisma.notificationOutbox.deleteMany({ where: { OR: [{ recipientUserId: { in: userIds } }, { aggregateId: { startsWith: marker } }] } });
+    await prisma.notificationOutbox.deleteMany({ where: { OR: [{ recipientUserId: { in: userIds } }, { sessionId: { in: incidentIds } }, { aggregateId: { startsWith: marker } }] } });
     await prisma.auditLog.deleteMany({ where: { OR: [{ actorId: { in: userIds } }, { entityId: { in: userIds } }, { summary: { contains: marker } }] } });
     await prisma.identityOperation.deleteMany({ where: { targetUserId: { in: userIds } } });
     await prisma.roleAssignmentHistory.deleteMany({ where: { OR: [{ userId: { in: userIds } }, { roleId: { in: roleIds } }] } });
@@ -173,6 +195,150 @@ postgresDescribe("Foundation Stage 14 PostgreSQL Admin and identity access integ
     expect((await new EffectiveAccessService(prisma!).forUser(user.id))!.permissions).not.toContain("passenger:read");
     await prisma!.incidentAssignment.create({ data: { incidentId: incident.id, userId: user.id, function: marker, createdById: admin.id } });
     expect((await new EffectiveAccessService(prisma!).forUser(user.id))!.permissions).toContain("passenger:read");
+  });
+
+  it("delivers SESSION_CLOSED exactly once for an effective GLOBAL session:read role", async () => {
+    const user = await createUser("notification-global");
+    const role = await createRole("notification-global", ["session:read"]);
+    const incident = await createIncident("NOTIFY-GLOBAL");
+    await prisma!.userRole.create({ data: { userId: user.id, roleId: role.id, assignedBy: admin.id } });
+    await assignIncident(user.id, incident.id);
+
+    const { notifications } = await dispatchSessionClosed(incident.id, "notify-global");
+    expect(notifications.map(({ recipientUserId }) => recipientUserId)).toEqual([user.id]);
+  });
+
+  it("keeps GROUP notification permission tied to the matching Incident", async () => {
+    const user = await createUser("notification-group");
+    const role = await createRole("notification-group", ["session:read"], ["GROUP"]);
+    const incidentA = await createIncident("NOTIFY-GROUP-A");
+    const incidentB = await createIncident("NOTIFY-GROUP-B");
+    const group = await prisma!.operationalGroup.create({ data: { id: `${markerEmail}-notify-group`, operationalId: `${marker}-NOTIFY-GROUP`, incidentId: incidentA.id, name: `${marker} notification group`, pool: "ZPP", functionName: "Family assistance", createdById: admin.id, updatedById: admin.id } });
+    groupIds.push(group.id);
+    await prisma!.userRole.create({ data: { userId: user.id, roleId: role.id, scopeType: "GROUP", assignedBy: admin.id } });
+    await prisma!.groupRoleAssignment.create({ data: { id: randomUUID(), userId: user.id, roleId: role.id, groupId: group.id, assignedBy: admin.id } });
+    await assignIncident(user.id, incidentA.id);
+    await assignIncident(user.id, incidentB.id);
+
+    const correct = await dispatchSessionClosed(incidentA.id, "notify-group-a");
+    const wrong = await dispatchSessionClosed(incidentB.id, "notify-group-b");
+    expect(correct.notifications.map(({ recipientUserId }) => recipientUserId)).toEqual([user.id]);
+    expect(wrong.notifications).toHaveLength(0);
+  });
+
+  it("applies active, expired and revoked DENY overrides identically during notification targeting", async () => {
+    const role = await createRole("notification-deny", ["session:read"]);
+    const incident = await createIncident("NOTIFY-DENY");
+    const denied = await createUser("notification-denied");
+    const expired = await createUser("notification-expired-deny");
+    const revoked = await createUser("notification-revoked-deny");
+    for (const user of [denied, expired, revoked]) {
+      await prisma!.userRole.create({ data: { userId: user.id, roleId: role.id, assignedBy: admin.id } });
+      await assignIncident(user.id, incident.id);
+    }
+    await prisma!.permissionOverride.create({ data: { userId: denied.id, permission: "session:read", effect: "DENY", reason: marker, createdById: admin.id } });
+    await prisma!.permissionOverride.create({ data: { userId: expired.id, permission: "session:read", effect: "DENY", reason: marker, expiresAt: new Date(Date.now() - 1_000), createdById: admin.id } });
+    await prisma!.permissionOverride.create({ data: { userId: revoked.id, permission: "session:read", effect: "DENY", reason: marker, active: false, revokedAt: new Date(), revokedById: admin.id, revokeReason: marker, createdById: admin.id } });
+
+    const { notifications } = await dispatchSessionClosed(incident.id, "notify-deny");
+    expect(notifications.map(({ recipientUserId }) => recipientUserId).sort()).toEqual([expired.id, revoked.id].sort());
+  });
+
+  it("honors an active GRANT override for an incident-assigned notification recipient", async () => {
+    const user = await createUser("notification-grant");
+    const incident = await createIncident("NOTIFY-GRANT");
+    await assignIncident(user.id, incident.id);
+    await prisma!.permissionOverride.create({ data: { userId: user.id, permission: "session:read", effect: "GRANT", reason: marker, createdById: admin.id } });
+
+    const { notifications } = await dispatchSessionClosed(incident.id, "notify-grant");
+    expect(notifications.map(({ recipientUserId }) => recipientUserId)).toEqual([user.id]);
+  });
+
+  it("excludes inactive accounts, archived roles and users without IncidentAssignment", async () => {
+    const role = await createRole("notification-lifecycle", ["session:read"]);
+    const archivedRole = await createRole("notification-archived-role", ["session:read"]);
+    const incident = await createIncident("NOTIFY-LIFECYCLE");
+    const suspended = await createUser("notification-suspended", { status: "Suspended" });
+    const archived = await createUser("notification-archived", { status: "Archived" });
+    const staleRole = await createUser("notification-stale-role");
+    const noIncident = await createUser("notification-no-incident");
+    for (const user of [suspended, archived]) {
+      await prisma!.userRole.create({ data: { userId: user.id, roleId: role.id, assignedBy: admin.id } });
+      await assignIncident(user.id, incident.id);
+    }
+    await prisma!.userRole.create({ data: { userId: staleRole.id, roleId: archivedRole.id, assignedBy: admin.id } });
+    await assignIncident(staleRole.id, incident.id);
+    await prisma!.role.update({ where: { id: archivedRole.id }, data: { status: "Archived" } });
+    await prisma!.userRole.create({ data: { userId: noIncident.id, roleId: role.id, assignedBy: admin.id } });
+
+    const { notifications } = await dispatchSessionClosed(incident.id, "notify-lifecycle");
+    expect(notifications).toHaveLength(0);
+  });
+
+  it("removes GROUP notification eligibility after assignment revoke and Group archive", async () => {
+    const role = await createRole("notification-group-lifecycle", ["session:read"], ["GROUP"]);
+    const incident = await createIncident("NOTIFY-GROUP-LIFECYCLE");
+    const user = await createUser("notification-group-lifecycle");
+    const group = await prisma!.operationalGroup.create({ data: { id: `${markerEmail}-notify-group-lifecycle`, operationalId: `${marker}-NOTIFY-GROUP-LIFECYCLE`, incidentId: incident.id, name: `${marker} notification group lifecycle`, pool: "ZPP", functionName: "Family assistance", createdById: admin.id, updatedById: admin.id } });
+    groupIds.push(group.id);
+    await prisma!.userRole.create({ data: { userId: user.id, roleId: role.id, scopeType: "GROUP", assignedBy: admin.id } });
+    const assignment = await prisma!.groupRoleAssignment.create({ data: { id: randomUUID(), userId: user.id, roleId: role.id, groupId: group.id, assignedBy: admin.id } });
+    await assignIncident(user.id, incident.id);
+    await prisma!.groupRoleAssignment.update({ where: { id: assignment.id }, data: { status: "Revoked", revokedAt: new Date(), revokedBy: admin.id, revokeReason: marker } });
+    await prisma!.operationalGroup.update({ where: { id: group.id }, data: { status: "Archived" } });
+
+    const { notifications } = await dispatchSessionClosed(incident.id, "notify-group-lifecycle");
+    expect(notifications).toHaveLength(0);
+  });
+
+  it("matches scoped forUser authorization with permission recipient eligibility", async () => {
+    const role = await createRole("notification-consistency", ["session:read"], ["GLOBAL", "GROUP"]);
+    const incidentA = await createIncident("NOTIFY-CONSISTENCY-A");
+    const incidentB = await createIncident("NOTIFY-CONSISTENCY-B");
+    const global = await createUser("notification-consistency-global");
+    const groupOnly = await createUser("notification-consistency-group");
+    const denied = await createUser("notification-consistency-denied");
+    const granted = await createUser("notification-consistency-granted");
+    await prisma!.userRole.createMany({ data: [
+      { userId: global.id, roleId: role.id, scopeType: "GLOBAL", assignedBy: admin.id },
+      { userId: groupOnly.id, roleId: role.id, scopeType: "GROUP", assignedBy: admin.id },
+      { userId: denied.id, roleId: role.id, scopeType: "GLOBAL", assignedBy: admin.id },
+    ] });
+    const group = await prisma!.operationalGroup.create({ data: { id: `${markerEmail}-notify-consistency`, operationalId: `${marker}-NOTIFY-CONSISTENCY`, incidentId: incidentA.id, name: `${marker} notification consistency`, pool: "ZPP", functionName: "Family assistance", createdById: admin.id, updatedById: admin.id } });
+    groupIds.push(group.id);
+    await prisma!.groupRoleAssignment.create({ data: { id: randomUUID(), userId: groupOnly.id, roleId: role.id, groupId: group.id, assignedBy: admin.id } });
+    for (const user of [global, groupOnly, denied, granted]) {
+      await assignIncident(user.id, incidentA.id);
+      await assignIncident(user.id, incidentB.id);
+    }
+    await prisma!.permissionOverride.create({ data: { userId: denied.id, permission: "session:read", effect: "DENY", reason: marker, createdById: admin.id } });
+    await prisma!.permissionOverride.create({ data: { userId: granted.id, permission: "session:read", effect: "GRANT", reason: marker, createdById: admin.id } });
+
+    const service = new EffectiveAccessService(prisma!);
+    for (const incident of [incidentA, incidentB]) {
+      const eligible = new Set(await service.eligibleUsersForPermission("session:read", { incidentId: incident.id }));
+      for (const user of [global, groupOnly, denied, granted]) {
+        const authorized = (await service.forUser(user.id, { incidentId: incident.id }))!.permissions.includes("session:read");
+        expect(eligible.has(user.id)).toBe(authorized);
+      }
+    }
+    expect(await service.hasEffectivePermission(groupOnly.id, "session:read", { incidentId: incidentA.id })).toBe(true);
+    expect(await service.hasEffectivePermission(groupOnly.id, "session:read", { incidentId: incidentB.id })).toBe(false);
+  });
+
+  it("discovers permission recipients beyond 1000 candidates without first-page truncation", async () => {
+    const role = await createRole("notification-scale", ["session:read"]);
+    const incident = await createIncident("NOTIFY-SCALE");
+    const count = 1_005;
+    await prisma!.user.createMany({ data: Array.from({ length: count }, (_, index) => ({ email: `${markerEmail}-notify-scale-${index}@example.test`, displayName: `${marker} notify scale ${index}`, status: "Active", authenticationPolicy: "SSO_ONLY" })) });
+    const users = await prisma!.user.findMany({ where: { normalizedEmail: { startsWith: `${markerEmail}-notify-scale-` } }, select: { id: true } });
+    userIds.push(...users.map(({ id }) => id));
+    await prisma!.userRole.createMany({ data: users.map(({ id }) => ({ userId: id, roleId: role.id, scopeType: "GLOBAL", assignedBy: admin.id })) });
+    await prisma!.incidentAssignment.createMany({ data: users.map(({ id }) => ({ incidentId: incident.id, userId: id, function: marker, createdById: admin.id })) });
+
+    const eligible = new Set(await new EffectiveAccessService(prisma!).eligibleUsersForPermission("session:read", { incidentId: incident.id }));
+    expect(users).toHaveLength(count);
+    expect(users.every(({ id }) => eligible.has(id))).toBe(true);
   });
 
   it("binds Entra once by stable provider identity and cannot be hijacked by e-mail recycling", async () => {
