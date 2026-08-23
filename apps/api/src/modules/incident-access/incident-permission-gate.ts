@@ -18,7 +18,7 @@ export type IncidentPermissionGateOptions = {
   afterAuthorize?: (req: Request, context: IncidentContext) => void | Promise<void>;
 };
 
-type PermissionResolver = Permission | Permission[] | ((req: Request) => Permission | Permission[]);
+type PermissionResolver = Permission | Permission[] | ((req: Request) => Permission | Permission[] | Promise<Permission | Permission[]>);
 type IncidentIdResolver = (req: Request) => string | Promise<string>;
 
 export function createIncidentPermissionGate(
@@ -33,7 +33,7 @@ export function createIncidentPermissionGate(
     return async (req: Request, _res: Response, next: NextFunction) => {
       try {
         if (!req.user) throw new HttpError(401, "Authentication required");
-        const resolved = typeof required === "function" ? required(req) : required;
+        const resolved = typeof required === "function" ? await required(req) : required;
         const permissions = Array.isArray(resolved) ? resolved : [resolved];
         const broadlyAvailable = options.permissionMatch === "any"
           ? permissions.some((permission) => req.user!.permissions.includes(permission))

@@ -53,6 +53,10 @@ export function createNotificationDispatcher(client: PrismaClient, repository: N
   async function recipients(row: ClaimedOutbox) {
     if (row.recipientUserId) return { ids: (await activeRecipient(row.recipientUserId, row.sessionId)) ? [row.recipientUserId] : [], waiting: false };
     if (row.eventType === "SESSION_CLOSED") return { ids: await effectiveAccess.eligibleUsersForPermission("session:read", { incidentId: row.sessionId }), waiting: false };
+    if (row.eventType === "BRIEFING_PUBLISHED") {
+      if (!row.sessionId) throw new Error("BRIEFING_PUBLISHED requires an Incident");
+      return { ids: await effectiveAccess.eligibleUsersForPermission("briefing:read", { incidentId: row.sessionId }), waiting: false };
+    }
     if (row.eventType === "ROSTER_PUBLISHED" || row.eventType === "TRAINING_ASSIGNED") return memberRecipient(value(row.payload, "memberProfileId", ""), row.sessionId);
     if (row.eventType.startsWith("DOCUMENT_REQUIREMENT_")) return { ids: await documentRecipients(value(row.payload, "requirementId", row.aggregateId), row.sessionId), waiting: false };
     return { ids: [], waiting: false };
@@ -62,6 +66,7 @@ export function createNotificationDispatcher(client: PrismaClient, repository: N
     const p = row.payload;
     const base = { recipientUserId, deduplicationKey: `event:outbox:${row.id}`, kind: "Information" as const, severity: "Information" as const, sessionId: row.sessionId, sourceId: row.aggregateId, createdAt: new Date(value(p, "occurredAt", clock.now().toISOString())), metadata: { operation: row.eventType, version: row.aggregateVersion } };
     if (row.eventType === "SESSION_CLOSED") return { ...base, category: "Session", title: "Session closed", message: `${value(p, "operationalId", "Session")} has been closed.`, sourceType: "session", sourceLabel: value(p, "operationalId", "Session"), actionDestination: route("session", row.aggregateId), actionLabel: "Open sessions" };
+    if (row.eventType === "BRIEFING_PUBLISHED") return { ...base, category: "Briefing", title: "Briefing published", message: `Briefing revision ${value(p, "revision", row.aggregateVersion)} is available for review.`, sourceType: "briefing", sourceLabel: "Briefing", actionDestination: "/active-event", actionLabel: "Read briefing" };
     if (row.eventType === "ASSIGNMENT_CANCELLED") return { ...base, category: "Assignment", title: "Assignment cancelled", message: `${value(p, "operationalId", "Assignment")} was cancelled.`, sourceType: "assignment", sourceLabel: value(p, "operationalId", "Assignment"), actionDestination: route("assignment", row.aggregateId), actionLabel: "View assignment" };
     if (row.eventType === "ASSIGNMENT_ESCALATED") return { ...base, category: "Assignment", title: "Assignment escalated", message: `${value(p, "operationalId", "Assignment")} requires renewed attention.`, sourceType: "assignment", sourceLabel: value(p, "operationalId", "Assignment"), actionDestination: route("assignment", row.aggregateId), actionLabel: "Open assignment" };
     if (row.eventType === "ASSIGNMENT_ASSIGNED") return { ...base, category: "Assignment", title: "Assignment assigned to you", message: `${value(p, "operationalId", "Assignment")} is assigned to you.`, sourceType: "assignment", sourceLabel: value(p, "operationalId", "Assignment"), actionDestination: route("assignment", row.aggregateId), actionLabel: "Open assignment" };

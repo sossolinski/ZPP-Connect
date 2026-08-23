@@ -3,6 +3,7 @@ import type { NotificationOutboxInput } from "./notification-types.js";
 
 const payloadKeys: Record<NotificationOutboxInput["eventType"], ReadonlySet<string>> = {
   SESSION_CLOSED: new Set(["operationalId", "occurredAt"]),
+  BRIEFING_PUBLISHED: new Set(["revision", "occurredAt"]),
   ASSIGNMENT_ASSIGNED: new Set(["operationalId", "command", "occurredAt"]),
   ASSIGNMENT_CANCELLED: new Set(["operationalId", "occurredAt"]),
   ASSIGNMENT_ESCALATED: new Set(["operationalId", "occurredAt"]),

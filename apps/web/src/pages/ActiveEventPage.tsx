@@ -204,7 +204,7 @@ function LinkedAssignmentBlock({ assignment }: { assignment?: AnyRecord | null }
 }
 
 export function ActiveEventPage() {
-  const { activeSession, can } = useApp();
+  const { activeSession } = useApp();
   const [activeEvent, setActiveEvent] = useState<AnyRecord | null>(null);
   const [loading, setLoading] = useState(false);
   const [loadError, setLoadError] = useState("");
@@ -221,7 +221,8 @@ export function ActiveEventPage() {
   const currentBriefing = activeEvent?.currentBriefing ?? null;
   const draftMeta = activeEvent?.draft ?? null;
   const permissions = activeEvent?.permissions ?? {};
-  const closed = activeSession?.status === "Closed";
+  const closed = ["Closed", "Archived"].includes(String(activeSession?.status));
+  const canUpdateDraft = Boolean(permissions.canUpdateDraft);
   const formSignature = JSON.stringify(form);
   const dirty = Boolean(editorBriefing) && formSignature !== initialSignature;
 
@@ -242,7 +243,7 @@ export function ActiveEventPage() {
   }, [activeSession]);
 
   const loadAssignmentOptions = useCallback(async () => {
-    if (!activeSession || !can("briefing:update-draft")) {
+    if (!activeSession || !canUpdateDraft) {
       setAssignmentOptions([]);
       return;
     }
@@ -257,7 +258,7 @@ export function ActiveEventPage() {
     } finally {
       setAssignmentOptionsLoading(false);
     }
-  }, [activeSession?.id, can]);
+  }, [activeSession?.id, canUpdateDraft]);
 
   useEffect(() => {
     void loadActiveEvent();
@@ -691,7 +692,7 @@ export function ActiveEventPage() {
               <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
                 <Button type="button" variant="secondary" disabled={saving} onClick={() => setEditorBriefing(null)}>Close</Button>
                 <Button type="submit" variant="primary" icon={FileText} disabled={saving}>{saving ? "Saving" : "Save draft"}</Button>
-                {can("briefing:publish") ? (
+                {permissions.canPublish ? (
                   <Button type="button" variant="create" icon={Send} disabled={saving || dirty} onClick={() => void publishDraft()}>
                     {saving ? "Publishing" : "Publish briefing"}
                   </Button>

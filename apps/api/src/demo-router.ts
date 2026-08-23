@@ -105,6 +105,7 @@ import { createDocumentService } from "./modules/documents/document-service.js";
 import type { FoundationDocumentRepository } from "./modules/documents/document-repository.js";
 import { createNotificationRouter } from "./modules/notifications/notification-router.js";
 import type { createPersistentNotificationService } from "./modules/notifications/notification-service.js";
+import type { PrismaOperationalBriefingService } from "./modules/briefings/prisma-operational-briefing-service.js";
 import { hydrateReadOnlyProjection, mergeProjectionPage, syncProjectionRow } from "./modules/compatibility/read-only-projection.js";
 
 type Row = Record<string, any>;
@@ -1964,7 +1965,7 @@ export function createDemoRouter(options: {
   documentClock?: { now(): Date };
   notificationService?: ReturnType<typeof createPersistentNotificationService>;
   effectiveAccessAuthority?: IncidentPermissionAuthority;
-  notificationBriefingPublisher?: (record: Record<string, unknown>) => Promise<void>;
+  operationalBriefingService?: PrismaOperationalBriefingService;
   documentNotificationHook?: (record: Record<string, unknown>) => void;
   assignmentNotificationHook?: (record: Record<string, unknown>, command: string) => void;
   rosteringNotificationHook?: (record: Record<string, unknown>, command: string) => void;
@@ -2138,7 +2139,8 @@ export function createDemoRouter(options: {
     : null;
   const documentsRepository = createDocumentRepository(memberDirectory);
   const readiness = createReadinessService({ directory: memberDirectory, training, documents: documentsRepository, rostering, foundationRostering: foundationRosteringService, foundationTraining: foundationTrainingService, foundationDocuments: foundationDocumentService });
-  const activeEvent = createActiveEventService({ users, sessions, assignments, enquiries, familyRecords, passengerRecords, matchingRecords, releases, requests });
+  const memoryActiveEvent = options.operationalBriefingService ? null : createActiveEventService({ users, sessions, assignments, enquiries, familyRecords, passengerRecords, matchingRecords, releases, requests });
+  const activeEvent = options.operationalBriefingService ?? memoryActiveEvent!;
   const effectiveAccessAuthority = options.effectiveAccessAuthority ?? {
     async effectivePermissionsForUser(userId: string) {
       const user = users.find((item) => item.id === userId);
@@ -2146,7 +2148,7 @@ export function createDemoRouter(options: {
     }
   };
   const requireIncidentPermission = createIncidentPermissionGate(effectiveAccessAuthority, incidentAccessService);
-  const notifications = options.notificationService ? undefined : createNotificationService({ users, sessions, assignments, directory: memberDirectory, rostering, training, documents: foundationDocumentService ? undefined : documentsRepository, activeEvent, permissionsForRoleNames });
+  const notifications = options.notificationService ? undefined : createNotificationService({ users, sessions, assignments, directory: memberDirectory, rostering, training, documents: foundationDocumentService ? undefined : documentsRepository, activeEvent: memoryActiveEvent!, permissionsForRoleNames });
   notificationsForAdmin = options.notificationService ? { create: (input) => options.notificationService!.createEvent(input) } : notifications;
 
   const notifySafely = (handler: () => void) => {
@@ -2425,8 +2427,8 @@ export function createDemoRouter(options: {
   };
 
   const incidentPermissionGate = (
-    required: Permission | Permission[] | ((req: Request) => Permission | Permission[]),
-    resolveIncidentId: (req: Request) => string,
+    required: Permission | Permission[] | ((req: Request) => Permission | Permission[] | Promise<Permission | Permission[]>),
+    resolveIncidentId: (req: Request) => string | Promise<string>,
     hydrateEnquiryCompatibility = false,
     requireWritable = false
   ) => requireIncidentPermission(required, resolveIncidentId, {
@@ -2465,9 +2467,9 @@ export function createDemoRouter(options: {
     res.json(notification);
   });
 
-  const activeEventRoute = (handler: (req: Request) => unknown, status = 200) => (req: Request, res: any) => {
+  const activeEventRoute = (handler: (req: Request) => unknown | Promise<unknown>, status = 200) => asyncHandler(async (req: Request, res: any) => {
     try {
-      res.status(status).json(handler(req));
+      res.status(status).json(await handler(req));
     } catch (error) {
       if (error instanceof ActiveEventError) {
         res.status(error.status).json({ error: error.message });
@@ -2475,21 +2477,29 @@ export function createDemoRouter(options: {
       }
       throw error;
     }
-  };
+  });
 
-  const briefingSecurityMetadata = (req: Request) => activeEvent.securityMetadataForBriefing(String(req.params.briefingId));
-  const incidentForBriefing = (req: Request) => briefingSecurityMetadata(req).sessionId;
-  const briefingReadPermissions = (req: Request): Permission[] => briefingSecurityMetadata(req).status === "Published"
+  const briefingMetadata = new WeakMap<Request, Promise<{ sessionId: string; status: string }>>();
+  const briefingSecurityMetadata = (req: Request) => {
+    const cached = briefingMetadata.get(req);
+    if (cached) return cached;
+    const pending = Promise.resolve(activeEvent.securityMetadataForBriefing(String(req.params.briefingId)));
+    briefingMetadata.set(req, pending);
+    return pending;
+  };
+  const incidentForBriefing = async (req: Request) => (await briefingSecurityMetadata(req)).sessionId;
+  const briefingReadPermissions = async (req: Request): Promise<Permission[]> => (await briefingSecurityMetadata(req)).status === "Published"
     ? ["briefing:read"]
     : ["briefing:read", "briefing:read-history"];
 
-  router.get("/sessions/:sessionId/active-event", incidentPermissionGate("briefing:read", (req) => String(req.params.sessionId), true), activeEventRoute((req) => activeEvent.getActiveEvent(String(req.params.sessionId), incidentDirectoryActor(req))));
-  router.get("/sessions/:sessionId/briefings", incidentPermissionGate("briefing:read-history", (req) => String(req.params.sessionId), true), activeEventRoute((req) => activeEvent.listRevisions(String(req.params.sessionId), incidentDirectoryActor(req))));
-  router.get("/sessions/:sessionId/briefings/current", incidentPermissionGate("briefing:read", (req) => String(req.params.sessionId), true), activeEventRoute((req) => activeEvent.getCurrent(String(req.params.sessionId), incidentDirectoryActor(req))));
-  router.get("/briefings/:briefingId", incidentPermissionGate(briefingReadPermissions, incidentForBriefing, true), activeEventRoute((req) => activeEvent.getBriefing(String(req.params.briefingId), incidentDirectoryActor(req))));
-  router.post("/sessions/:sessionId/briefings/draft", incidentPermissionGate("briefing:create-draft", (req) => String(req.params.sessionId), true, true), activeEventRoute((req) => {
-    const result = activeEvent.createDraft(String(req.params.sessionId), incidentDirectoryActor(req));
-    if (result.created) {
+  const hydrateLegacyActiveEvent = activeEvent.kind !== "postgres";
+  router.get("/sessions/:sessionId/active-event", incidentPermissionGate("briefing:read", (req) => String(req.params.sessionId), hydrateLegacyActiveEvent), activeEventRoute((req) => activeEvent.getActiveEvent(String(req.params.sessionId), incidentDirectoryActor(req))));
+  router.get("/sessions/:sessionId/briefings", incidentPermissionGate("briefing:read-history", (req) => String(req.params.sessionId), hydrateLegacyActiveEvent), activeEventRoute((req) => activeEvent.listRevisions(String(req.params.sessionId), incidentDirectoryActor(req), req.query as Record<string, unknown>)));
+  router.get("/sessions/:sessionId/briefings/current", incidentPermissionGate("briefing:read", (req) => String(req.params.sessionId), hydrateLegacyActiveEvent), activeEventRoute((req) => activeEvent.getCurrent(String(req.params.sessionId), incidentDirectoryActor(req))));
+  router.get("/briefings/:briefingId", incidentPermissionGate(briefingReadPermissions, incidentForBriefing, hydrateLegacyActiveEvent), activeEventRoute((req) => activeEvent.getBriefing(String(req.params.briefingId), incidentDirectoryActor(req))));
+  router.post("/sessions/:sessionId/briefings/draft", incidentPermissionGate("briefing:create-draft", (req) => String(req.params.sessionId), hydrateLegacyActiveEvent, true), activeEventRoute(async (req) => {
+    const result = await activeEvent.createDraft(String(req.params.sessionId), incidentDirectoryActor(req));
+    if (activeEvent.kind !== "postgres" && result.created) {
       addAudit(req, "briefing_draft_created", `Briefing draft revision ${result.briefing.revision} created`, result.briefing.sessionId, {
         briefingId: result.briefing.id,
         revision: result.briefing.revision
@@ -2497,14 +2507,14 @@ export function createDemoRouter(options: {
     }
     return result;
   }));
-  router.patch("/briefings/:briefingId", incidentPermissionGate("briefing:update-draft", incidentForBriefing, true, true), activeEventRoute((req) => {
-    const result = activeEvent.updateDraft(String(req.params.briefingId), req.body ?? {}, incidentDirectoryActor(req));
-    addAudit(req, "briefing_draft_updated", `Briefing draft revision ${result.briefing.revision} updated`, result.briefing.sessionId, {
+  router.patch("/briefings/:briefingId", incidentPermissionGate("briefing:update-draft", incidentForBriefing, hydrateLegacyActiveEvent, true), activeEventRoute(async (req) => {
+    const result = await activeEvent.updateDraft(String(req.params.briefingId), req.body ?? {}, incidentDirectoryActor(req));
+    if (activeEvent.kind !== "postgres") addAudit(req, "briefing_draft_updated", `Briefing draft revision ${result.briefing.revision} updated`, result.briefing.sessionId, {
       briefingId: result.briefing.id,
       revision: result.briefing.revision,
       changedSections: result.changedSections
     }, "operationalBriefing", result.briefing.id);
-    for (const change of result.assignmentRelationChanges ?? []) {
+    if (activeEvent.kind !== "postgres") for (const change of result.assignmentRelationChanges ?? []) {
       const action = change.changeType === "linked" ? "briefing_priority_assignment_linked" : change.changeType === "changed" ? "briefing_priority_assignment_changed" : "briefing_priority_assignment_unlinked";
       const summary = change.changeType === "linked" ? "Assignment linked to briefing priority" : change.changeType === "changed" ? "Assignment link changed on briefing priority" : "Assignment unlinked from briefing priority";
       addAudit(req, action, summary, result.briefing.sessionId, {
@@ -2518,21 +2528,21 @@ export function createDemoRouter(options: {
     }
     return result.briefing;
   }));
-  router.post("/briefings/:briefingId/publish", incidentPermissionGate("briefing:publish", incidentForBriefing, true, true), activeEventRoute((req) => {
-    const result = activeEvent.publishDraft(String(req.params.briefingId), req.body?.expectedVersion, incidentDirectoryActor(req));
-    addAudit(req, "briefing_published", `Briefing revision ${result.briefing.revision} published`, result.briefing.sessionId, {
+  router.post("/briefings/:briefingId/publish", incidentPermissionGate("briefing:publish", incidentForBriefing, hydrateLegacyActiveEvent, true), activeEventRoute(async (req) => {
+    const result = await activeEvent.publishDraft(String(req.params.briefingId), req.body?.expectedVersion, incidentDirectoryActor(req));
+    if (activeEvent.kind !== "postgres") addAudit(req, "briefing_published", `Briefing revision ${result.briefing.revision} published`, result.briefing.sessionId, {
       briefingId: result.briefing.id,
       revision: result.briefing.revision,
       supersededBriefingId: result.superseded?.id ?? null
     }, "operationalBriefing", result.briefing.id);
-    if (result.superseded) {
+    if (activeEvent.kind !== "postgres" && result.superseded) {
       addAudit(req, "briefing_superseded", `Briefing revision ${result.superseded.revision} superseded`, result.superseded.sessionId, {
         briefingId: result.superseded.id,
         revision: result.superseded.revision,
         replacedByBriefingId: result.briefing.id
       }, "operationalBriefing", result.superseded.id);
     }
-    addTimeline(req, {
+    if (activeEvent.kind !== "postgres") addTimeline(req, {
       sessionId: result.briefing.sessionId,
       eventType: "briefing",
       entityType: "operationalBriefing",
@@ -2541,8 +2551,7 @@ export function createDemoRouter(options: {
       body: result.briefing.title,
       metadata: { revision: result.briefing.revision }
     });
-    if (!options.notificationService) notifySafely(() => notifications!.notifyBriefingPublished(result.briefing));
-    if (options.notificationBriefingPublisher) void options.notificationBriefingPublisher(result.briefing).catch(() => undefined);
+    if (activeEvent.kind !== "postgres" && !options.notificationService) notifySafely(() => notifications!.notifyBriefingPublished(result.briefing));
     return result.briefing;
   }));
 

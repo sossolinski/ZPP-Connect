@@ -8,86 +8,92 @@ datasource db {
 }
 
 model User {
-  id                              String                             @id @default(uuid()) @db.Uuid
-  email                           String                             @unique
-  normalizedEmail                 String                             @unique @default("")
+  id                              String                                @id @default(uuid()) @db.Uuid
+  email                           String                                @unique
+  normalizedEmail                 String                                @unique @default("")
   displayName                     String
   employeeId                      String?
   department                      String?
-  organizationId                  String?                            @db.Uuid
-  status                          String                             @default("Active")
-  authenticationPolicy            String                             @default("SSO_ONLY")
-  version                         Int                                @default(1)
+  organizationId                  String?                               @db.Uuid
+  status                          String                                @default("Active")
+  authenticationPolicy            String                                @default("SSO_ONLY")
+  version                         Int                                   @default(1)
   activatedAt                     DateTime?
   suspendedAt                     DateTime?
   archivedAt                      DateTime?
   restoredAt                      DateTime?
   lastSuccessfulSignInAt          DateTime?
-  createdById                     String?                            @db.Uuid
-  updatedById                     String?                            @db.Uuid
-  suspendedById                   String?                            @db.Uuid
-  archivedById                    String?                            @db.Uuid
-  restoredById                    String?                            @db.Uuid
+  createdById                     String?                               @db.Uuid
+  updatedById                     String?                               @db.Uuid
+  suspendedById                   String?                               @db.Uuid
+  archivedById                    String?                               @db.Uuid
+  restoredById                    String?                               @db.Uuid
   suspensionReason                String?
   archiveReason                   String?
-  createdAt                       DateTime                           @default(now())
-  updatedAt                       DateTime                           @updatedAt
-  organization                    Organization?                      @relation(fields: [organizationId], references: [id], onDelete: SetNull)
+  createdAt                       DateTime                              @default(now())
+  updatedAt                       DateTime                              @updatedAt
+  organization                    Organization?                         @relation(fields: [organizationId], references: [id], onDelete: SetNull)
   roles                           UserRole[]
-  createdSessions                 Session[]                          @relation("SessionCreatedBy")
-  closedSessions                  Session[]                          @relation("SessionClosedBy")
-  approvedMatches                 MatchingRecord[]                   @relation("MatchApprovedBy")
-  preparedReleaseActions          ReleaseAction[]                    @relation("ReleasePreparedBy")
-  authorizedReleaseActions        ReleaseAction[]                    @relation("ReleaseAuthorizedBy")
-  completedReleaseActions         ReleaseAction[]                    @relation("ReleaseCompletedBy")
-  cancelledReleaseActions         ReleaseAction[]                    @relation("ReleaseCancelledBy")
-  releaseChecks                   ReleaseCheck[]                     @relation("ReleaseCheckActor")
-  assignedAssignments             AssignmentTask[]                   @relation("AssignmentAssignedTo")
-  createdOperationalAssignments   AssignmentTask[]                   @relation("AssignmentCreatedBy")
-  updatedOperationalAssignments   AssignmentTask[]                   @relation("AssignmentUpdatedBy")
-  completedOperationalAssignments AssignmentTask[]                   @relation("AssignmentCompletedBy")
-  cancelledOperationalAssignments AssignmentTask[]                   @relation("AssignmentCancelledBy")
-  linkedMemberProfiles            MemberProfile[]                    @relation("MemberProfileLinkedUser")
-  createdMemberProfiles           MemberProfile[]                    @relation("MemberProfileCreatedBy")
-  updatedMemberProfiles           MemberProfile[]                    @relation("MemberProfileUpdatedBy")
-  createdOperationalGroups        OperationalGroup[]                 @relation("OperationalGroupCreatedBy")
-  updatedOperationalGroups        OperationalGroup[]                 @relation("OperationalGroupUpdatedBy")
-  addedGroupMemberships           GroupMembership[]                  @relation("GroupMembershipAddedBy")
-  removedGroupMemberships         GroupMembership[]                  @relation("GroupMembershipRemovedBy")
+  createdSessions                 Session[]                             @relation("SessionCreatedBy")
+  closedSessions                  Session[]                             @relation("SessionClosedBy")
+  approvedMatches                 MatchingRecord[]                      @relation("MatchApprovedBy")
+  preparedReleaseActions          ReleaseAction[]                       @relation("ReleasePreparedBy")
+  authorizedReleaseActions        ReleaseAction[]                       @relation("ReleaseAuthorizedBy")
+  completedReleaseActions         ReleaseAction[]                       @relation("ReleaseCompletedBy")
+  cancelledReleaseActions         ReleaseAction[]                       @relation("ReleaseCancelledBy")
+  releaseChecks                   ReleaseCheck[]                        @relation("ReleaseCheckActor")
+  assignedAssignments             AssignmentTask[]                      @relation("AssignmentAssignedTo")
+  createdOperationalAssignments   AssignmentTask[]                      @relation("AssignmentCreatedBy")
+  updatedOperationalAssignments   AssignmentTask[]                      @relation("AssignmentUpdatedBy")
+  completedOperationalAssignments AssignmentTask[]                      @relation("AssignmentCompletedBy")
+  cancelledOperationalAssignments AssignmentTask[]                      @relation("AssignmentCancelledBy")
+  linkedMemberProfiles            MemberProfile[]                       @relation("MemberProfileLinkedUser")
+  createdMemberProfiles           MemberProfile[]                       @relation("MemberProfileCreatedBy")
+  updatedMemberProfiles           MemberProfile[]                       @relation("MemberProfileUpdatedBy")
+  createdOperationalGroups        OperationalGroup[]                    @relation("OperationalGroupCreatedBy")
+  updatedOperationalGroups        OperationalGroup[]                    @relation("OperationalGroupUpdatedBy")
+  addedGroupMemberships           GroupMembership[]                     @relation("GroupMembershipAddedBy")
+  removedGroupMemberships         GroupMembership[]                     @relation("GroupMembershipRemovedBy")
   groupRoleAssignments            GroupRoleAssignment[]
   externalIdentities              ExternalIdentity[]
   invitations                     UserInvitation[]
   permissionOverrides             PermissionOverride[]
-  identityOperations              IdentityOperation[]                @relation("IdentityOperationTarget")
-  createdRosterShifts             RosterShift[]                      @relation("RosterShiftCreatedBy")
-  updatedRosterShifts             RosterShift[]                      @relation("RosterShiftUpdatedBy")
-  publishedRosterShifts           RosterShift[]                      @relation("RosterShiftPublishedBy")
-  confirmedRosterShifts           RosterShift[]                      @relation("RosterShiftConfirmedBy")
-  declinedRosterShifts            RosterShift[]                      @relation("RosterShiftDeclinedBy")
-  cancelledRosterShifts           RosterShift[]                      @relation("RosterShiftCancelledBy")
-  completedRosterShifts           RosterShift[]                      @relation("RosterShiftCompletedBy")
-  createdAvailabilities           Availability[]                     @relation("AvailabilityCreatedBy")
-  updatedAvailabilities           Availability[]                     @relation("AvailabilityUpdatedBy")
-  removedAvailabilities           Availability[]                     @relation("AvailabilityRemovedBy")
-  incidentAssignments             IncidentAssignment[]               @relation("IncidentAssignedUser")
-  createdIncidentAssignments      IncidentAssignment[]               @relation("IncidentAssignmentCreator")
-  revokedIncidentAssignments      IncidentAssignment[]               @relation("IncidentAssignmentRevoker")
-  passengerSrcConfirmations       PassengerRecord[]                  @relation("PassengerSrcConfirmedBy")
-  passengerConditionUpdates       PassengerRecord[]                  @relation("PassengerConditionUpdatedBy")
-  passengerHoldUpdates            PassengerRecord[]                  @relation("PassengerHoldUpdatedBy")
-  familyClaimsCreated             RelationshipClaim[]                @relation("RelationshipClaimCreatedBy")
-  familyVerificationDecisions     RelationshipVerificationDecision[] @relation("RelationshipDecisionBy")
-  familyVerificationProjections   FamilyRecord[]                     @relation("FamilyVerificationProjectionBy")
-  matchDecisions                  MatchDecision[]                    @relation("MatchDecisionBy")
-  ownedRequests                   Request[]                          @relation("RequestOwner")
-  createdRequests                 Request[]                          @relation("RequestCreatedBy")
-  updatedRequests                 Request[]                          @relation("RequestUpdatedBy")
-  resolvedRequests                Request[]                          @relation("RequestResolvedBy")
-  reopenedRequests                Request[]                          @relation("RequestReopenedBy")
-  cancelledRequests               Request[]                          @relation("RequestCancelledBy")
-  verifiedTrainingRecords         MemberTrainingRecord[]             @relation("TrainingRecordVerifiedBy")
-  auditLogs                       AuditLog[]                         @relation("ActorAudit")
-  notifications                   Notification[]                     @relation("NotificationRecipient")
+  identityOperations              IdentityOperation[]                   @relation("IdentityOperationTarget")
+  createdRosterShifts             RosterShift[]                         @relation("RosterShiftCreatedBy")
+  updatedRosterShifts             RosterShift[]                         @relation("RosterShiftUpdatedBy")
+  publishedRosterShifts           RosterShift[]                         @relation("RosterShiftPublishedBy")
+  confirmedRosterShifts           RosterShift[]                         @relation("RosterShiftConfirmedBy")
+  declinedRosterShifts            RosterShift[]                         @relation("RosterShiftDeclinedBy")
+  cancelledRosterShifts           RosterShift[]                         @relation("RosterShiftCancelledBy")
+  completedRosterShifts           RosterShift[]                         @relation("RosterShiftCompletedBy")
+  createdAvailabilities           Availability[]                        @relation("AvailabilityCreatedBy")
+  updatedAvailabilities           Availability[]                        @relation("AvailabilityUpdatedBy")
+  removedAvailabilities           Availability[]                        @relation("AvailabilityRemovedBy")
+  incidentAssignments             IncidentAssignment[]                  @relation("IncidentAssignedUser")
+  createdIncidentAssignments      IncidentAssignment[]                  @relation("IncidentAssignmentCreator")
+  revokedIncidentAssignments      IncidentAssignment[]                  @relation("IncidentAssignmentRevoker")
+  passengerSrcConfirmations       PassengerRecord[]                     @relation("PassengerSrcConfirmedBy")
+  passengerConditionUpdates       PassengerRecord[]                     @relation("PassengerConditionUpdatedBy")
+  passengerHoldUpdates            PassengerRecord[]                     @relation("PassengerHoldUpdatedBy")
+  familyClaimsCreated             RelationshipClaim[]                   @relation("RelationshipClaimCreatedBy")
+  familyVerificationDecisions     RelationshipVerificationDecision[]    @relation("RelationshipDecisionBy")
+  familyVerificationProjections   FamilyRecord[]                        @relation("FamilyVerificationProjectionBy")
+  matchDecisions                  MatchDecision[]                       @relation("MatchDecisionBy")
+  ownedRequests                   Request[]                             @relation("RequestOwner")
+  createdRequests                 Request[]                             @relation("RequestCreatedBy")
+  updatedRequests                 Request[]                             @relation("RequestUpdatedBy")
+  resolvedRequests                Request[]                             @relation("RequestResolvedBy")
+  reopenedRequests                Request[]                             @relation("RequestReopenedBy")
+  cancelledRequests               Request[]                             @relation("RequestCancelledBy")
+  verifiedTrainingRecords         MemberTrainingRecord[]                @relation("TrainingRecordVerifiedBy")
+  auditLogs                       AuditLog[]                            @relation("ActorAudit")
+  notifications                   Notification[]                        @relation("NotificationRecipient")
+  createdOperationalBriefings     OperationalBriefing[]                 @relation("OperationalBriefingCreatedBy")
+  updatedOperationalBriefings     OperationalBriefing[]                 @relation("OperationalBriefingUpdatedBy")
+  publishedOperationalBriefings   OperationalBriefing[]                 @relation("OperationalBriefingPublishedBy")
+  createdBriefingFacts            OperationalBriefingFact[]             @relation("OperationalBriefingFactCreatedBy")
+  createdBriefingUnconfirmedItems OperationalBriefingUnconfirmedItem[]  @relation("OperationalBriefingUnconfirmedCreatedBy")
+  createdBriefingNotes            OperationalBriefingCoordinationNote[] @relation("OperationalBriefingNoteCreatedBy")
 
   @@index([organizationId])
   @@index([status, displayName, id])
@@ -214,6 +220,7 @@ model Session {
   rosterShifts          RosterShift[]
   auditLogs             AuditLog[]
   notifications         Notification[]
+  operationalBriefings  OperationalBriefing[]
 
   @@index([mode, status])
 }
@@ -1360,39 +1367,40 @@ model RequestOperation {
 }
 
 model AssignmentTask {
-  id                  String                @id @default(uuid()) @db.Uuid
-  operationalId       String                @unique
-  sessionId           String                @db.Uuid
+  id                  String                        @id @default(uuid()) @db.Uuid
+  operationalId       String                        @unique
+  sessionId           String                        @db.Uuid
   caseId              String?
   title               String
   details             String?
-  status              String                @default("Open")
-  priority            String                @default("Normal")
-  assignedUserId      String?               @db.Uuid
+  status              String                        @default("Open")
+  priority            String                        @default("Normal")
+  assignedUserId      String?                       @db.Uuid
   legacyAssigneeLabel String?
   relatedFunction     String?
   linkedRecord        String?
   dueAt               DateTime?
-  completedById       String?               @db.Uuid
+  completedById       String?                       @db.Uuid
   completedAt         DateTime?
   completionNote      String?
-  cancelledById       String?               @db.Uuid
+  cancelledById       String?                       @db.Uuid
   cancelledAt         DateTime?
   cancelReason        String?
-  version             Int                   @default(1)
-  legacyImported      Boolean               @default(false)
+  version             Int                           @default(1)
+  legacyImported      Boolean                       @default(false)
   legacyMetadata      Json?
-  createdById         String?               @db.Uuid
-  updatedById         String?               @db.Uuid
-  createdAt           DateTime              @default(now())
-  updatedAt           DateTime              @updatedAt
-  session             Session               @relation(fields: [sessionId], references: [id], onDelete: Cascade)
-  assignedUser        User?                 @relation("AssignmentAssignedTo", fields: [assignedUserId], references: [id], onDelete: Restrict)
-  createdBy           User?                 @relation("AssignmentCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
-  updatedBy           User?                 @relation("AssignmentUpdatedBy", fields: [updatedById], references: [id], onDelete: SetNull)
-  completedBy         User?                 @relation("AssignmentCompletedBy", fields: [completedById], references: [id], onDelete: Restrict)
-  cancelledBy         User?                 @relation("AssignmentCancelledBy", fields: [cancelledById], references: [id], onDelete: Restrict)
+  createdById         String?                       @db.Uuid
+  updatedById         String?                       @db.Uuid
+  createdAt           DateTime                      @default(now())
+  updatedAt           DateTime                      @updatedAt
+  session             Session                       @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  assignedUser        User?                         @relation("AssignmentAssignedTo", fields: [assignedUserId], references: [id], onDelete: Restrict)
+  createdBy           User?                         @relation("AssignmentCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
+  updatedBy           User?                         @relation("AssignmentUpdatedBy", fields: [updatedById], references: [id], onDelete: SetNull)
+  completedBy         User?                         @relation("AssignmentCompletedBy", fields: [completedById], references: [id], onDelete: Restrict)
+  cancelledBy         User?                         @relation("AssignmentCancelledBy", fields: [cancelledById], references: [id], onDelete: Restrict)
   operations          AssignmentOperation[]
+  briefingPriorities  OperationalBriefingPriority[]
 
   @@index([sessionId, status, updatedAt(sort: Desc)])
   @@index([sessionId, assignedUserId, status])
@@ -1400,6 +1408,123 @@ model AssignmentTask {
   @@index([sessionId, dueAt])
   @@index([sessionId, relatedFunction])
   @@index([caseId])
+}
+
+model OperationalBriefing {
+  id                     String                                @id
+  sessionId              String                                @db.Uuid
+  revision               Int
+  status                 String
+  title                  String
+  situationSummary       String                                @default("")
+  overview               String                                @default("")
+  nextUpdateDueAt        DateTime?
+  version                Int                                   @default(1)
+  createdAt              DateTime                              @default(now())
+  createdById            String                                @db.Uuid
+  updatedAt              DateTime                              @updatedAt
+  updatedById            String                                @db.Uuid
+  publishedAt            DateTime?
+  publishedById          String?                               @db.Uuid
+  supersededAt           DateTime?
+  session                Session                               @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  createdBy              User                                  @relation("OperationalBriefingCreatedBy", fields: [createdById], references: [id], onDelete: Restrict)
+  updatedBy              User                                  @relation("OperationalBriefingUpdatedBy", fields: [updatedById], references: [id], onDelete: Restrict)
+  publishedBy            User?                                 @relation("OperationalBriefingPublishedBy", fields: [publishedById], references: [id], onDelete: Restrict)
+  confirmedFacts         OperationalBriefingFact[]
+  unconfirmedInformation OperationalBriefingUnconfirmedItem[]
+  priorities             OperationalBriefingPriority[]
+  risks                  OperationalBriefingRisk[]
+  coordinationNotes      OperationalBriefingCoordinationNote[]
+
+  @@unique([sessionId, revision])
+  @@index([sessionId, status, revision(sort: Desc)])
+  @@index([updatedAt])
+}
+
+model OperationalBriefingFact {
+  id                 String              @id
+  briefingId         String
+  sortOrder          Int
+  statement          String
+  source             String
+  sourceResourceType String?
+  sourceResourceId   String?
+  confirmedAt        DateTime?
+  createdAt          DateTime            @default(now())
+  createdById        String              @db.Uuid
+  briefing           OperationalBriefing @relation(fields: [briefingId], references: [id], onDelete: Cascade)
+  createdBy          User                @relation("OperationalBriefingFactCreatedBy", fields: [createdById], references: [id], onDelete: Restrict)
+
+  @@unique([briefingId, id])
+  @@index([briefingId, sortOrder])
+}
+
+model OperationalBriefingUnconfirmedItem {
+  id                 String              @id
+  briefingId         String
+  sortOrder          Int
+  statement          String
+  source             String
+  verificationStatus String
+  owner              String?
+  reviewDueAt        DateTime?
+  createdAt          DateTime            @default(now())
+  createdById        String              @db.Uuid
+  briefing           OperationalBriefing @relation(fields: [briefingId], references: [id], onDelete: Cascade)
+  createdBy          User                @relation("OperationalBriefingUnconfirmedCreatedBy", fields: [createdById], references: [id], onDelete: Restrict)
+
+  @@unique([briefingId, id])
+  @@index([briefingId, sortOrder])
+}
+
+model OperationalBriefingPriority {
+  id                 String              @id
+  briefingId         String
+  sortOrder          Int
+  description        String
+  status             String
+  responsible        String?
+  linkedAssignmentId String?             @db.Uuid
+  dueAt              DateTime?
+  briefing           OperationalBriefing @relation(fields: [briefingId], references: [id], onDelete: Cascade)
+  linkedAssignment   AssignmentTask?     @relation(fields: [linkedAssignmentId], references: [id], onDelete: Restrict)
+
+  @@unique([briefingId, id])
+  @@index([briefingId, sortOrder])
+  @@index([linkedAssignmentId])
+}
+
+model OperationalBriefingRisk {
+  id          String              @id
+  briefingId  String
+  sortOrder   Int
+  description String
+  severity    String
+  owner       String?
+  mitigation  String?
+  status      String
+  createdAt   DateTime            @default(now())
+  updatedAt   DateTime            @updatedAt
+  briefing    OperationalBriefing @relation(fields: [briefingId], references: [id], onDelete: Cascade)
+
+  @@unique([briefingId, id])
+  @@index([briefingId, sortOrder])
+}
+
+model OperationalBriefingCoordinationNote {
+  id           String              @id
+  briefingId   String
+  sortOrder    Int
+  note         String
+  functionName String?
+  createdAt    DateTime            @default(now())
+  createdById  String              @db.Uuid
+  briefing     OperationalBriefing @relation(fields: [briefingId], references: [id], onDelete: Cascade)
+  createdBy    User                @relation("OperationalBriefingNoteCreatedBy", fields: [createdById], references: [id], onDelete: Restrict)
+
+  @@unique([briefingId, id])
+  @@index([briefingId, sortOrder])
 }
 
 model AssignmentOperation {

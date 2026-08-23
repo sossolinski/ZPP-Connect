@@ -24,6 +24,7 @@ import type { FoundationRosteringRepository } from "./modules/rostering/rosterin
 import type { FoundationTrainingRepository } from "./modules/training/training-repository.js";
 import type { FoundationDocumentRepository } from "./modules/documents/document-repository.js";
 import type { NotificationRepository } from "./modules/notifications/notification-repository.js";
+import type { PrismaOperationalBriefingService } from "./modules/briefings/prisma-operational-briefing-service.js";
 
 export function createApp(options: {
   incidentRepository?: IncidentRepository;
@@ -42,6 +43,7 @@ export function createApp(options: {
   trainingClock?: { now(): Date };
   documentRepository?: FoundationDocumentRepository;
   notificationRepository?: NotificationRepository;
+  operationalBriefingService?: PrismaOperationalBriefingService;
   documentClock?: { now(): Date };
   documentNotificationHook?: (record: Record<string, unknown>) => void;
   assignmentNotificationHook?: (record: Record<string, unknown>, command: string) => void;
@@ -94,6 +96,7 @@ export function createApp(options: {
     trainingClock: options.trainingClock,
     documentRepository: options.documentRepository,
     notificationRepository: options.notificationRepository,
+    operationalBriefingService: options.operationalBriefingService,
     documentClock: options.documentClock,
     documentNotificationHook: options.documentNotificationHook,
     assignmentNotificationHook: options.assignmentNotificationHook,

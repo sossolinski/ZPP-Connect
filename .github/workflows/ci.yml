@@ -61,8 +61,12 @@ jobs:
           npm run build -w @zpp/shared
           npm run build -w @zpp/api
 
-      - name: Start API against PostgreSQL
+      - name: Start production Entra API against PostgreSQL
         run: |
+          NODE_ENV=production AUTH_MODE=entra PERSISTENCE_MODE=postgres \
+          ENTRA_ISSUER=https://login.microsoftonline.com/test/v2.0 \
+          ENTRA_AUDIENCE=zpp-connect-ci ENTRA_JWKS_URI=https://example.test/jwks \
+          DATA_DIR="$RUNNER_TEMP/zpp-connect-storage" \
           node apps/api/dist/src/index.js > api-startup.log 2>&1 &
           api_pid=$!
           trap 'kill "$api_pid" 2>/dev/null || true' EXIT
@@ -79,13 +83,20 @@ jobs:
             exit 1
           fi
           curl --fail --silent http://127.0.0.1:4000/api/health
+          auth_config=$(curl --fail --silent http://127.0.0.1:4000/api/auth/config)
+          node -e 'const config = JSON.parse(process.argv[1]); if (config.developmentAccessEnabled !== false || JSON.stringify(config.authenticationMethods) !== JSON.stringify(["MICROSOFT_SSO"])) process.exit(1)' "$auth_config"
+          dev_status=$(curl --silent --output /dev/null --write-out '%{http_code}' http://127.0.0.1:4000/api/auth/development/users)
+          test "$dev_status" = "404"
           kill "$api_pid"
           wait "$api_pid" || true
 
-      - name: PostgreSQL Foundation Stage 1 through 14 integration tests (zero skipped)
+      - name: PostgreSQL Foundation Stage 1 through 15 integration tests (zero skipped)
         run: npm run test:postgres
 
-      - name: Rehearse IncidentAssignment backfill from pre-Stage-2 data
+      - name: Dedicated Foundation Stage 15 PostgreSQL tests
+        run: npm exec -w @zpp/api vitest run -- --no-file-parallelism --maxWorkers=1 src/foundation-stage15-postgres.integration.test.ts
+
+      - name: Rehearse legacy Foundation and Stage 14 to 15 upgrade
         env:
           PGPASSWORD: zpp
           BACKFILL_DATABASE_URL: postgresql://zpp:zpp@127.0.0.1:5432/zpp_backfill_test?schema=public
@@ -279,6 +290,21 @@ jobs:
           test "$document_sequences" = "4"
           synthetic_document_operations=$(psql "$BACKFILL_PSQL_URL" --tuples-only --no-align --command='SELECT count(*) FROM "DocumentOperation";')
           test "$synthetic_document_operations" = "0"
+          cp -R apps/api/prisma/migrations/20260820170000_notifications_foundation "$migration_workspace/migrations/"
+          cp -R apps/api/prisma/migrations/20260821090000_admin_identity_foundation "$migration_workspace/migrations/"
+          DATABASE_URL="$BACKFILL_DATABASE_URL" npx prisma migrate deploy --schema "$migration_workspace/schema.prisma"
+          stage14_migration_count=$(psql "$BACKFILL_PSQL_URL" --tuples-only --no-align --command='SELECT count(*) FROM "_prisma_migrations" WHERE finished_at IS NOT NULL AND rolled_back_at IS NULL;')
+          test "$stage14_migration_count" = "17"
+          stage14_session_count=$(psql "$BACKFILL_PSQL_URL" --tuples-only --no-align --command='SELECT count(*) FROM "Session" WHERE "id" = '\''20000000-0000-4000-8000-000000000001'\'';')
+          test "$stage14_session_count" = "1"
+          cp -R apps/api/prisma/migrations/20260823190000_operational_briefings "$migration_workspace/migrations/"
+          DATABASE_URL="$BACKFILL_DATABASE_URL" npx prisma migrate deploy --schema "$migration_workspace/schema.prisma"
+          stage15_migration_count=$(psql "$BACKFILL_PSQL_URL" --tuples-only --no-align --command='SELECT count(*) FROM "_prisma_migrations" WHERE finished_at IS NOT NULL AND rolled_back_at IS NULL;')
+          test "$stage15_migration_count" = "18"
+          briefing_tables=$(psql "$BACKFILL_PSQL_URL" --tuples-only --no-align --command='SELECT count(*) FROM information_schema.tables WHERE table_schema = '\''public'\'' AND table_name IN ('\''OperationalBriefing'\'', '\''OperationalBriefingFact'\'', '\''OperationalBriefingUnconfirmedItem'\'', '\''OperationalBriefingPriority'\'', '\''OperationalBriefingRisk'\'', '\''OperationalBriefingCoordinationNote'\'');')
+          test "$briefing_tables" = "6"
+          historical_data_retained=$(psql "$BACKFILL_PSQL_URL" --tuples-only --no-align --command='SELECT count(*) FROM "Session" WHERE "id" = '\''20000000-0000-4000-8000-000000000001'\'';')
+          test "$historical_data_retained" = "1"
 
   quality:
     name: Typecheck, Unit, Build and Browser
