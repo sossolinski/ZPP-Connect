@@ -62,6 +62,7 @@ import { createNotificationRuntime } from "../modules/notifications/notification
 import { logger } from "../logger.js";
 import { createIdentityRouter } from "../modules/identity/identity-router.js";
 import { EffectiveAccessService } from "../modules/identity/effective-access-service.js";
+import { createPrismaOperationalBriefingService, type PrismaOperationalBriefingService } from "../modules/briefings/prisma-operational-briefing-service.js";
 
 type Delegate = {
   count(args: unknown): Promise<number>;
@@ -1263,13 +1264,14 @@ export function registerRoutes(app: Express, options: {
   trainingClock?: { now(): Date };
   documentRepository?: FoundationDocumentRepository;
   notificationRepository?: NotificationRepository;
+  operationalBriefingService?: PrismaOperationalBriefingService;
   documentClock?: { now(): Date };
   documentNotificationHook?: (record: Record<string, unknown>) => void;
   assignmentNotificationHook?: (record: Record<string, unknown>, command: string) => void;
   rosteringNotificationHook?: (record: Record<string, unknown>, command: string) => void;
   trainingNotificationHook?: (record: Record<string, unknown>, command: string) => void;
 } = {}) {
-  const usePostgres = config.persistenceMode === "postgres" || options.incidentRepository?.kind === "postgres" || options.enquiryRepository?.kind === "postgres" || options.passengerRepository?.kind === "postgres" || options.familyRepository?.kind === "postgres" || options.matchingRepository?.kind === "postgres" || options.releaseRepository?.kind === "postgres" || options.requestRepository?.kind === "postgres" || options.assignmentRepository?.kind === "postgres" || options.memberDirectoryRepository?.kind === "postgres" || options.rosteringRepository?.kind === "postgres" || options.trainingRepository?.kind === "postgres" || options.documentRepository?.kind === "postgres" || options.notificationRepository?.kind === "postgres";
+  const usePostgres = config.persistenceMode === "postgres" || options.incidentRepository?.kind === "postgres" || options.enquiryRepository?.kind === "postgres" || options.passengerRepository?.kind === "postgres" || options.familyRepository?.kind === "postgres" || options.matchingRepository?.kind === "postgres" || options.releaseRepository?.kind === "postgres" || options.requestRepository?.kind === "postgres" || options.assignmentRepository?.kind === "postgres" || options.memberDirectoryRepository?.kind === "postgres" || options.rosteringRepository?.kind === "postgres" || options.trainingRepository?.kind === "postgres" || options.documentRepository?.kind === "postgres" || options.notificationRepository?.kind === "postgres" || options.operationalBriefingService?.kind === "postgres";
   const incidentRepository = options.incidentRepository ?? (
     usePostgres ? createPrismaIncidentRepository(prisma) : undefined
   );
@@ -1314,16 +1316,9 @@ export function registerRoutes(app: Express, options: {
   );
   const notificationRepository = options.notificationRepository ?? (usePostgres ? createPrismaNotificationRepository(prisma) : undefined);
   const notificationService = notificationRepository ? createPersistentNotificationService(notificationRepository) : undefined;
-  const publishBriefing = notificationService ? async (briefing: Record<string, any>) => {
-    const revision = briefing.version ?? briefing.revision;
-    if (revision === undefined || revision === null) return;
-    const recipients = await new EffectiveAccessService(prisma).eligibleUsersForPermission("briefing:read", { incidentId: String(briefing.sessionId) });
-    for (const recipientUserId of recipients) {
-      await notificationService.createEvent({ recipientUserId, deduplicationKey: `event:briefing:${briefing.id}:${revision}:${recipientUserId}`, kind: "Information", severity: "Information", category: "Briefing", title: "Briefing published", message: `Briefing revision ${revision} is available for review.`, sessionId: briefing.sessionId, sourceType: "briefing", sourceId: String(briefing.id), sourceLabel: "Briefing", actionDestination: "/active-event", actionLabel: "Read briefing" });
-    }
-  } : undefined;
+  const operationalBriefingService = options.operationalBriefingService ?? (usePostgres ? createPrismaOperationalBriefingService(prisma) : undefined);
   if (usePostgres) app.use("/api", createIdentityRouter(prisma));
-  app.use("/api", createDemoRouter({ incidentRepository, enquiryRepository, incidentAccessRepository, incidentAssignmentRepository, passengerRepository, familyRepository, matchingRepository, releaseRepository, requestRepository, assignmentRepository, memberDirectoryRepository, rosteringRepository, trainingRepository, trainingClock: options.trainingClock, documentRepository, documentClock: options.documentClock, notificationService, effectiveAccessAuthority: usePostgres ? new EffectiveAccessService(prisma) : undefined, notificationBriefingPublisher: publishBriefing, documentNotificationHook: options.documentNotificationHook, assignmentNotificationHook: options.assignmentNotificationHook, rosteringNotificationHook: options.rosteringNotificationHook, trainingNotificationHook: options.trainingNotificationHook }));
+  app.use("/api", createDemoRouter({ incidentRepository, enquiryRepository, incidentAccessRepository, incidentAssignmentRepository, passengerRepository, familyRepository, matchingRepository, releaseRepository, requestRepository, assignmentRepository, memberDirectoryRepository, rosteringRepository, trainingRepository, trainingClock: options.trainingClock, documentRepository, documentClock: options.documentClock, notificationService, effectiveAccessAuthority: usePostgres ? new EffectiveAccessService(prisma) : undefined, operationalBriefingService, documentNotificationHook: options.documentNotificationHook, assignmentNotificationHook: options.assignmentNotificationHook, rosteringNotificationHook: options.rosteringNotificationHook, trainingNotificationHook: options.trainingNotificationHook }));
   if (notificationRepository?.kind === "postgres" && trainingRepository && documentRepository) {
     const dispatcher = createNotificationDispatcher(prisma, notificationRepository, { batchSize: config.notificationDispatchBatchSize, logger });
     const projector = createNotificationProjector(prisma, notificationRepository, { training: trainingRepository, documents: documentRepository, batchSize: config.notificationProjectBatchSize, maxRows: config.notificationProjectMaxRows });

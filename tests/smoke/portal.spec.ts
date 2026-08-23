@@ -368,6 +368,79 @@ test.describe("ZPP Connect portal", () => {
     await expect(page.getByRole("main").getByText(first.description ?? "")).toHaveCount(0);
   });
 
+  test("keeps the complete Briefing draft, stale-save, publish, history and clone workflow usable", async ({ page }) => {
+    await login(page, "coordinator@lot.pl");
+    const session = await createSession(page, `S15-BRF-${Date.now()}`);
+    await useSession(page, session);
+    await page.goto("/active-event");
+    await page.getByRole("button", { name: "Create draft" }).first().click();
+    let dialog = page.getByRole("dialog", { name: /Draft briefing revision 1/ });
+    await dialog.getByLabel("Title").fill("Stage 15 durable briefing");
+    await dialog.getByLabel("Situation summary").fill("Stage 15 browser workflow is active.");
+    await dialog.getByLabel("Confirmed information").fill("Durable fact | Browser coverage");
+    await dialog.getByLabel("Current priorities").fill("Publish one authoritative revision");
+    await dialog.getByLabel("Risks and issues").fill("Attention: Concurrent coordinators");
+    await dialog.getByRole("button", { name: "Save draft" }).click();
+    await expect(dialog.getByRole("button", { name: "Publish briefing" })).toBeEnabled();
+
+    await dialog.getByLabel("Incident or exercise overview").fill("A stale editor must reload before saving.");
+    await page.route("**/api/briefings/*", async (route) => {
+      if (route.request().method() === "PATCH") {
+        await route.fulfill({ status: 409, contentType: "application/json", body: JSON.stringify({ error: "Briefing has changed. Reload before saving." }) });
+        return;
+      }
+      await route.continue();
+    }, { times: 1 });
+    await dialog.getByRole("button", { name: "Save draft" }).click();
+    await expect(dialog.getByText("Briefing has changed. Reload before saving.")).toBeVisible();
+    await dialog.getByRole("button", { name: "Save draft" }).click();
+    await expect(dialog.getByRole("button", { name: "Publish briefing" })).toBeEnabled();
+    await dialog.getByRole("button", { name: "Publish briefing" }).click();
+    await expect(page.getByRole("main").getByRole("heading", { name: "Stage 15 durable briefing" })).toBeVisible();
+    await expect(page.getByText("Published revision 1")).toBeVisible();
+    await expect(page.getByText("Draft update revision 1 exists")).toHaveCount(0);
+
+    await page.getByRole("button", { name: "Create draft" }).first().click();
+    dialog = page.getByRole("dialog", { name: /Draft briefing revision 2/ });
+    await expect(dialog.getByLabel("Title")).toHaveValue("Stage 15 durable briefing");
+    await expect(dialog.getByLabel("Situation summary")).toHaveValue("Stage 15 browser workflow is active.");
+    await dialog.getByLabel("Situation summary").fill("Stage 15 second revision is current.");
+    await dialog.getByRole("button", { name: "Save draft" }).click();
+    await dialog.getByRole("button", { name: "Publish briefing" }).click();
+    await expect(page.getByText("Published revision 2")).toBeVisible();
+    const history = page.getByRole("main").getByText(/Revision [12]/);
+    await expect(history).toHaveCount(2);
+    await expect(page.getByRole("main").getByText("Superseded", { exact: true })).toBeVisible();
+
+    await page.getByRole("button", { name: /unread notifications|Notifications/ }).click();
+    await expect(page.getByRole("dialog", { name: "Notification center" }).getByText("Briefing published").first()).toBeVisible();
+    await page.getByRole("dialog", { name: "Notification center" }).getByRole("button", { name: "Close notifications" }).click();
+
+    const closed = await page.request.post(`${apiUrl}/sessions/${session.id}/close`, { headers: coordinatorHeaders, data: { notes: "Stage 15 closed Incident check." } });
+    expect(closed.ok()).toBeTruthy();
+    const closedProjection = await page.request.get(`${apiUrl}/sessions/${session.id}/active-event`, { headers: coordinatorHeaders });
+    expect(closedProjection.ok()).toBeTruthy();
+    expect((await closedProjection.json()).permissions).toMatchObject({ canCreateDraft: false, canUpdateDraft: false, canPublish: false });
+    await page.reload();
+    await expect(page.getByRole("button", { name: /Create draft|Edit draft|Open draft/ })).toHaveCount(0);
+  });
+
+  test("uses server Incident capabilities to suppress cross-Incident Briefing actions", async ({ page }) => {
+    const session = await createSession(page, `S15-SCOPE-${Date.now()}`);
+    const created = await page.request.post(`${apiUrl}/sessions/${session.id}/briefings/draft`, { headers: coordinatorHeaders, data: {} });
+    expect(created.ok()).toBeTruthy();
+    await login(page, "coordinator@lot.pl");
+    await useSession(page, session);
+    await page.route(`**/api/sessions/${session.id}/active-event`, async (route) => {
+      const original = await route.fetch();
+      const body = await original.json();
+      await route.fulfill({ response: original, json: { ...body, permissions: { canReadHistory: false, canCreateDraft: false, canUpdateDraft: false, canPublish: false } } });
+    });
+    await page.goto("/active-event");
+    await expect(page.getByText("Draft update revision 1 exists")).toBeVisible();
+    await expect(page.getByRole("button", { name: /Create draft|Edit draft|Open draft|Publish briefing/ })).toHaveCount(0);
+  });
+
   test("shows a no-session Active Event state without inventing an incident", async ({ page }) => {
     await page.route("**/api/sessions**", async (route) => {
       if (route.request().method() === "GET") {

@@ -1102,11 +1102,124 @@ async function seedNotifications() {
   });
 }
 
+async function seedOperationalBriefings() {
+  const [coordinator, zpp, admin, primary] = await Promise.all([
+    prisma.user.findUniqueOrThrow({ where: { email: "coordinator@lot.pl" } }),
+    prisma.user.findUniqueOrThrow({ where: { email: "zpp@lot.pl" } }),
+    prisma.user.findUniqueOrThrow({ where: { email: "admin@lot.pl" } }),
+    prisma.session.findUniqueOrThrow({ where: { operationalId: "SES-2026-001" } }),
+  ]);
+  const training = await prisma.session.upsert({
+    where: { operationalId: "SES-2026-002" },
+    update: {},
+    create: {
+      operationalId: "SES-2026-002",
+      mode: "TRAINING",
+      status: "Active",
+      eventType: "Briefing practice",
+      description: "Training Incident for Operational Briefing revision practice.",
+      startAt: new Date("2026-06-20T09:00:00.000Z"),
+      createdById: coordinator.id,
+    },
+  });
+  await prisma.$queryRaw`
+    SELECT setval(
+      '"Session_operational_seq"',
+      GREATEST(
+        COALESCE((
+          SELECT MAX(substring("operationalId" FROM '([0-9]+)$')::BIGINT)
+          FROM "Session"
+          WHERE "operationalId" ~ '^SES-[0-9]{4}-[0-9]+$'
+        ), 0) + 1,
+        1
+      ),
+      false
+    )
+  `;
+  for (const user of await prisma.user.findMany({ where: { email: { in: sampleUsers.map((item) => item.email) } } })) {
+    await prisma.incidentAssignment.upsert({
+      where: { incidentId_userId: { incidentId: training.id, userId: user.id } },
+      update: { active: true, revokedAt: null, revokedById: null, revokeReason: null },
+      create: { incidentId: training.id, userId: user.id, function: "Seed briefing training access", scope: "OPERATIONAL", createdById: admin.id },
+    });
+  }
+  const assignments = await prisma.assignmentTask.findMany({
+    where: { sessionId: primary.id, operationalId: { in: ["ASN-2026-000001", "ASN-2026-000002", "ASN-2026-000003"] } },
+    select: { id: true, operationalId: true },
+  });
+  const assignmentByOperationalId = new Map(assignments.map((item) => [item.operationalId, item.id]));
+  const primaryPublishedAt = new Date("2026-06-21T09:45:00.000Z");
+  if (!await prisma.operationalBriefing.findUnique({ where: { id: "brf-ses-demo-1-r1" } })) {
+    await prisma.operationalBriefing.create({
+      data: {
+        id: "brf-ses-demo-1-r1",
+        sessionId: primary.id,
+        revision: 1,
+        status: "Published",
+        title: "Current operational briefing",
+        situationSummary: "EXERCISE session is active for ZPP coordination training. Telephone enquiry intake, family support, matching review and roster coverage are operating under exercise conditions.",
+        overview: "Training scenario for flight LO3924 KRK-WAW. No passenger or casualty status may be disclosed from TEC intake or family support workflows.",
+        nextUpdateDueAt: new Date("2026-06-21T14:00:00.000Z"),
+        version: 1,
+        createdAt: new Date("2026-06-21T09:20:00.000Z"),
+        createdById: coordinator.id,
+        updatedAt: primaryPublishedAt,
+        updatedById: coordinator.id,
+        publishedAt: primaryPublishedAt,
+        publishedById: coordinator.id,
+        confirmedFacts: { create: [
+          { id: "brf-ses-demo-1-r1-fact-01", sortOrder: 1, statement: "Session SES-2026-001 is active in EXERCISE mode.", source: "Session control", sourceResourceType: "session", sourceResourceId: primary.id, confirmedAt: new Date("2026-06-21T08:00:00.000Z"), createdAt: primaryPublishedAt, createdById: coordinator.id },
+          { id: "brf-ses-demo-1-r1-fact-02", sortOrder: 2, statement: "TEC enquiry intake is open for the exercise and must not confirm protected passenger status.", source: "TEC operating rule", sourceResourceType: "enquiry", confirmedAt: primaryPublishedAt, createdAt: primaryPublishedAt, createdById: coordinator.id },
+        ] },
+        unconfirmedInformation: { create: [
+          { id: "brf-ses-demo-1-r1-unconfirmed-01", sortOrder: 1, statement: "Family relationship verification remains pending for the active hold.", source: "Matching review", verificationStatus: "Needs verification", owner: "Family Assistance", reviewDueAt: new Date("2026-06-21T11:00:00.000Z"), createdAt: primaryPublishedAt, createdById: coordinator.id },
+        ] },
+        priorities: { create: [
+          { id: "brf-ses-demo-1-r1-priority-01", sortOrder: 1, description: "Read this briefing before handling operational work.", status: "In progress", responsible: "All active response roles" },
+          { id: "brf-ses-demo-1-r1-priority-02", sortOrder: 2, description: "Verify the restricted case before first outbound contact.", status: "In progress", responsible: "ZPP Coordinator", linkedAssignmentId: assignmentByOperationalId.get("ASN-2026-000003"), dueAt: new Date("2026-06-21T10:30:00.000Z") },
+          { id: "brf-ses-demo-1-r1-priority-03", sortOrder: 3, description: "Confirm TEC evening coverage for the operating period.", status: "Not started", responsible: "ZPP Group Leader", linkedAssignmentId: assignmentByOperationalId.get("ASN-2026-000002"), dueAt: new Date("2026-06-21T13:00:00.000Z") },
+          { id: "brf-ses-demo-1-r1-priority-04", sortOrder: 4, description: "Prepare the welfare room briefing note for handover.", status: "Not started", responsible: "Member support", linkedAssignmentId: assignmentByOperationalId.get("ASN-2026-000001"), dueAt: new Date("2026-06-21T12:00:00.000Z") },
+        ] },
+        risks: { create: [
+          { id: "brf-ses-demo-1-r1-risk-01", sortOrder: 1, description: "Identity verification hold remains active before any disclosure or release workflow.", severity: "Attention", owner: "Family Assistance", mitigation: "Coordinator review is required before first contact.", status: "Open", createdAt: primaryPublishedAt, updatedAt: primaryPublishedAt },
+        ] },
+        coordinationNotes: { create: [
+          { id: "brf-ses-demo-1-r1-note-01", sortOrder: 1, note: "Use anonymized family references in broad operational views.", functionName: "Information handling", createdAt: primaryPublishedAt, createdById: coordinator.id },
+          { id: "brf-ses-demo-1-r1-note-02", sortOrder: 2, note: "No release of sensitive data without coordinator approval.", functionName: "Controlled disclosure", createdAt: primaryPublishedAt, createdById: coordinator.id },
+        ] },
+      },
+    });
+  }
+  const trainingPublishedAt = new Date("2026-06-20T10:00:00.000Z");
+  if (!await prisma.operationalBriefing.findUnique({ where: { id: "brf-ses-demo-2-r1" } })) {
+    await prisma.operationalBriefing.create({ data: {
+      id: "brf-ses-demo-2-r1", sessionId: training.id, revision: 1, status: "Published", title: "Training briefing",
+      situationSummary: "TRAINING session is prepared for briefing practice and role familiarization.", overview: "Training context only. Participants should practice reading the current briefing before taking module actions.",
+      version: 1, createdAt: new Date("2026-06-20T09:40:00.000Z"), createdById: zpp.id, updatedAt: trainingPublishedAt, updatedById: zpp.id, publishedAt: trainingPublishedAt, publishedById: zpp.id,
+      confirmedFacts: { create: [{ id: "brf-ses-demo-2-r1-fact-01", sortOrder: 1, statement: "Training briefing practice is active.", source: "Training control", confirmedAt: trainingPublishedAt, createdAt: trainingPublishedAt, createdById: zpp.id }] },
+      priorities: { create: [{ id: "brf-ses-demo-2-r1-priority-01", sortOrder: 1, description: "Read the current training briefing.", status: "In progress", responsible: "Participants" }] },
+      risks: { create: [{ id: "brf-ses-demo-2-r1-risk-01", sortOrder: 1, description: "Training information must not be treated as a real activation.", severity: "Information", status: "Open", createdAt: trainingPublishedAt, updatedAt: trainingPublishedAt }] },
+    } });
+  }
+  if (!await prisma.operationalBriefing.findUnique({ where: { id: "brf-ses-demo-2-r2" } })) {
+    const draftAt = new Date("2026-06-20T11:00:00.000Z");
+    await prisma.operationalBriefing.create({ data: {
+      id: "brf-ses-demo-2-r2", sessionId: training.id, revision: 2, status: "Draft", title: "Draft training briefing update",
+      situationSummary: "TRAINING session is ready for a refreshed briefing practice round.", overview: "Training context only. Participants should practice reading the current briefing before taking module actions.",
+      version: 2, createdAt: draftAt, createdById: zpp.id, updatedAt: draftAt, updatedById: zpp.id,
+      confirmedFacts: { create: [{ id: "brf-ses-demo-2-r2-fact-01", sortOrder: 1, statement: "Training briefing practice is active.", source: "Training control", confirmedAt: trainingPublishedAt, createdAt: trainingPublishedAt, createdById: zpp.id }] },
+      priorities: { create: [{ id: "brf-ses-demo-2-r2-priority-01", sortOrder: 1, description: "Read the refreshed training briefing.", status: "Not started", responsible: "Participants" }] },
+      risks: { create: [{ id: "brf-ses-demo-2-r2-risk-01", sortOrder: 1, description: "Training information must not be treated as a real activation.", severity: "Information", status: "Open", createdAt: trainingPublishedAt, updatedAt: draftAt }] },
+    } });
+  }
+}
+
 async function main() {
   await seedOrganizations();
   await seedRolesAndUsers();
   await seedDictionaries();
   await seedOperationalData();
+  await seedOperationalBriefings();
   await seedNotifications();
 }
 

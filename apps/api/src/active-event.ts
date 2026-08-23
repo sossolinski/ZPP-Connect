@@ -12,9 +12,9 @@ export type PriorityStatus = "Not started" | "In progress" | "Completed" | "Bloc
 export type RiskSeverity = "Information" | "Attention" | "Critical";
 export type AssignmentAccessState = "Available" | "Restricted" | "Missing" | "Unavailable";
 
-export class ActiveEventError extends Error {
-  constructor(public status: number, message: string) {
-    super(message);
+export class ActiveEventError extends HttpError {
+  constructor(status: number, message: string) {
+    super(status, message);
   }
 }
 
@@ -911,6 +911,7 @@ export function createActiveEventService(sources: ActiveEventSources) {
   }
 
   return {
+    kind: "memory" as const,
     securityMetadataForBriefing,
     getActiveEvent,
     listRevisions,
@@ -921,3 +922,4 @@ export function createActiveEventService(sources: ActiveEventSources) {
     publishDraft
   };
 }
+import { HttpError } from "./errors.js";

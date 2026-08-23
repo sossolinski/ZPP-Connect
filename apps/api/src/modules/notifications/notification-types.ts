@@ -81,7 +81,7 @@ export type NotificationPage = { total: number; limit: number; offset: number; d
 export type NotificationCounts = { total: number; unread: number; active: number; resolved: number; actionRequired: number; actionRequiredUnread: number; updates: number; updatesUnread: number; criticalUnread: number };
 
 export type NotificationOutboxInput = {
-  eventType: "SESSION_CLOSED" | "ASSIGNMENT_ASSIGNED" | "ASSIGNMENT_CANCELLED" | "ASSIGNMENT_ESCALATED" | "ROSTER_PUBLISHED" | "TRAINING_ASSIGNED" | "DOCUMENT_REQUIREMENT_CREATED" | "DOCUMENT_REQUIREMENT_UPDATED" | "ACCESS_CHANGED";
+  eventType: "SESSION_CLOSED" | "BRIEFING_PUBLISHED" | "ASSIGNMENT_ASSIGNED" | "ASSIGNMENT_CANCELLED" | "ASSIGNMENT_ESCALATED" | "ROSTER_PUBLISHED" | "TRAINING_ASSIGNED" | "DOCUMENT_REQUIREMENT_CREATED" | "DOCUMENT_REQUIREMENT_UPDATED" | "ACCESS_CHANGED";
   aggregateType: string;
   aggregateId: string;
   aggregateVersion: string;
