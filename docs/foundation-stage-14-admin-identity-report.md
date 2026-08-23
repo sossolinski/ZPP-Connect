@@ -277,7 +277,7 @@ Playwright: finalnie 71/71 z wymuszonymi fresh web servers (`CI=1`). Wbudowany b
 
 ## AP. CI
 
-Closure 2 local gates: typecheck, Unit 99/99, build, Playwright 71/71, production audit (0 vulnerabilities), fresh PostgreSQL 17/17 + seed, pełny PostgreSQL 176/176 zero skipped, dedicated Stage 14 40/40 na fresh i upgraded DB, exact Stage 13→14 rehearsal, production Entra/PostgreSQL startup/health oraz `git diff --check` są zielone. Production startup zwrócił `200` na `/api/health` z `persistence=postgres` i `404` dla dev-auth endpointu. Verdict pozostaje NOT READY do czasu sześciu zielonych remote checks dla dokładnego finalnego SHA; jeśli verdict zmieni osobny commit dokumentacyjny, wymagane są ponowne checks tego SHA.
+Closure 2 local gates: typecheck, Unit 99/99, build, Playwright 71/71, production audit (0 vulnerabilities), fresh PostgreSQL 17/17 + seed, pełny PostgreSQL 176/176 zero skipped, dedicated Stage 14 40/40 na fresh i upgraded DB, exact Stage 13→14 rehearsal, production Entra/PostgreSQL startup/health oraz `git diff --check` są zielone. Production startup zwrócił `200` na `/api/health` z `persistence=postgres` i `404` dla dev-auth endpointu. Implementacyjny SHA `292bbcc7bf734377d71620cddae92d337d8011d4` przeszedł wszystkie sześć remote checks (push + pull_request). Ten dokumentacyjny commit READY jest finalnym PR head; jego dwa PostgreSQL gates, dwa Typecheck/Unit/Build/Browser gates oraz dwa Production Dependency Audit gates muszą zostać zweryfikowane jako zielone dla dokładnego finalnego SHA przed handoffem.
 
 ## AQ. Remaining split-brain
 
@@ -310,4 +310,4 @@ Wybrany dokładnie jeden następny slice: **Briefings / Active Event persistence
 
 ## Final gate
 
-`NOT READY — exact-final-SHA remote CI pending`
+`READY FOR NEXT FOUNDATION SLICE`
