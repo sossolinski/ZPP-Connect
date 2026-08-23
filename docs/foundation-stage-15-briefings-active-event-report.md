@@ -1,6 +1,6 @@
 # Foundation Stage 15 — Operational Briefings Persistence + Active Event Integrity
 
-Status: NOT READY — exact remote implementation SHA checks pending
+Status: READY FOR NEXT FOUNDATION SLICE
 
 ## A. Stage 14 merge verification
 
@@ -197,7 +197,7 @@ The new lifecycle and scoped-capability Playwright tests pass. The full browser 
 
 ## AI. CI
 
-Local evidence: Prisma validate/generate PASS; fresh migration/seed PASS; PostgreSQL 187/187; dedicated Stage 15 11/11; Stage 14→15 rehearsal and 49/49 regression PASS; Typecheck PASS; Unit 99/99 (PostgreSQL suites intentionally excluded from this separate unit command); Build PASS; Playwright 73/73; production Entra/PostgreSQL startup and health PASS with development auth unavailable; production dependency audit 0 vulnerabilities; `git diff --check` PASS. Exact remote implementation-SHA checks remain pending before the final READY verdict.
+Local evidence: Prisma validate/generate PASS; fresh migration/seed PASS; PostgreSQL 187/187; dedicated Stage 15 11/11; Stage 14→15 rehearsal and 49/49 regression PASS; Typecheck PASS; Unit 99/99 (PostgreSQL suites intentionally excluded from this separate unit command); Build PASS; Playwright 73/73; production Entra/PostgreSQL startup and health PASS with development auth unavailable; production dependency audit 0 vulnerabilities; `git diff --check` PASS. Exact implementation SHA `2f4f565148f9e401098541ec02417264b44d8b74` passed all six remote checks: both push and pull-request copies of Foundation PostgreSQL Gate, Typecheck/Unit/Build/Browser, and Production Dependency Audit. This report-only verdict commit is the final candidate and must pass those six checks again before handoff.
 
 ## AJ. Remaining split-brain
 
