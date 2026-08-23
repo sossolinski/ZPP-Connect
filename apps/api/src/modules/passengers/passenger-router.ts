@@ -1,8 +1,9 @@
 import { dictionaries } from "@zpp/shared";
-import { Router, type Request } from "express";
+import { Router, type Request, type RequestHandler } from "express";
 import { z } from "zod";
 import { asyncHandler } from "../../errors.js";
 import { requirePermission } from "../../rbac.js";
+import type { IncidentPermissionGate } from "../incident-access/incident-permission-gate.js";
 import type { PassengerService } from "./passenger-service.js";
 import type { PassengerActor, PassengerRecord } from "./passenger-types.js";
 
@@ -101,56 +102,59 @@ function actor(req: Request): PassengerActor {
 
 export function createPassengerRouter(
   service: PassengerService,
-  compatibility: { onList?: (records: PassengerRecord[], incidentId: string, offset: number) => void; onChange?: (record: PassengerRecord) => void } = {}
+  compatibility: { onList?: (records: PassengerRecord[], incidentId: string, offset: number) => void; onChange?: (record: PassengerRecord) => void; requireIncidentPermission?: IncidentPermissionGate } = {}
 ) {
   const router = Router();
+  const authorize = (permission: Parameters<typeof requirePermission>[0], source: "query" | "body", writable = false): RequestHandler => compatibility.requireIncidentPermission
+    ? compatibility.requireIncidentPermission(permission, (req) => String(source === "query" ? req.query.sessionId ?? "" : req.body?.sessionId ?? ""), { requireWritable: writable })
+    : requirePermission(permission);
 
-  router.get("/passenger-records", requirePermission("passenger:read"), asyncHandler(async (req, res) => {
+  router.get("/passenger-records", authorize("passenger:read", "query"), asyncHandler(async (req, res) => {
     const query = listQuery.parse(req.query);
     const result = await service.list(actor(req), query.sessionId, query);
     compatibility.onList?.(result.data, query.sessionId, query.offset);
     res.json(result);
   }));
 
-  router.get("/passenger-records/:id", requirePermission("passenger:read"), asyncHandler(async (req, res) => {
+  router.get("/passenger-records/:id", authorize("passenger:read", "query"), asyncHandler(async (req, res) => {
     res.json(await service.get(actor(req), scopedId.parse(req.query.sessionId), scopedId.parse(req.params.id)));
   }));
 
-  router.post("/passenger-records", requirePermission("passenger:create"), asyncHandler(async (req, res) => {
+  router.post("/passenger-records", authorize("passenger:create", "body", true), asyncHandler(async (req, res) => {
     const record = await service.create(actor(req), createBody.parse(req.body));
     compatibility.onChange?.(record);
     res.status(201).json(record);
   }));
 
-  router.patch("/passenger-records/:id", requirePermission("passenger:update"), asyncHandler(async (req, res) => {
+  router.patch("/passenger-records/:id", authorize("passenger:update", "body", true), asyncHandler(async (req, res) => {
     const { sessionId, version, ...input } = updateBody.parse(req.body);
     const record = await service.update(actor(req), sessionId, scopedId.parse(req.params.id), input, version);
     compatibility.onChange?.(record);
     res.json(record);
   }));
 
-  router.post("/passenger-records/:id/correct-source", requirePermission("passenger:update"), asyncHandler(async (req, res) => {
+  router.post("/passenger-records/:id/correct-source", authorize("passenger:update", "body", true), asyncHandler(async (req, res) => {
     const { sessionId, version, ...input } = correctionBody.parse(req.body);
     const record = await service.correctSource(actor(req), sessionId, scopedId.parse(req.params.id), input, version);
     compatibility.onChange?.(record);
     res.json(record);
   }));
 
-  router.post("/passenger-records/:id/mark-src-confirmed", requirePermission("passenger:srcConfirm"), asyncHandler(async (req, res) => {
+  router.post("/passenger-records/:id/mark-src-confirmed", authorize("passenger:srcConfirm", "body", true), asyncHandler(async (req, res) => {
     const body = versionedAction.parse(req.body);
     const record = await service.confirmSrc(actor(req), body.sessionId, scopedId.parse(req.params.id), body.version, body.basis);
     compatibility.onChange?.(record);
     res.json(record);
   }));
 
-  router.post("/passenger-records/:id/change-condition", requirePermission("passenger:control"), asyncHandler(async (req, res) => {
+  router.post("/passenger-records/:id/change-condition", authorize("passenger:control", "body", true), asyncHandler(async (req, res) => {
     const body = conditionAction.parse(req.body);
     const record = await service.control(actor(req), body.sessionId, scopedId.parse(req.params.id), "conditionStatus", body.conditionStatus, body.basis, body.version);
     compatibility.onChange?.(record);
     res.json(record);
   }));
 
-  router.post("/passenger-records/:id/change-hold", requirePermission("passenger:control"), asyncHandler(async (req, res) => {
+  router.post("/passenger-records/:id/change-hold", authorize("passenger:control", "body", true), asyncHandler(async (req, res) => {
     const body = holdAction.parse(req.body);
     const record = await service.control(actor(req), body.sessionId, scopedId.parse(req.params.id), "holdStatus", body.holdStatus, body.reason, body.version);
     compatibility.onChange?.(record);

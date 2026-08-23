@@ -251,19 +251,19 @@ postgresDescribe("Foundation Stage 6 PostgreSQL release safety", () => {
     const prepared = await prepare(value);
     expect((await request(application()).get("/api/releases/queue").query({ sessionId: incidentA }).set(as(actors.reader!.email))).status).toBe(200);
     await prisma!.incidentAssignment.update({ where: { id: actors.reader!.assignmentId }, data: { active: false, revokedAt: new Date(), revokedById: adminId, revokeReason: "Stage 6 immediate revoke" } });
-    expect((await request(application()).get("/api/releases/queue").query({ sessionId: incidentA }).set(as(actors.reader!.email))).status).toBe(404);
-    expect((await request(application()).get(`/api/releases/${prepared.body.id}`).query({ sessionId: incidentA }).set(as(actors.reader!.email))).status).toBe(404);
+    expect((await request(application()).get("/api/releases/queue").query({ sessionId: incidentA }).set(as(actors.reader!.email))).status).toBe(403);
+    expect((await request(application()).get(`/api/releases/${prepared.body.id}`).query({ sessionId: incidentA }).set(as(actors.reader!.email))).status).toBe(403);
     await prisma!.incidentAssignment.update({ where: { id: actors.reader!.assignmentId }, data: { active: true, revokedAt: null, revokedById: null, revokeReason: null } });
 
     const coordinatorAssignment = await prisma!.incidentAssignment.findFirstOrThrow({ where: { incidentId: incidentA, userId: coordinatorId, active: true } });
     await prisma!.incidentAssignment.update({ where: { id: coordinatorAssignment.id }, data: { active: false, revokedAt: new Date(), revokedById: adminId, revokeReason: "Stage 6 full-command revoke" } });
     const revokedBody = { sessionId: incidentA, reason: "Revoked command attempt.", basis: "Revoked check attempt.", result: "PASS", expectedVersion: prepared.body.version, operationId: randomUUID() };
-    expect((await request(application()).get("/api/releases/queue").query({ sessionId: incidentA }).set(as("coordinator@lot.pl"))).status).toBe(404);
-    expect((await request(application()).get(`/api/releases/${prepared.body.id}`).query({ sessionId: incidentA }).set(as("coordinator@lot.pl"))).status).toBe(404);
-    expect((await request(application()).post("/api/releases/prepare").set(as("coordinator@lot.pl")).send({ sessionId: incidentA, matchDecisionId: value.decision.id, actionType: "RELEASE", operationId: randomUUID() })).status).toBe(404);
-    expect((await request(application()).post(`/api/releases/${prepared.body.id}/checks/identity`).set(as("coordinator@lot.pl")).send({ sessionId: revokedBody.sessionId, basis: revokedBody.basis, result: revokedBody.result, expectedVersion: revokedBody.expectedVersion, operationId: randomUUID() })).status).toBe(404);
-    expect((await request(application()).post(`/api/releases/${prepared.body.id}/authorize`).set(as("coordinator@lot.pl")).send({ sessionId: revokedBody.sessionId, reason: revokedBody.reason, expectedVersion: revokedBody.expectedVersion, operationId: randomUUID() })).status).toBe(404);
-    expect((await request(application()).post(`/api/releases/${prepared.body.id}/complete`).set(as("coordinator@lot.pl")).send({ sessionId: revokedBody.sessionId, reason: revokedBody.reason, expectedVersion: revokedBody.expectedVersion, operationId: randomUUID() })).status).toBe(404);
+    expect((await request(application()).get("/api/releases/queue").query({ sessionId: incidentA }).set(as("coordinator@lot.pl"))).status).toBe(403);
+    expect((await request(application()).get(`/api/releases/${prepared.body.id}`).query({ sessionId: incidentA }).set(as("coordinator@lot.pl"))).status).toBe(403);
+    expect((await request(application()).post("/api/releases/prepare").set(as("coordinator@lot.pl")).send({ sessionId: incidentA, matchDecisionId: value.decision.id, actionType: "RELEASE", operationId: randomUUID() })).status).toBe(403);
+    expect((await request(application()).post(`/api/releases/${prepared.body.id}/checks/identity`).set(as("coordinator@lot.pl")).send({ sessionId: revokedBody.sessionId, basis: revokedBody.basis, result: revokedBody.result, expectedVersion: revokedBody.expectedVersion, operationId: randomUUID() })).status).toBe(403);
+    expect((await request(application()).post(`/api/releases/${prepared.body.id}/authorize`).set(as("coordinator@lot.pl")).send({ sessionId: revokedBody.sessionId, reason: revokedBody.reason, expectedVersion: revokedBody.expectedVersion, operationId: randomUUID() })).status).toBe(403);
+    expect((await request(application()).post(`/api/releases/${prepared.body.id}/complete`).set(as("coordinator@lot.pl")).send({ sessionId: revokedBody.sessionId, reason: revokedBody.reason, expectedVersion: revokedBody.expectedVersion, operationId: randomUUID() })).status).toBe(403);
     await prisma!.incidentAssignment.update({ where: { id: coordinatorAssignment.id }, data: { active: true, revokedAt: null, revokedById: null, revokeReason: null } });
 
     const closedValue = await fixture(closedIncident, `CLOSED-${randomUUID().slice(0, 6)}`);

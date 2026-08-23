@@ -201,7 +201,7 @@ postgresDescribe("Foundation Stage 11 PostgreSQL Training", () => {
   it("requires IncidentAssignment for group requirements even with a group-scoped role", async () => {
     const created = await course();
     const payload = { courseId: created.body.id, targetType: "Group", groupId: groupA, requiredStatus: "Required" };
-    expect((await request(application()).post("/api/training/requirements").set(as(actors.noincident!.email)).send(payload)).status).toBe(404);
+    expect((await request(application()).post("/api/training/requirements").set(as(actors.noincident!.email)).send(payload)).status).toBe(403);
     const allowed = await request(application()).post("/api/training/requirements").set(as(actors.scoped!.email)).send(payload);
     expect(allowed.status).toBe(201);
     requirementIds.push(allowed.body.id);

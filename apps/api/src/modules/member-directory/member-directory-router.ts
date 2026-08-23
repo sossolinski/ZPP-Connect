@@ -1,7 +1,8 @@
-import { Router, type Request } from "express";
+import { Router, type Request, type RequestHandler } from "express";
 import { z } from "zod";
 import { asyncHandler } from "../../errors.js";
 import { requirePermission } from "../../rbac.js";
+import type { IncidentPermissionGate } from "../incident-access/incident-permission-gate.js";
 import type { MemberDirectoryService } from "./member-directory-service.js";
 import type { DirectoryActor, GroupRecord, MemberProfileRecord } from "./member-directory-types.js";
 
@@ -81,7 +82,7 @@ function actor(req: Request): DirectoryActor {
     email: req.user.email,
     displayName: req.user.displayName,
     roles: req.user.roles,
-    permissions: req.user.permissions,
+    permissions: req.incidentPermissions ?? req.user.permissions,
     roleAssignments: req.user.roleAssignments,
     requestId: req.requestId,
   };
@@ -92,8 +93,12 @@ export function createMemberDirectoryRouter(service: MemberDirectoryService, com
   onMemberChange?: (record: MemberProfileRecord) => void;
   onGroups?: (records: GroupRecord[], incidentId: string, offset: number) => void;
   onGroupChange?: (record: GroupRecord) => void;
+  requireIncidentPermission?: IncidentPermissionGate;
 } = {}) {
   const router = Router();
+  const authorizeGroup = (permission: Parameters<typeof requirePermission>[0], source: "query" | "body", writable = false): RequestHandler => compatibility.requireIncidentPermission
+    ? compatibility.requireIncidentPermission(permission, (req) => String(source === "query" ? req.query.sessionId ?? "" : req.body?.sessionId ?? ""), { requireWritable: writable })
+    : requirePermission(permission);
 
   router.get("/member-profiles", requirePermission("member:read"), asyncHandler(async (req, res) => {
     const query = memberQuery.parse(req.query);
@@ -138,50 +143,50 @@ export function createMemberDirectoryRouter(service: MemberDirectoryService, com
     compatibility.onGroups?.(result.data, sessionId ?? "", result.offset);
     res.json(result);
   }));
-  router.post("/groups", requirePermission("group:create"), asyncHandler(async (req, res) => {
+  router.post("/groups", authorizeGroup("group:create", "body", true), asyncHandler(async (req, res) => {
     const { sessionId, ...input } = groupCreate.parse(req.body);
     const record = await service.createGroup(actor(req), sessionId, input);
     compatibility.onGroupChange?.(record);
     res.status(201).json(record);
   }));
-  router.get("/groups/:id/members", requirePermission("group:read"), asyncHandler(async (req, res) => {
+  router.get("/groups/:id/members", authorizeGroup("group:read", "query"), asyncHandler(async (req, res) => {
     const query = z.object({ sessionId: id, ...paging }).strict().parse(req.query);
     res.json(await service.listGroupMembers(actor(req), query.sessionId, id.parse(req.params.id), query.limit, query.offset));
   }));
-  router.post("/groups/:id/members", requirePermission("group:membership:manage"), asyncHandler(async (req, res) => {
+  router.post("/groups/:id/members", authorizeGroup("group:membership:manage", "body", true), asyncHandler(async (req, res) => {
     const input = membership.parse(req.body);
     const record = await service.addGroupMember(actor(req), input.sessionId, id.parse(req.params.id), input.memberProfileId, input.role, input.expectedVersion);
     compatibility.onGroupChange?.(record);
     res.status(201).json(record);
   }));
-  router.patch("/groups/:id/members/:memberProfileId", requirePermission("group:membership:manage"), asyncHandler(async (req, res) => {
+  router.patch("/groups/:id/members/:memberProfileId", authorizeGroup("group:membership:manage", "body", true), asyncHandler(async (req, res) => {
     const input = membershipRole.parse(req.body);
     const record = await service.changeGroupMemberRole(actor(req), input.sessionId, id.parse(req.params.id), id.parse(req.params.memberProfileId), input.role, input.expectedVersion);
     compatibility.onGroupChange?.(record);
     res.json(record);
   }));
-  router.delete("/groups/:id/members/:memberProfileId", requirePermission("group:membership:manage"), asyncHandler(async (req, res) => {
+  router.delete("/groups/:id/members/:memberProfileId", authorizeGroup("group:membership:manage", "body", true), asyncHandler(async (req, res) => {
     const input = groupVersion.parse(req.body);
     const record = await service.removeGroupMember(actor(req), input.sessionId, id.parse(req.params.id), id.parse(req.params.memberProfileId), input.expectedVersion);
     compatibility.onGroupChange?.(record);
     res.json(record);
   }));
-  router.post("/groups/:id/set-leader", requirePermission("group:update"), asyncHandler(async (req, res) => {
+  router.post("/groups/:id/set-leader", authorizeGroup("group:update", "body", true), asyncHandler(async (req, res) => {
     const input = leader.parse(req.body);
     const record = await service.setLeader(actor(req), input.sessionId, id.parse(req.params.id), input.memberProfileId, input.expectedVersion);
     compatibility.onGroupChange?.(record);
     res.json(record);
   }));
-  router.get("/groups/:id", requirePermission("group:read"), asyncHandler(async (req, res) => {
+  router.get("/groups/:id", authorizeGroup("group:read", "query"), asyncHandler(async (req, res) => {
     res.json(await service.getGroup(actor(req), id.parse(req.query.sessionId), id.parse(req.params.id)));
   }));
-  router.patch("/groups/:id", requirePermission("group:update"), asyncHandler(async (req, res) => {
+  router.patch("/groups/:id", authorizeGroup("group:update", "body", true), asyncHandler(async (req, res) => {
     const { sessionId, expectedVersion, ...input } = groupUpdate.parse(req.body);
     const record = await service.updateGroup(actor(req), sessionId, id.parse(req.params.id), input, expectedVersion);
     compatibility.onGroupChange?.(record);
     res.json(record);
   }));
-  router.post("/groups/:id/archive", requirePermission("group:archive"), asyncHandler(async (req, res) => {
+  router.post("/groups/:id/archive", authorizeGroup("group:archive", "body", true), asyncHandler(async (req, res) => {
     const input = groupVersion.parse(req.body);
     const record = await service.archiveGroup(actor(req), input.sessionId, id.parse(req.params.id), input.expectedVersion);
     compatibility.onGroupChange?.(record);

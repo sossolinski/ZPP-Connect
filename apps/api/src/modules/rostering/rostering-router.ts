@@ -1,7 +1,8 @@
-import { Router, type Request } from "express";
+import { Router, type Request, type RequestHandler } from "express";
 import { z } from "zod";
 import { asyncHandler } from "../../errors.js";
-import { requireAnyPermission, requirePermission } from "../../rbac.js";
+import { requireAnyPermission } from "../../rbac.js";
+import type { IncidentPermissionGate } from "../incident-access/incident-permission-gate.js";
 import type { RosteringService } from "./rostering-service.js";
 import type { AvailabilityRecord, RosterShiftRecord, RosterStatus, RosteringActor } from "./rostering-types.js";
 
@@ -112,7 +113,7 @@ function actor(req: Request): RosteringActor {
     email: req.user.email,
     displayName: req.user.displayName,
     roles: req.user.roles,
-    permissions: req.user.permissions,
+    permissions: req.incidentPermissions ?? req.user.permissions,
     roleAssignments: req.user.roleAssignments,
     requestId: req.requestId,
   };
@@ -121,8 +122,12 @@ function actor(req: Request): RosteringActor {
 export function createRosteringRouter(service: RosteringService, compatibility: {
   onShiftCommitted?: (record: RosterShiftRecord, command: string) => void;
   onAvailabilityCommitted?: (record: AvailabilityRecord, command: string) => void;
+  requireIncidentPermission?: IncidentPermissionGate;
 } = {}) {
   const router = Router();
+  const authorize = (permissions: Parameters<typeof requireAnyPermission>[0], source: "query" | "body", writable = false): RequestHandler => compatibility.requireIncidentPermission
+    ? compatibility.requireIncidentPermission(permissions, (req) => String(source === "query" ? req.query.sessionId ?? "" : req.body?.sessionId ?? ""), { requireWritable: writable, permissionMatch: "any" })
+    : requireAnyPermission(permissions);
   const shiftCommitted = (record: RosterShiftRecord, command: string) => {
     try { compatibility.onShiftCommitted?.(record, command); } catch { /* best effort only */ }
   };
@@ -130,20 +135,20 @@ export function createRosteringRouter(service: RosteringService, compatibility: 
     try { compatibility.onAvailabilityCommitted?.(record, command); } catch { /* best effort only */ }
   };
 
-  router.get("/roster-shifts", requireAnyPermission(["roster:read", "roster:read-own"]), asyncHandler(async (req, res) => {
+  router.get("/roster-shifts", authorize(["roster:read", "roster:read-own"], "query"), asyncHandler(async (req, res) => {
     const { sessionId, ...query } = rosterQuery.parse(req.query);
     res.json(await service.listShifts(actor(req), sessionId, query));
   }));
-  router.get("/roster-shifts/:id", requireAnyPermission(["roster:read", "roster:read-own"]), asyncHandler(async (req, res) => {
+  router.get("/roster-shifts/:id", authorize(["roster:read", "roster:read-own"], "query"), asyncHandler(async (req, res) => {
     res.json(await service.getShift(actor(req), id.parse(req.query.sessionId), id.parse(req.params.id)));
   }));
-  router.post("/roster-shifts", requirePermission("roster:create"), asyncHandler(async (req, res) => {
+  router.post("/roster-shifts", authorize(["roster:create"], "body", true), asyncHandler(async (req, res) => {
     const { sessionId, ...input } = createShift.parse(req.body);
     const record = await service.createShift(actor(req), sessionId, input);
     shiftCommitted(record, "create");
     res.status(record.idempotent ? 200 : 201).json(record);
   }));
-  router.patch("/roster-shifts/:id", requirePermission("roster:update"), asyncHandler(async (req, res) => {
+  router.patch("/roster-shifts/:id", authorize(["roster:update"], "body", true), asyncHandler(async (req, res) => {
     const { sessionId, expectedVersion, ...input } = updateShift.parse(req.body);
     const record = await service.updateShift(actor(req), sessionId, id.parse(req.params.id), input, expectedVersion);
     shiftCommitted(record, "update");
@@ -156,7 +161,7 @@ export function createRosteringRouter(service: RosteringService, compatibility: 
     ["cancel", "Cancelled", ["roster:cancel"]],
     ["complete", "Completed", ["roster:complete"]],
   ] as Array<[string, RosterStatus, any[]]>) {
-    router.post(`/roster-shifts/:id/${action}`, requireAnyPermission(permissions), asyncHandler(async (req, res) => {
+    router.post(`/roster-shifts/:id/${action}`, authorize(permissions, "body", true), asyncHandler(async (req, res) => {
       const { sessionId, ...input } = rosterCommand.parse(req.body);
       const record = await service.transitionShift(actor(req), sessionId, id.parse(req.params.id), status, input);
       shiftCommitted(record, action);

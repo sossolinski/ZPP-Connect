@@ -38,7 +38,7 @@ export function createNotificationProjector(client: PrismaClient, repository: No
         async (row) => { const user = row.assignedMemberProfile?.linkedUser; if (!user || !["active", "Active"].includes(user.status)) return; await upsert("rosterConfirmation", { recipientUserId: user.id, deduplicationKey: `condition:rosterShift:${row.id}:${user.id}`, kind: "Action required", severity: "Attention", category: "Rostering", title: "Shift awaiting confirmation", message: `${row.operationalId} on ${date(row.startAt)} needs your confirmation.`, sessionId: row.sessionId, sessionLabel: row.session.operationalId, sourceType: "rosterShift", sourceId: row.id, sourceLabel: row.operationalId, conditionType: "rosterConfirmation", actionDestination: "/rostering", actionLabel: "Review roster", metadata: { condition: true, conditionType: "rosterConfirmation", status: row.status } }); },
       );
       const members = await paged(
-        (cursor) => client.memberProfile.findMany({ where: { linkedUserId: { not: null }, status: { not: "Archived" }, linkedUser: { status: { in: ["active", "Active"] } }, ...(cursor ? { id: { gt: cursor } } : {}) }, include: { linkedUser: true }, orderBy: { id: "asc" }, take: batchSize }),
+        (cursor) => client.memberProfile.findMany({ where: { linkedUserId: { not: null }, status: { not: "Archived" }, linkedUser: { status: "Active" }, ...(cursor ? { id: { gt: cursor } } : {}) }, include: { linkedUser: true }, orderBy: { id: "asc" }, take: batchSize }),
         async (member) => {
           const recipientUserId = member.linkedUserId!;
           const training = await dependencies.training.evaluateMemberCompliance(member.id, systemActor, now, 45);

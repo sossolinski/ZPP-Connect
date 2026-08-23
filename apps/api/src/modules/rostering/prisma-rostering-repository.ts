@@ -49,6 +49,7 @@ async function serializable<T>(client: PrismaClient, operation: (tx: Prisma.Tran
       return await client.$transaction(operation, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
     } catch (error) {
       if (!isSerializationFailure(error) || attempt === 64) throw error;
+      await new Promise((resolve) => setTimeout(resolve, Math.min(25, attempt) + Math.floor(Math.random() * 5)));
     }
   }
   throw new Error("Serializable transaction retry limit reached");
@@ -100,7 +101,7 @@ function availabilityWhere(access: AvailabilityAccess): Prisma.AvailabilityWhere
 }
 
 async function actorId(db: PrismaClient | Prisma.TransactionClient, actor: RosteringActor) {
-  const user = await db.user.findUnique({ where: { email: actor.email.toLowerCase() }, select: { id: true } });
+  const user = await db.user.findUnique({ where: { id: actor.id }, select: { id: true } });
   if (!user) throw new HttpError(404, "Persisted User not found");
   return user.id;
 }
@@ -272,7 +273,7 @@ async function assertAvailabilityTarget(tx: Prisma.TransactionClient, actor: Ros
   if (manage.allowed && manage.global) return;
   if (manage.allowed && manage.groupIds.size > 0 && await tx.groupMembership.count({ where: { memberProfileId, removedAt: null, groupId: { in: [...manage.groupIds] } } })) return;
   if (!actor.permissions.includes("availability:update-own")) throw new HttpError(403, "Forbidden");
-  const user = await tx.user.findUnique({ where: { email: actor.email.toLowerCase() }, select: { linkedMemberProfiles: { where: { status: { not: "Archived" } }, select: { id: true } } } });
+  const user = await tx.user.findUnique({ where: { id: actor.id }, select: { linkedMemberProfiles: { where: { status: { not: "Archived" } }, select: { id: true } } } });
   if (!user?.linkedMemberProfiles.some((member) => member.id === memberProfileId)) throw new HttpError(403, "Forbidden");
 }
 
@@ -281,7 +282,7 @@ export function createPrismaRosteringRepository(client: PrismaClient): Foundatio
     kind: "postgres",
 
     async resolveMemberForUser(actor) {
-      const row = await client.memberProfile.findFirst({ where: { linkedUser: { email: actor.email.toLowerCase() }, status: { not: "Archived" } } });
+      const row = await client.memberProfile.findFirst({ where: { linkedUserId: actor.id, status: { not: "Archived" } } });
       return row ? memberSummary(row) : null;
     },
 

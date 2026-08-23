@@ -105,13 +105,13 @@ postgresDescribe("Foundation Stage 4 PostgreSQL Family/NOK relationship claims",
 
     const restarted = application();
     expect((await request(restarted).get(`/api/family-records/${familyA}`).query({ sessionId: incidentA }).set(as("coordinator@lot.pl"))).body.id).toBe(familyA);
-    expect((await request(restarted).get("/api/family-records").query({ sessionId: incidentB }).set(as("coordinator@lot.pl"))).status).toBe(404);
+    expect((await request(restarted).get("/api/family-records").query({ sessionId: incidentB }).set(as("coordinator@lot.pl"))).status).toBe(403);
     expect((await request(restarted).get("/api/family-records").query({ sessionId: incidentB }).set(as("admin@lot.pl"))).status).toBe(200);
     expect((await request(restarted).post("/api/family-records").set(as("tec@lot.pl")).send({ sessionId: incidentA, firstName: "Wrong", lastName: "Permission" })).status).toBe(403);
     expect((await request(restarted).post("/api/family-records").set(as("coordinator@lot.pl")).send({ sessionId: closedIncident, firstName: "Closed", lastName: "Incident" })).status).toBe(409);
 
     await prisma!.incidentAssignment.update({ where: { id: assignmentA }, data: { active: false, revokedAt: new Date(), revokeReason: "Stage 4 immediate revoke" } });
-    expect((await request(restarted).get("/api/family-records").query({ sessionId: incidentA }).set(as("coordinator@lot.pl"))).status).toBe(404);
+    expect((await request(restarted).get("/api/family-records").query({ sessionId: incidentA }).set(as("coordinator@lot.pl"))).status).toBe(403);
     await prisma!.incidentAssignment.update({ where: { id: assignmentA }, data: { active: true, revokedAt: null, revokeReason: null } });
   });
 

@@ -1,8 +1,9 @@
 import { Router } from "express";
-import type { Request } from "express";
+import type { Request, RequestHandler } from "express";
 import { z } from "zod";
 import { asyncHandler } from "../../errors.js";
 import { requirePermission } from "../../rbac.js";
+import type { IncidentPermissionGate } from "../incident-access/incident-permission-gate.js";
 import { listQuery, sessionCloseSchema, sessionSchema } from "../../validation.js";
 import type { IncidentService } from "./incident-service.js";
 import type { IncidentActor, IncidentCreateInput, IncidentListQuery, IncidentRecord, IncidentUpdateInput } from "./incident-types.js";
@@ -26,16 +27,27 @@ function clean<T extends Record<string, unknown>>(value: T): T {
 
 export function createIncidentRouter(
   service: IncidentService,
-  compatibility: { onList?: (records: IncidentRecord[], query: IncidentListQuery) => void; onChange?: (record: IncidentRecord) => void } = {}
+  compatibility: {
+    onList?: (records: IncidentRecord[], query: IncidentListQuery) => void;
+    onChange?: (record: IncidentRecord) => void;
+    requireIncidentPermission?: IncidentPermissionGate;
+    effectiveIncidentIdsForPermission?: (userId: string) => Promise<string[] | null>;
+  } = {}
 ) {
   const router = Router();
+  const authorize = (permission: "session:read" | "session:update" | "session:close", writable = false): RequestHandler => compatibility.requireIncidentPermission
+    ? compatibility.requireIncidentPermission(permission, (req) => String(req.params.id ?? ""), { requireWritable: writable })
+    : requirePermission(permission);
 
   router.get(
     "/sessions",
     requirePermission("session:read"),
     asyncHandler(async (req, res) => {
       const query = listQuery.parse(req.query);
-      const result = await service.list(actor(req), query);
+      const permissionIncidentIds = req.user && compatibility.effectiveIncidentIdsForPermission
+        ? await compatibility.effectiveIncidentIdsForPermission(req.user.id)
+        : undefined;
+      const result = await service.list(actor(req), query, permissionIncidentIds);
       compatibility.onList?.(result.data, query);
       res.json(result);
     })
@@ -43,7 +55,7 @@ export function createIncidentRouter(
 
   router.get(
     "/sessions/:id",
-    requirePermission("session:read"),
+    authorize("session:read"),
     asyncHandler(async (req, res) => {
       const { id } = incidentIdParam.parse(req.params);
       res.json(await service.get(id, actor(req)));
@@ -63,7 +75,7 @@ export function createIncidentRouter(
 
   router.patch(
     "/sessions/:id",
-    requirePermission("session:update"),
+    authorize("session:update", true),
     asyncHandler(async (req, res) => {
       const { id } = incidentIdParam.parse(req.params);
       const input = clean(sessionSchema.partial().parse(req.body)) as IncidentUpdateInput;
@@ -75,7 +87,7 @@ export function createIncidentRouter(
 
   router.post(
     "/sessions/:id/close",
-    requirePermission("session:close"),
+    authorize("session:close", true),
     asyncHandler(async (req, res) => {
       const { id } = incidentIdParam.parse(req.params);
       const { notes } = sessionCloseSchema.parse(req.body);

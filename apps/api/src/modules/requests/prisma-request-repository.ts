@@ -568,7 +568,7 @@ export function createPrismaRequestRepository(
           incidentId: context.incidentId,
           active: true,
           user: {
-            status: { in: ["active", "Active"] },
+            status: "Active",
             ...(search
               ? {
                   OR: [
@@ -731,7 +731,7 @@ export function createPrismaRequestRepository(
               incidentId: context.incidentId,
               userId: input.ownerUserId,
               active: true,
-              user: { status: { in: ["active", "Active"] } },
+              user: { status: "Active" },
             },
           });
           if (!eligible)

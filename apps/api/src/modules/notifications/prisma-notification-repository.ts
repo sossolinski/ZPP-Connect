@@ -28,7 +28,7 @@ function item(row: Notification): NotificationItem {
 function visible(recipientUserId: string): Prisma.NotificationWhereInput {
   return {
     recipientUserId,
-    recipient: { status: { in: ["active", "Active"] } },
+    recipient: { status: "Active" },
     OR: [
       { sessionId: null },
       { session: { incidentAssignments: { some: { userId: recipientUserId, active: true } } } },

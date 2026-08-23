@@ -42,6 +42,19 @@ export function errorHandler(error: unknown, req: Request, res: Response, _next:
     return;
   }
 
+  if (error && typeof error === "object" && "code" in error && error.code === "P2002") {
+    res.status(409).json({ error: "A record with the same durable identity already exists." });
+    return;
+  }
+  if (error && typeof error === "object" && "code" in error && error.code === "P2004") {
+    res.status(409).json({ error: "The requested durable state conflicts with an active relationship." });
+    return;
+  }
+  if (error && typeof error === "object" && "code" in error && error.code === "P2025") {
+    res.status(404).json({ error: "The requested durable record was not found." });
+    return;
+  }
+
   logger.error({ err: error, path: req.path }, "Unhandled API error");
   res.status(500).json({ error: "Internal server error" });
 }

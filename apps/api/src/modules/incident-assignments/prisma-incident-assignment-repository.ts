@@ -27,7 +27,7 @@ function record(row: AssignmentWithUser): IncidentAssignmentRecord {
 
 export function createPrismaIncidentAssignmentRepository(client: PrismaClient): IncidentAssignmentRepository {
   async function actorId(tx: Prisma.TransactionClient, actor: IncidentAssignmentActor) {
-    const user = await tx.user.findUnique({ where: { email: actor.email.toLowerCase() }, select: { id: true } });
+    const user = await tx.user.findUnique({ where: { id: actor.id }, select: { id: true } });
     return user?.id ?? null;
   }
 
@@ -75,7 +75,7 @@ export function createPrismaIncidentAssignmentRepository(client: PrismaClient): 
       return client.$transaction(async (tx) => {
         const [incident, target, existing, actingUserId] = await Promise.all([
           tx.session.findUnique({ where: { id: incidentId }, select: { id: true } }),
-          tx.user.findFirst({ where: { id: input.userId, status: "active" }, select: { id: true } }),
+          tx.user.findFirst({ where: { id: input.userId, status: "Active" }, select: { id: true } }),
           tx.incidentAssignment.findUnique({
             where: { incidentId_userId: { incidentId, userId: input.userId } },
             select: { id: true }

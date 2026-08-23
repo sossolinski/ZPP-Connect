@@ -1,8 +1,9 @@
-import { Router, type Request } from "express";
+import { Router, type Request, type RequestHandler } from "express";
 import { dictionaries } from "@zpp/shared";
 import { z } from "zod";
 import { asyncHandler } from "../../errors.js";
 import { requirePermission } from "../../rbac.js";
+import type { IncidentPermissionGate } from "../incident-access/incident-permission-gate.js";
 import type { EnquiryService } from "./enquiry-service.js";
 import type { EnquiryActor, EnquiryRecord, EnquiryTransition } from "./enquiry-types.js";
 
@@ -69,30 +70,33 @@ function actor(req: Request): EnquiryActor {
 
 export function createEnquiryRouter(
   service: EnquiryService,
-  compatibility: { onList?: (records: EnquiryRecord[], incidentId: string, offset: number) => void; onChange?: (record: EnquiryRecord) => void } = {}
+  compatibility: { onList?: (records: EnquiryRecord[], incidentId: string, offset: number) => void; onChange?: (record: EnquiryRecord) => void; requireIncidentPermission?: IncidentPermissionGate } = {}
 ) {
   const router = Router();
+  const authorize = (permission: Parameters<typeof requirePermission>[0], source: "query" | "body", writable = false): RequestHandler => compatibility.requireIncidentPermission
+    ? compatibility.requireIncidentPermission(permission, (req) => String(source === "query" ? req.query.sessionId ?? "" : req.body?.sessionId ?? ""), { requireWritable: writable })
+    : requirePermission(permission);
 
-  router.get("/enquiries", requirePermission("enquiry:read"), asyncHandler(async (req, res) => {
+  router.get("/enquiries", authorize("enquiry:read", "query"), asyncHandler(async (req, res) => {
     const query = listQuery.parse(req.query);
     const result = await service.list(actor(req), query.sessionId, query);
     compatibility.onList?.(result.data, query.sessionId, query.offset);
     res.json(result);
   }));
 
-  router.get("/enquiries/:id", requirePermission("enquiry:read"), asyncHandler(async (req, res) => {
+  router.get("/enquiries/:id", authorize("enquiry:read", "query"), asyncHandler(async (req, res) => {
     const enquiryId = scopedId.parse(req.params.id);
     const incidentId = scopedId.parse(req.query.sessionId);
     res.json(await service.get(actor(req), incidentId, enquiryId));
   }));
 
-  router.post("/enquiries", requirePermission("enquiry:create"), asyncHandler(async (req, res) => {
+  router.post("/enquiries", authorize("enquiry:create", "body", true), asyncHandler(async (req, res) => {
     const record = await service.create(actor(req), enquiryFields.parse(req.body));
     compatibility.onChange?.(record);
     res.status(201).json(record);
   }));
 
-  router.patch("/enquiries/:id", requirePermission("enquiry:update"), asyncHandler(async (req, res) => {
+  router.patch("/enquiries/:id", authorize("enquiry:update", "body", true), asyncHandler(async (req, res) => {
     const enquiryId = scopedId.parse(req.params.id);
     const { sessionId, version, ...input } = enquiryUpdate.parse(req.body);
     const record = await service.update(actor(req), sessionId, enquiryId, input, version);
@@ -101,7 +105,7 @@ export function createEnquiryRouter(
   }));
 
   const transition = (path: EnquiryTransition, permission: "enquiry:update" | "enquiry:escalate" | "enquiry:close") => {
-    router.post(`/enquiries/:id/${path}`, requirePermission(permission), asyncHandler(async (req, res) => {
+    router.post(`/enquiries/:id/${path}`, authorize(permission, "body", true), asyncHandler(async (req, res) => {
       const enquiryId = scopedId.parse(req.params.id);
       const body = actionBody.parse(req.body);
       const record = await service.transition(actor(req), body.sessionId, enquiryId, path, body.version, body.notes);

@@ -113,13 +113,13 @@ postgresDescribe("Foundation Stage 2 PostgreSQL Enquiry isolation", () => {
     expect(persisted.status).toBe(200);
     expect(persisted.body).toMatchObject({ id: createdA.body.id, callerName: "Persistent A", version: 1 });
 
-    expect((await request(restarted).get(`/api/enquiries/${createdB.body.id}`).query({ sessionId: incidentB }).set(as("tec@lot.pl"))).status).toBe(404);
-    expect((await request(restarted).get("/api/enquiries").query({ sessionId: incidentB, search: "Protected REAL" }).set(as("tec@lot.pl"))).status).toBe(404);
+    expect((await request(restarted).get(`/api/enquiries/${createdB.body.id}`).query({ sessionId: incidentB }).set(as("tec@lot.pl"))).status).toBe(403);
+    expect((await request(restarted).get("/api/enquiries").query({ sessionId: incidentB, search: "Protected REAL" }).set(as("tec@lot.pl"))).status).toBe(403);
     expect((await request(restarted).patch(`/api/enquiries/${createdB.body.id}`).set(as("tec@lot.pl")).send({
       sessionId: incidentB,
       version: 1,
       callerName: "Forbidden"
-    })).status).toBe(404);
+    })).status).toBe(403);
 
     await expect(prisma!.enquiry.update({
       where: { id: createdA.body.id },

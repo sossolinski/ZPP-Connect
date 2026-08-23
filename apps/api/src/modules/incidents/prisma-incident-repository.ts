@@ -54,7 +54,7 @@ function sessionUpdateData(input: IncidentUpdateInput): Prisma.SessionUncheckedU
 
 export function createPrismaIncidentRepository(client: PrismaClient): IncidentRepository {
   async function actorIdForEmail(tx: Prisma.TransactionClient, actor: IncidentActor) {
-    const user = await tx.user.findUnique({ where: { email: actor.email.toLowerCase() }, select: { id: true } });
+    const user = await tx.user.findUnique({ where: { id: actor.id }, select: { id: true } });
     return user?.id;
   }
 

@@ -138,13 +138,13 @@ postgresDescribe("Foundation Stage 3 PostgreSQL Passenger persistence and source
 
     const restarted = application();
     expect((await request(restarted).get(`/api/passenger-records/${passengerA}`).query({ sessionId: incidentA }).set(as("coordinator@lot.pl"))).body).toMatchObject({ id: passengerA, firstName: "Persistent" });
-    expect((await request(restarted).get(`/api/passenger-records/${passengerB}`).query({ sessionId: incidentB }).set(as("coordinator@lot.pl"))).status).toBe(404);
-    expect((await request(restarted).get("/api/passenger-records").query({ sessionId: incidentB }).set(as("coordinator@lot.pl"))).status).toBe(404);
+    expect((await request(restarted).get(`/api/passenger-records/${passengerB}`).query({ sessionId: incidentB }).set(as("coordinator@lot.pl"))).status).toBe(403);
+    expect((await request(restarted).get("/api/passenger-records").query({ sessionId: incidentB }).set(as("coordinator@lot.pl"))).status).toBe(403);
     expect((await request(restarted).get("/api/passenger-records").query({ sessionId: incidentB }).set(as("admin@lot.pl"))).status).toBe(200);
     expect((await request(restarted).get("/api/passenger-records").query({ sessionId: incidentA }).set(as("viewer@lot.pl"))).status).toBe(403);
 
     await prisma!.incidentAssignment.update({ where: { id: assignmentA }, data: { active: false, revokedAt: new Date(), revokeReason: "Stage 3 immediate revoke" } });
-    expect((await request(restarted).get("/api/passenger-records").query({ sessionId: incidentA }).set(as("coordinator@lot.pl"))).status).toBe(404);
+    expect((await request(restarted).get("/api/passenger-records").query({ sessionId: incidentA }).set(as("coordinator@lot.pl"))).status).toBe(403);
     await prisma!.incidentAssignment.update({ where: { id: assignmentA }, data: { active: true, revokedAt: null, revokeReason: null } });
     expect((await request(restarted).get("/api/passenger-records").query({ sessionId: incidentA }).set(as("coordinator@lot.pl"))).status).toBe(200);
   });

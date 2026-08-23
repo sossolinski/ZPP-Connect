@@ -75,7 +75,7 @@ postgresDescribe("Foundation Stage 13 PostgreSQL Notifications delivery integrit
       await prisma!.incidentAssignment.create({ data: { incidentId, userId: user.id, function: marker, createdById: admin.id } });
       roleIds.push(role.id); userIds.push(user.id); users[key] = user;
     }
-    await prisma!.user.update({ where: { id: users.inactive!.id }, data: { status: "suspended" } });
+    await prisma!.user.update({ where: { id: users.inactive!.id }, data: { status: "Suspended" } });
     repository = createPrismaNotificationRepository(prisma!);
     service = createPersistentNotificationService(repository, clock);
   });

@@ -56,7 +56,7 @@ test.describe("ZPP Connect portal", () => {
     await expect(page.getByRole("heading", { name: "Sign in" })).toBeVisible();
     await expect(page.getByText("Use your assigned ZPP Connect account")).toBeVisible();
     await expect(page.getByRole("button", { name: "Continue with Microsoft" })).toBeVisible();
-    await expect(page.getByRole("button", { name: "Sign in with email" })).toBeVisible();
+    await expect(page.getByRole("button", { name: /sign in with email|password/i })).toHaveCount(0);
     await expect(page.getByRole("heading", { name: "Development access" })).toBeVisible();
     await expectNoTechnicalStorageCopy(page);
   });
@@ -70,7 +70,7 @@ test.describe("ZPP Connect portal", () => {
 
     await page.getByLabel("Work email").fill("admin@lot.pl");
     await page.getByRole("button", { name: "Check sign-in options" }).click();
-    await expect(page.getByText("Microsoft and email sign-in are available for this account.")).toBeVisible();
+    await expect(page.getByText("Continue with Microsoft for this account.")).toBeVisible();
 
     await page.setViewportSize({ width: 390, height: 844 });
     await page.reload();
@@ -274,12 +274,9 @@ test.describe("ZPP Connect portal", () => {
     await page.getByRole("button", { name: "Cancel" }).click();
 
     const authPolicyCard = page.locator("section").filter({ has: page.getByRole("heading", { name: "Authentication policy", exact: true }) }).first();
-    await authPolicyCard.getByLabel("Authentication policy").selectOption("PASSWORD_ONLY");
-    await authPolicyCard.getByRole("button", { name: "Review policy change" }).click();
-    await expect(page.getByRole("heading", { name: "Change authentication policy" })).toBeVisible();
-    await page.getByRole("button", { name: "Apply policy" }).click();
-    await expect(page.getByText("A reason is required.")).toBeVisible();
-    await page.getByRole("button", { name: "Cancel" }).click();
+    await expect(authPolicyCard.getByLabel("Authentication policy")).toHaveValue("SSO_ONLY");
+    await expect(authPolicyCard.getByLabel("Authentication policy").locator("option")).toHaveCount(1);
+    await expect(authPolicyCard.getByRole("button", { name: "Review policy change" })).toBeDisabled();
 
     await expect(page.getByRole("button", { name: /send invitation|resend invitation|revoke application sessions|reset password|set password|create password/i })).toHaveCount(0);
     await expect(page.getByRole("main")).not.toContainText(/invitation sent|copy invitation|temporary password|password reset|administrator password/i);

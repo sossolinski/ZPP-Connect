@@ -1,8 +1,9 @@
 import { dictionaries } from "@zpp/shared";
-import { Router, type Request } from "express";
+import { Router, type Request, type RequestHandler } from "express";
 import { z } from "zod";
 import { asyncHandler } from "../../errors.js";
 import { requirePermission } from "../../rbac.js";
+import type { IncidentPermissionGate } from "../incident-access/incident-permission-gate.js";
 import type { FamilyService } from "./family-service.js";
 import type { FamilyActor, FamilyRecord } from "./family-types.js";
 
@@ -85,35 +86,38 @@ function actor(req: Request): FamilyActor {
 
 export function createFamilyRouter(
   service: FamilyService,
-  compatibility: { onList?: (records: FamilyRecord[], incidentId: string, offset: number) => void; onChange?: (record: FamilyRecord) => void } = {}
+  compatibility: { onList?: (records: FamilyRecord[], incidentId: string, offset: number) => void; onChange?: (record: FamilyRecord) => void; requireIncidentPermission?: IncidentPermissionGate } = {}
 ) {
   const router = Router();
+  const authorize = (permission: Parameters<typeof requirePermission>[0], source: "query" | "body", writable = false): RequestHandler => compatibility.requireIncidentPermission
+    ? compatibility.requireIncidentPermission(permission, (req) => String(source === "query" ? req.query.sessionId ?? "" : req.body?.sessionId ?? ""), { requireWritable: writable })
+    : requirePermission(permission);
 
-  router.get("/family-records", requirePermission("family:read"), asyncHandler(async (req, res) => {
+  router.get("/family-records", authorize("family:read", "query"), asyncHandler(async (req, res) => {
     const query = listQuery.parse(req.query);
     const result = await service.list(actor(req), query.sessionId, query);
     compatibility.onList?.(result.data, query.sessionId, query.offset);
     res.json(result);
   }));
 
-  router.get("/family-records/:id", requirePermission("family:read"), asyncHandler(async (req, res) => {
+  router.get("/family-records/:id", authorize("family:read", "query"), asyncHandler(async (req, res) => {
     res.json(await service.get(actor(req), scopedId.parse(req.query.sessionId), scopedId.parse(req.params.id)));
   }));
 
-  router.post("/family-records", requirePermission("family:create"), asyncHandler(async (req, res) => {
+  router.post("/family-records", authorize("family:create", "body", true), asyncHandler(async (req, res) => {
     const record = await service.create(actor(req), createBody.parse(req.body));
     compatibility.onChange?.(record);
     res.status(201).json(record);
   }));
 
-  router.patch("/family-records/:id", requirePermission("family:update"), asyncHandler(async (req, res) => {
+  router.patch("/family-records/:id", authorize("family:update", "body", true), asyncHandler(async (req, res) => {
     const { sessionId, version, ...input } = updateBody.parse(req.body);
     const record = await service.update(actor(req), sessionId, scopedId.parse(req.params.id), input, version);
     compatibility.onChange?.(record);
     res.json(record);
   }));
 
-  router.post("/family-records/:id/correct-claim", requirePermission("family:update"), asyncHandler(async (req, res) => {
+  router.post("/family-records/:id/correct-claim", authorize("family:update", "body", true), asyncHandler(async (req, res) => {
     const { sessionId, version, claimVersion, ...input } = correctionBody.parse(req.body);
     const record = await service.correctClaim(actor(req), sessionId, scopedId.parse(req.params.id), input, version, claimVersion);
     compatibility.onChange?.(record);
@@ -121,7 +125,7 @@ export function createFamilyRouter(
   }));
 
   const decision = (path: "verify" | "reject" | "reopen", result: "VERIFIED" | "REJECTED" | "REOPENED") => {
-    router.post(`/family-records/:id/${path}`, requirePermission("family:verify"), asyncHandler(async (req, res) => {
+    router.post(`/family-records/:id/${path}`, authorize("family:verify", "body", true), asyncHandler(async (req, res) => {
       const { sessionId, version, claimVersion, ...body } = decisionBody.parse(req.body);
       const record = await service.decide(actor(req), sessionId, scopedId.parse(req.params.id), { ...body, result }, version, claimVersion);
       compatibility.onChange?.(record);

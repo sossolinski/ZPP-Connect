@@ -3,7 +3,7 @@ import { normalizeRoleName, type Permission } from "@zpp/shared";
 import { HttpError } from "./errors.js";
 
 export function hasPermission(req: Request, permission: Permission) {
-  return Boolean(req.user?.permissions.includes(permission));
+  return Boolean((req.incidentPermissions ?? req.user?.permissions)?.includes(permission));
 }
 
 export function hasRole(req: Request, role: string) {

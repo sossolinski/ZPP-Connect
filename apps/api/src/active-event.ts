@@ -717,6 +717,12 @@ export function createActiveEventService(sources: ActiveEventSources) {
     return briefings.find((item) => item.id === briefingId) ?? null;
   }
 
+  function securityMetadataForBriefing(briefingId: string) {
+    const record = byId(briefingId);
+    assert(record, 404, "Briefing not found");
+    return { sessionId: record.sessionId, status: record.status };
+  }
+
   function assertRead(actor: ActiveEventActor) {
     assert(hasPermission(actor, "briefing:read"), 403, "Forbidden");
   }
@@ -905,6 +911,7 @@ export function createActiveEventService(sources: ActiveEventSources) {
   }
 
   return {
+    securityMetadataForBriefing,
     getActiveEvent,
     listRevisions,
     getCurrent,

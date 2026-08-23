@@ -171,12 +171,12 @@ postgresDescribe("Foundation Stage 10 PostgreSQL Rostering and Availability", ()
 
   it("isolates incidents and modes, requires IncidentAssignment even for own roster, and enforces revoke immediately", async () => {
     const shift = await createShift({ assignedMemberProfileId: actors.worker!.memberId });
-    expect((await request(application()).get("/api/roster-shifts").query({ sessionId: incidentB, limit: 50 }).set(as(actors.reader!.email))).status).toBe(404);
-    expect((await request(application()).get("/api/roster-shifts").query({ sessionId: incidentA, mine: true }).set(as(actors["no-incident"]!.email))).status).toBe(404);
+    expect((await request(application()).get("/api/roster-shifts").query({ sessionId: incidentB, limit: 50 }).set(as(actors.reader!.email))).status).toBe(403);
+    expect((await request(application()).get("/api/roster-shifts").query({ sessionId: incidentA, mine: true }).set(as(actors["no-incident"]!.email))).status).toBe(403);
     const own = await request(application()).get("/api/roster-shifts").query({ sessionId: incidentA, mine: true }).set(as(actors.worker!.email));
     expect(own.body.data.map((row: any) => row.id)).toContain(shift.body.id);
     await prisma!.incidentAssignment.update({ where: { incidentId_userId: { incidentId: incidentA, userId: actors.worker!.id } }, data: { active: false, revokedAt: new Date(), revokedById: adminId } });
-    expect((await request(application()).get("/api/roster-shifts").query({ sessionId: incidentA, mine: true }).set(as(actors.worker!.email))).status).toBe(404);
+    expect((await request(application()).get("/api/roster-shifts").query({ sessionId: incidentA, mine: true }).set(as(actors.worker!.email))).status).toBe(403);
     await prisma!.incidentAssignment.update({ where: { incidentId_userId: { incidentId: incidentA, userId: actors.worker!.id } }, data: { active: true, revokedAt: null, revokedById: null } });
     for (const [incidentId, mode] of [[incidentB, "REAL"], [incidentTraining, "TRAINING"]] as const) {
       const created = await createShift({ sessionId: incidentId, groupId: incidentId === incidentB ? groupB : null, title: `${marker} ${mode}` });

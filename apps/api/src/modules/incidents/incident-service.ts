@@ -14,8 +14,14 @@ export function createIncidentService(repository: IncidentRepository, access: In
 
   return {
     kind: repository.kind,
-    async list(actor: IncidentActor, query: IncidentListQuery) {
-      return repository.list(query, await access.visibleIncidentIds(actor));
+    async list(actor: IncidentActor, query: IncidentListQuery, permissionIncidentIds?: string[] | null) {
+      const assignedIncidentIds = await access.visibleIncidentIds(actor);
+      const visibleIncidentIds = permissionIncidentIds === undefined
+        ? assignedIncidentIds
+        : assignedIncidentIds === null
+          ? permissionIncidentIds
+          : assignedIncidentIds.filter((incidentId) => permissionIncidentIds?.includes(incidentId));
+      return repository.list(query, visibleIncidentIds);
     },
 
     async get(id: string, actor: IncidentActor) {

@@ -5,8 +5,7 @@ import type { UserContext } from "../lib/types";
 import { Badge } from "../components/portal";
 
 const methodLabels: Record<ProductAuthenticationMethod, string> = {
-  MICROSOFT_SSO: "Microsoft",
-  EMAIL_PASSWORD: "Email sign-in"
+  MICROSOFT_SSO: "Microsoft"
 };
 
 function genericLoginMessage(error: unknown) {
@@ -83,9 +82,8 @@ export function LoginPage({ onLogin }: { onLogin: (user: UserContext) => void })
     }
   };
 
-  const productMethods = discovery?.accountEligible ? discovery.permittedMethods : (["MICROSOFT_SSO", "EMAIL_PASSWORD"] as ProductAuthenticationMethod[]);
+  const productMethods = discovery?.accountEligible ? discovery.permittedMethods : (["MICROSOFT_SSO"] as ProductAuthenticationMethod[]);
   const canShowMicrosoft = productMethods.includes("MICROSOFT_SSO");
-  const canShowEmail = productMethods.includes("EMAIL_PASSWORD");
   const productMethodNotice = developmentAccessEnabled ? "Use Development access below to enter this workspace." : "This sign-in method is not available yet.";
 
   const completeDevelopmentLogin = async () => {
@@ -171,25 +169,15 @@ export function LoginPage({ onLogin }: { onLogin: (user: UserContext) => void })
                 <ArrowRight className="h-4 w-4 text-muted-foreground" />
               </button>
             ) : null}
-            {canShowEmail ? (
-              <button
-                type="button"
-                className="focus-ring flex min-h-12 min-w-0 items-center justify-between gap-3 rounded-md border border-border bg-background px-4 py-3 text-left text-sm font-black text-foreground hover:bg-muted"
-                onClick={() => setProductNotice(productMethodNotice)}
-              >
-                <span className="inline-flex items-center gap-2"><Mail className="h-4 w-4" /> Sign in with email</span>
-                <ArrowRight className="h-4 w-4 text-muted-foreground" />
-              </button>
-            ) : null}
           </div>
 
           <div aria-live="polite" className="mt-4 grid gap-2">
             {discovery ? (
               <div className="rounded-md border border-border bg-muted px-3 py-2 text-sm font-semibold text-muted-foreground">
-                <p>{discovery.message}</p>
+                <p>{discovery.accountEligible ? "Continue with Microsoft for this account." : discovery.message}</p>
                 {discovery.accountEligible && discovery.permittedMethods.length ? (
                   <div className="mt-2 flex flex-wrap gap-1.5">
-                    {discovery.permittedMethods.map((method) => <Badge key={method} tone="petrol">{methodLabels[method]}</Badge>)}
+                    {discovery.permittedMethods.filter((method) => method === "MICROSOFT_SSO").map((method) => <Badge key={method} tone="petrol">{methodLabels[method]}</Badge>)}
                   </div>
                 ) : null}
               </div>

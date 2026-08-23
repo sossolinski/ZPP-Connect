@@ -231,6 +231,7 @@ export function createPrismaMemberDirectoryRepository(client: PrismaClient, trai
   ): Promise<MutationResult<GroupRecord>> {
     try {
       return await client.$transaction(async (tx) => {
+        await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`group-lifecycle:${groupId}`}))`;
         await tx.$queryRaw`SELECT "id" FROM "OperationalGroup" WHERE "id" = ${groupId} AND "incidentId" = ${incidentId}::uuid FOR UPDATE`;
         const group = await loadedGroup(tx, incidentId, groupId);
         if (!group) return { record: null, conflict: false };
@@ -244,7 +245,7 @@ export function createPrismaMemberDirectoryRepository(client: PrismaClient, trai
         const auditMetadata = typeof metadata === "function" ? metadata(group) : metadata;
         await audit(tx, actor, auditAction, "group", groupId, summary, incidentId, { groupId, versionBefore: expectedVersion, versionAfter: expectedVersion + 1, ...auditMetadata });
         return { record: groupRecord((await loadedGroup(tx, incidentId, groupId))!), conflict: false };
-      }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
+      }, { isolationLevel: Prisma.TransactionIsolationLevel.ReadCommitted });
     } catch (error) {
       if (isConflict(error)) return { record: null, conflict: true };
       throw error;
@@ -255,7 +256,7 @@ export function createPrismaMemberDirectoryRepository(client: PrismaClient, trai
     kind: "postgres",
 
     async resolveUserId(email) {
-      return (await client.user.findUnique({ where: { email: email.trim().toLowerCase() }, select: { id: true } }))?.id ?? null;
+      return (await client.user.findUnique({ where: { normalizedEmail: email.trim().toLowerCase() }, select: { id: true } }))?.id ?? null;
     },
 
     async listMembers(query, actor) {
@@ -297,7 +298,7 @@ export function createPrismaMemberDirectoryRepository(client: PrismaClient, trai
 
     async listEligibleUsers(search, currentMemberId, limit, offset) {
       const where: Prisma.UserWhereInput = {
-        status: "active",
+        status: "Active",
         AND: [
           search ? { OR: [{ email: { contains: search, mode: "insensitive" } }, { displayName: { contains: search, mode: "insensitive" } }] } : {},
           { linkedMemberProfiles: { none: { status: { not: "Archived" }, ...(currentMemberId ? { id: { not: currentMemberId } } : {}) } } },
@@ -313,7 +314,7 @@ export function createPrismaMemberDirectoryRepository(client: PrismaClient, trai
     async createMember(input, actor) {
       try {
         return await client.$transaction(async (tx) => {
-          if (input.linkedUserId && !(await tx.user.findFirst({ where: { id: input.linkedUserId, status: "active" } }))) throw new HttpError(400, "Linked user account was not found");
+          if (input.linkedUserId && !(await tx.user.findFirst({ where: { id: input.linkedUserId, status: "Active" } }))) throw new HttpError(400, "Linked user account was not found");
           const profileNumber = await sequence(tx, "MemberProfile_id_seq");
           const businessNumber = input.memberId ? null : await sequence(tx, "MemberProfile_business_seq");
           const row = await tx.memberProfile.create({ data: {
@@ -354,7 +355,7 @@ export function createPrismaMemberDirectoryRepository(client: PrismaClient, trai
           const current = await tx.memberProfile.findFirst({ where: { id, AND: [memberVisibility(actor, "member:update")] } });
           if (!current) return { record: null, conflict: false };
           if (current.version !== expectedVersion || current.status === "Archived") return { record: null, conflict: true };
-          if (input.linkedUserId && !(await tx.user.findFirst({ where: { id: input.linkedUserId, status: "active" } }))) throw new HttpError(400, "Linked user account was not found");
+          if (input.linkedUserId && !(await tx.user.findFirst({ where: { id: input.linkedUserId, status: "Active" } }))) throw new HttpError(400, "Linked user account was not found");
           const data: Prisma.MemberProfileUncheckedUpdateManyInput = {
             ...(input.memberId !== undefined ? { memberId: input.memberId } : {}),
             ...(input.linkedUserId !== undefined ? { linkedUserId: input.linkedUserId } : {}),
@@ -583,7 +584,7 @@ export function createPrismaMemberDirectoryRepository(client: PrismaClient, trai
           await tx.$queryRaw`SELECT "id" FROM "User" WHERE "id" = ${userId}::uuid FOR UPDATE`;
           await tx.$queryRaw`SELECT "id" FROM "OperationalGroup" WHERE "id" = ${groupId} FOR UPDATE`;
           const [user, role, group, existingUserRole] = await Promise.all([
-            tx.user.findFirst({ where: { id: userId, status: "active" } }),
+            tx.user.findFirst({ where: { id: userId, status: "Active" } }),
             tx.role.findUnique({ where: { name: roleName } }),
             tx.operationalGroup.findFirst({ where: { id: groupId, status: { not: "Archived" } } }),
             tx.userRole.findFirst({ where: { userId, role: { name: roleName } } }),
@@ -628,7 +629,7 @@ export function createPrismaMemberDirectoryRepository(client: PrismaClient, trai
     async replaceRoleScopes(userId, assignments: RoleScopeInput[], actor) {
       await client.$transaction(async (tx) => {
         await tx.$queryRaw`SELECT "id" FROM "User" WHERE "id" = ${userId}::uuid FOR UPDATE`;
-        if (!(await tx.user.findFirst({ where: { id: userId, status: { not: "archived" } } }))) throw new HttpError(404, "User not found");
+        if (!(await tx.user.findFirst({ where: { id: userId, status: { not: "Archived" } } }))) throw new HttpError(404, "User not found");
         const roleNames = [...new Set(assignments.map(({ roleName }) => roleName))];
         const roles = await tx.role.findMany({ where: { name: { in: roleNames } } });
         if (roles.length !== roleNames.length) throw new HttpError(400, "One or more roles do not exist");
