@@ -467,7 +467,7 @@ postgresDescribe("Foundation Stage 7 PostgreSQL Request safety", () => {
           .query({ sessionId: incidentB })
           .set(as(actors.reader!.email))
       ).status,
-    ).toBe(404);
+    ).toBe(403);
     expect(
       (
         await request(application())
@@ -492,7 +492,7 @@ postgresDescribe("Foundation Stage 7 PostgreSQL Request safety", () => {
           .query({ sessionId: incidentA })
           .set(as(actors.reader!.email))
       ).status,
-    ).toBe(404);
+    ).toBe(403);
     expect(
       (
         await request(application())
@@ -500,7 +500,7 @@ postgresDescribe("Foundation Stage 7 PostgreSQL Request safety", () => {
           .query({ sessionId: incidentA })
           .set(as(actors.reader!.email))
       ).status,
-    ).toBe(404);
+    ).toBe(403);
     await prisma!.incidentAssignment.update({
       where: { id: actors.reader!.assignmentId },
       data: {
@@ -625,7 +625,7 @@ postgresDescribe("Foundation Stage 7 PostgreSQL Request safety", () => {
       },
     });
     expect(revokedResponses.map((response) => response.status)).toEqual(
-      Array(revokedResponses.length).fill(404),
+      Array(revokedResponses.length).fill(403),
     );
     const closedCreate = await request(application())
       .post("/api/requests")

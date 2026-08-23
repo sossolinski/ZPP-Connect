@@ -25,7 +25,12 @@ function permissionList(value: Prisma.JsonValue): Permission[] {
 function evaluateAccessGraph(user: AccessGraphUser, now: Date, scope: EffectiveAccessScope = {}) {
   const activeIncidentIds = new Set(user.incidentAssignments.map((assignment) => assignment.incidentId));
   const targetIncidentId = scope.incidentId || null;
-  const incidentEligible = !targetIncidentId || activeIncidentIds.has(targetIncidentId);
+  const systemAdminOverride = user.roles.some((assignment) => (
+    assignment.scopeType === "GLOBAL" &&
+    assignment.role.status === "Active" &&
+    assignment.role.normalizedName === "system-admin"
+  ));
+  const incidentEligible = !targetIncidentId || activeIncidentIds.has(targetIncidentId) || systemAdminOverride;
   const roleAssignments: NonNullable<AuthenticatedUser["roleAssignments"]> = [];
   const roleNames = new Set<string>();
   const grantedPermissions = new Set<Permission>();
@@ -120,8 +125,31 @@ export class EffectiveAccessService {
   }
 
   async hasEffectivePermission(userId: string, permission: Permission, scope: EffectiveAccessScope = {}) {
+    return this.hasEffectivePermissions(userId, [permission], scope);
+  }
+
+  async hasEffectivePermissions(userId: string, required: Permission[], scope: EffectiveAccessScope = {}) {
+    const effective = await this.effectivePermissionsForUser(userId, scope);
+    return required.every((permission) => effective.includes(permission));
+  }
+
+  async effectivePermissionsForUser(userId: string, scope: EffectiveAccessScope = {}) {
     const user = await this.db.user.findUnique({ where: { id: userId }, include: accessGraphInclude });
-    return Boolean(user && user.status === activeAccountStatus && evaluateAccessGraph(user, this.clock.now(), scope).permissions.has(permission));
+    if (!user || user.status !== activeAccountStatus) return [];
+    return Array.from(evaluateAccessGraph(user, this.clock.now(), scope).permissions);
+  }
+
+  async effectiveIncidentIdsForPermission(userId: string, permission: Permission) {
+    const user = await this.db.user.findUnique({ where: { id: userId }, include: accessGraphInclude });
+    if (!user || user.status !== activeAccountStatus) return [];
+    const now = this.clock.now();
+    const systemAdminOverride = user.roles.some((assignment) => assignment.scopeType === "GLOBAL" && assignment.role.status === "Active" && assignment.role.normalizedName === "system-admin");
+    if (systemAdminOverride && evaluateAccessGraph(user, now).permissions.has(permission)) {
+      return null;
+    }
+    return user.incidentAssignments
+      .map((assignment) => assignment.incidentId)
+      .filter((incidentId) => evaluateAccessGraph(user, now, { incidentId }).permissions.has(permission));
   }
 
   async eligibleUsersForPermission(permission: Permission, scope: EffectiveAccessScope = {}) {

@@ -145,13 +145,13 @@ postgresDescribe("Foundation Stage 5 PostgreSQL matching persistence and concurr
     const api = application();
     expect((await request(api).get("/api/matching/queue").query({ sessionId: incidentA, search: familyA.operationalId }).set(as("coordinator@lot.pl"))).body.total).toBe(1);
     expect((await request(api).get("/api/matching/queue").query({ sessionId: incidentB, search: familyA.operationalId }).set(as("admin@lot.pl"))).body.total).toBe(0);
-    expect((await request(api).get("/api/matching/queue").query({ sessionId: incidentB }).set(as("coordinator@lot.pl"))).status).toBe(404);
+    expect((await request(api).get("/api/matching/queue").query({ sessionId: incidentB }).set(as("coordinator@lot.pl"))).status).toBe(403);
     expect((await request(api).post(`/api/matching/claims/${claimA.id}/confirm`).set(as("tec@lot.pl")).send({})).status).toBe(403);
     expect((await request(api).post("/api/matching-records").set(as("coordinator@lot.pl")).send({ sessionId: incidentA, status: "Verified match" })).status).toBe(404);
     const closedClaim = await prisma!.relationshipClaim.findFirstOrThrow({ where: { incidentId: closedIncident } });
     expect((await request(api).post(`/api/matching/claims/${closedClaim.id}/suggestions/generate`).set(as("coordinator@lot.pl")).send({ sessionId: closedIncident, expectedClaimVersion: closedClaim.version })).status).toBe(409);
     await prisma!.incidentAssignment.update({ where: { id: assignmentA }, data: { active: false, revokedAt: new Date(), revokeReason: "Stage 5 immediate revoke" } });
-    expect((await request(api).get("/api/matching/queue").query({ sessionId: incidentA }).set(as("coordinator@lot.pl"))).status).toBe(404);
+    expect((await request(api).get("/api/matching/queue").query({ sessionId: incidentA }).set(as("coordinator@lot.pl"))).status).toBe(403);
     await prisma!.incidentAssignment.update({ where: { id: assignmentA }, data: { active: true, revokedAt: null, revokeReason: null } });
   });
 

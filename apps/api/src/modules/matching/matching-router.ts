@@ -1,7 +1,8 @@
-import { Router, type Request } from "express";
+import { Router, type Request, type RequestHandler } from "express";
 import { z } from "zod";
 import { asyncHandler } from "../../errors.js";
 import { requirePermission } from "../../rbac.js";
+import type { IncidentPermissionGate } from "../incident-access/incident-permission-gate.js";
 import type { MatchingService } from "./matching-service.js";
 import type { MatchingActor, MatchingCompatibilityRecord } from "./matching-types.js";
 
@@ -32,53 +33,56 @@ function actor(req: Request): MatchingActor {
   return { id: req.user.id, email: req.user.email, displayName: req.user.displayName, roles: req.user.roles, requestId: req.requestId };
 }
 
-export function createMatchingRouter(service: MatchingService, compatibility: { onList?: (records: MatchingCompatibilityRecord[], incidentId: string, offset: number) => void; onChange?: (record: MatchingCompatibilityRecord) => void } = {}) {
+export function createMatchingRouter(service: MatchingService, compatibility: { onList?: (records: MatchingCompatibilityRecord[], incidentId: string, offset: number) => void; onChange?: (record: MatchingCompatibilityRecord) => void; requireIncidentPermission?: IncidentPermissionGate } = {}) {
   const router = Router();
+  const authorize = (permission: Parameters<typeof requirePermission>[0], source: "query" | "body", writable = false): RequestHandler => compatibility.requireIncidentPermission
+    ? compatibility.requireIncidentPermission(permission, (req) => String(source === "query" ? req.query.sessionId ?? "" : req.body?.sessionId ?? ""), { requireWritable: writable })
+    : requirePermission(permission);
   // Read-only transition projection for consumers shipped before the Stage 5 queue.
-  router.get("/matching-records/suggestions", requirePermission("matching:read"), asyncHandler(async (req, res) => {
+  router.get("/matching-records/suggestions", authorize("matching:read", "query"), asyncHandler(async (req, res) => {
     const { sessionId } = scope.parse(req.query);
     const result = await service.listQueue(actor(req), sessionId, { sortBy: "updatedAt", sortDirection: "desc", limit: 200, offset: 0 });
     const data = result.data.flatMap((item) => item.topSuggestion ? [item.topSuggestion] : []);
     res.json({ total: data.length, data, deprecated: true });
   }));
-  router.get("/matching-records", requirePermission("matching:read"), asyncHandler(async (req, res) => {
+  router.get("/matching-records", authorize("matching:read", "query"), asyncHandler(async (req, res) => {
     const query = pageQuery.parse(req.query);
     const result = await service.listCompatibility(actor(req), query.sessionId, query);
     compatibility.onList?.(result.data, query.sessionId, query.offset);
     res.json(result);
   }));
-  router.get("/matching/queue", requirePermission("matching:read"), asyncHandler(async (req, res) => {
+  router.get("/matching/queue", authorize("matching:read", "query"), asyncHandler(async (req, res) => {
     const query = queueQuery.parse(req.query);
     res.json(await service.listQueue(actor(req), query.sessionId, query));
   }));
-  router.get("/matching/claims/:claimId", requirePermission("matching:read"), asyncHandler(async (req, res) => {
+  router.get("/matching/claims/:claimId", authorize("matching:read", "query"), asyncHandler(async (req, res) => {
     res.json(await service.getContext(actor(req), id.parse(req.query.sessionId), id.parse(req.params.claimId)));
   }));
-  router.get("/matching/claims/:claimId/suggestions", requirePermission("matching:read"), asyncHandler(async (req, res) => {
+  router.get("/matching/claims/:claimId/suggestions", authorize("matching:read", "query"), asyncHandler(async (req, res) => {
     const query = suggestionQuery.parse(req.query);
     res.json(await service.listSuggestions(actor(req), query.sessionId, id.parse(req.params.claimId), query));
   }));
-  router.post("/matching/claims/:claimId/suggestions/generate", requirePermission("matching:create"), asyncHandler(async (req, res) => {
+  router.post("/matching/claims/:claimId/suggestions/generate", authorize("matching:create", "body", true), asyncHandler(async (req, res) => {
     const { sessionId, ...body } = generateBody.parse(req.body);
     res.status(201).json(await service.generateSuggestions(actor(req), sessionId, id.parse(req.params.claimId), body));
   }));
-  router.get("/matching/claims/:claimId/candidates", requirePermission("matching:read"), asyncHandler(async (req, res) => {
+  router.get("/matching/claims/:claimId/candidates", authorize("matching:read", "query"), asyncHandler(async (req, res) => {
     const query = candidateQuery.parse(req.query);
     res.json(await service.listCandidates(actor(req), query.sessionId, id.parse(req.params.claimId), query));
   }));
-  router.post("/matching/claims/:claimId/confirm", requirePermission("matching:verify"), asyncHandler(async (req, res) => {
+  router.post("/matching/claims/:claimId/confirm", authorize("matching:verify", "body", true), asyncHandler(async (req, res) => {
     const { sessionId, ...body } = confirmBody.parse(req.body);
     res.json(await service.confirm(actor(req), sessionId, id.parse(req.params.claimId), body));
   }));
-  router.post("/matching/claims/:claimId/reject", requirePermission("matching:reject"), asyncHandler(async (req, res) => {
+  router.post("/matching/claims/:claimId/reject", authorize("matching:reject", "body", true), asyncHandler(async (req, res) => {
     const { sessionId, ...body } = rejectBody.parse(req.body);
     res.json(await service.reject(actor(req), sessionId, id.parse(req.params.claimId), body));
   }));
-  router.post("/matching/claims/:claimId/invalidate", requirePermission("matching:verify"), asyncHandler(async (req, res) => {
+  router.post("/matching/claims/:claimId/invalidate", authorize("matching:verify", "body", true), asyncHandler(async (req, res) => {
     const { sessionId, ...body } = invalidateBody.parse(req.body);
     res.json(await service.invalidate(actor(req), sessionId, id.parse(req.params.claimId), body));
   }));
-  const hold = (path: "hold" | "clear-hold") => router.post(`/matching-records/:id/${path}`, requirePermission(path === "hold" ? "matching:hold" : "matching:clearHold"), asyncHandler(async (req, res) => {
+  const hold = (path: "hold" | "clear-hold") => router.post(`/matching-records/:id/${path}`, authorize(path === "hold" ? "matching:hold" : "matching:clearHold", "body", true), asyncHandler(async (req, res) => {
     const { sessionId, version, reason, holdCheck } = holdBody.parse({ ...req.body, holdCheck: path === "clear-hold" ? "No hold" : req.body?.holdCheck });
     const record = await service.setHold(actor(req), sessionId, id.parse(req.params.id), { expectedVersion: version, reason, holdCheck });
     compatibility.onChange?.(record);

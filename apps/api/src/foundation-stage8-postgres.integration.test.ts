@@ -196,7 +196,7 @@ postgresDescribe("Foundation Stage 8 PostgreSQL Operational Assignment safety", 
     const context = await request(application()).get(`/api/assignments/${created.body.id}`).query({ sessionId: incidentA }).set(as(actors.manager!.email));
     expect(context.body).toMatchObject({ assignedUserId: actors["worker-a"]!.id, assigneeEligible: false });
     expect(context.body.assigneeEligibilityMessage).toContain("Reassignment is required");
-    expect((await request(application()).get(`/api/assignments/${created.body.id}`).query({ sessionId: incidentA }).set(as(actors["worker-a"]!.email))).status).toBe(404);
+    expect((await request(application()).get(`/api/assignments/${created.body.id}`).query({ sessionId: incidentA }).set(as(actors["worker-a"]!.email))).status).toBe(403);
     const candidates = await request(application()).get("/api/assignments/assignees").query({ sessionId: incidentA }).set(as(actors.manager!.email));
     expect(candidates.body.data.map(({ id }: { id: string }) => id)).not.toEqual(expect.arrayContaining([actors["worker-a"]!.id, actors["inactive-candidate"]!.id]));
     const reassigned = await request(application()).post(`/api/assignments/${created.body.id}/reassign`).set(as(actors.manager!.email)).send({ sessionId: incidentA, expectedVersion: assigned.body.version, assignedUserId: actors["worker-b"]!.id, operationId: randomUUID(), reason: "Revoked operator handover" });

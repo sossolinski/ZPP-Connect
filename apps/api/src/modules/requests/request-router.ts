@@ -1,8 +1,9 @@
 import { dictionaries } from "@zpp/shared";
-import { Router, type Request } from "express";
+import { Router, type Request, type RequestHandler } from "express";
 import { z } from "zod";
 import { asyncHandler } from "../../errors.js";
 import { requirePermission } from "../../rbac.js";
+import type { IncidentPermissionGate } from "../incident-access/incident-permission-gate.js";
 import type { RequestService } from "./request-service.js";
 import {
   toRequestCompatibility,
@@ -114,7 +115,7 @@ function actor(req: Request): RequestActor {
     email: req.user.email,
     displayName: req.user.displayName,
     roles: req.user.roles,
-    permissions: req.user.permissions,
+    permissions: req.incidentPermissions ?? req.user.permissions,
     requestId: req.requestId,
   };
 }
@@ -128,12 +129,16 @@ export function createRequestRouter(
       offset: number,
     ) => void;
     onChange?: (record: RequestCompatibilityRecord) => void;
+    requireIncidentPermission?: IncidentPermissionGate;
   } = {},
 ) {
   const router = Router();
+  const authorize = (permission: Parameters<typeof requirePermission>[0], source: "query" | "body", writable = false): RequestHandler => compatibility.requireIncidentPermission
+    ? compatibility.requireIncidentPermission(permission, (req) => String(source === "query" ? req.query.sessionId ?? "" : req.body?.sessionId ?? ""), { requireWritable: writable })
+    : requirePermission(permission);
   router.get(
     "/requests/assignees",
-    requirePermission("request:assign"),
+    authorize("request:assign", "query"),
     asyncHandler(async (req, res) => {
       const query = z
         .object({
@@ -152,7 +157,7 @@ export function createRequestRouter(
   );
   router.get(
     "/requests/queue",
-    requirePermission("request:read"),
+    authorize("request:read", "query"),
     asyncHandler(async (req, res) => {
       const query = queue.parse(req.query);
       res.json(await service.listQueue(actor(req), query.sessionId, query));
@@ -160,7 +165,7 @@ export function createRequestRouter(
   );
   router.get(
     "/requests/:id",
-    requirePermission("request:read"),
+    authorize("request:read", "query"),
     asyncHandler(async (req, res) => {
       res.json(
         await service.getContext(
@@ -173,7 +178,7 @@ export function createRequestRouter(
   );
   router.get(
     "/requests",
-    requirePermission("request:read"),
+    authorize("request:read", "query"),
     asyncHandler(async (req, res) => {
       const query = queue.parse(req.query);
       const result = await service.listCompatibility(
@@ -187,7 +192,7 @@ export function createRequestRouter(
   );
   router.post(
     "/requests",
-    requirePermission("request:create"),
+    authorize("request:create", "body", true),
     asyncHandler(async (req, res) => {
       const { sessionId, ...input } = create.parse(req.body);
       const record = await service.create(actor(req), sessionId, input);
@@ -197,7 +202,7 @@ export function createRequestRouter(
   );
   router.patch(
     "/requests/:id",
-    requirePermission("request:update"),
+    authorize("request:update", "body", true),
     asyncHandler(async (req, res) => {
       const { sessionId, expectedVersion, ...input } = update.parse(req.body);
       const record = await service.update(
@@ -213,7 +218,7 @@ export function createRequestRouter(
   );
   router.post(
     "/requests/:id/assign",
-    requirePermission("request:assign"),
+    authorize("request:assign", "body", true),
     asyncHandler(async (req, res) => {
       const { sessionId, ...input } = assign.parse(req.body);
       const record = await service.assign(
@@ -228,7 +233,7 @@ export function createRequestRouter(
   );
   router.post(
     "/requests/:id/unassign",
-    requirePermission("request:assign"),
+    authorize("request:assign", "body", true),
     asyncHandler(async (req, res) => {
       const { sessionId, ...input } = reason.parse(req.body);
       const record = await service.unassign(
@@ -243,7 +248,7 @@ export function createRequestRouter(
   );
   router.post(
     "/requests/:id/priority",
-    requirePermission("request:update"),
+    authorize("request:update", "body", true),
     asyncHandler(async (req, res) => {
       const { sessionId, ...input } = priorityChange.parse(req.body);
       const record = await service.changePriority(
@@ -262,7 +267,7 @@ export function createRequestRouter(
   ] as const) {
     router.post(
       `/requests/:id/${path}`,
-      requirePermission("request:update"),
+      authorize("request:update", "body", true),
       asyncHandler(async (req, res) => {
         const { sessionId, ...input } = version.parse(req.body);
         const record = await service.transition(
@@ -279,7 +284,7 @@ export function createRequestRouter(
   }
   router.post(
     "/requests/:id/resolve",
-    requirePermission("request:close"),
+    authorize("request:close", "body", true),
     asyncHandler(async (req, res) => {
       const { sessionId, ...input } = resolve.parse(req.body);
       const record = await service.resolve(
@@ -294,7 +299,7 @@ export function createRequestRouter(
   );
   router.post(
     "/requests/:id/reopen",
-    requirePermission("request:close"),
+    authorize("request:close", "body", true),
     asyncHandler(async (req, res) => {
       const { sessionId, ...input } = retryableReason.parse(req.body);
       const record = await service.reopen(
@@ -309,7 +314,7 @@ export function createRequestRouter(
   );
   router.post(
     "/requests/:id/cancel",
-    requirePermission("request:close"),
+    authorize("request:close", "body", true),
     asyncHandler(async (req, res) => {
       const { sessionId, ...input } = retryableReason.parse(req.body);
       const record = await service.cancel(

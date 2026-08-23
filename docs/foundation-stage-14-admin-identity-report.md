@@ -208,7 +208,34 @@ Idempotency została oceniona dla lifecycle User, role assignment/revoke, overri
 
 ## AI. Security tests
 
-Pokryto wrong issuer/audience, unknown identity, e-mail takeover/recycling, disabled identity, brak ważnego invitation dla Pending, production dev-auth rejection, self-elevation, final admin, group-without-incident oraz notification safe route. Closure dodaje jawne przypadki GLOBAL, GROUP correct/wrong incident, GRANT, active/expired/revoked DENY, inactive User, archived Role, revoked GroupRoleAssignment, archived Group, brak IncidentAssignment oraz consistency między scoped `forUser` i recipient eligibility.
+Pokryto wrong issuer/audience, unknown identity, e-mail takeover/recycling, disabled identity, brak ważnego invitation dla Pending, production dev-auth rejection, self-elevation, final admin, group-without-incident oraz notification safe route. Pierwsza closure dodała jawne przypadki GLOBAL, GROUP correct/wrong incident, GRANT, active/expired/revoked DENY, inactive User, archived Role, revoked GroupRoleAssignment, archived Group, brak IncidentAssignment oraz consistency między scoped `forUser` i recipient eligibility.
+
+### AI.1. Closure 2 — incident-scoped request authorization
+
+Drugi review znalazł rozdzieloną decyzję: szeroka projekcja `req.user.permissions` mogła zawierać capability z GROUP role w Incident A, a niezależny `IncidentAccessService` akceptował `IncidentAssignment` do Incident B. Zestaw `requirePermission(X)` + `requireIncidentAccess(B)` nie dowodził więc, że X jest efektywne w B. Reprodukcja używa ZPP Group Leader w A oraz osobnych IncidentAssignment A i B; przed closure `briefing:read` z A mogło poszerzyć dostęp do Active Event/Briefing B.
+
+Nowy wspólny `IncidentPermissionGate` rozwiązuje target Incident serwerowo, wykonuje jeden bounded odczyt autorytatywnego grafu przez `EffectiveAccessService.effectivePermissionsForUser(userId, { incidentId })`, następnie zachowuje oddzielne `IncidentAccessService` lifecycle/writable checks. Nie skanuje ról, grup ani override'ów i nie jest trzecim policy engine. Gate zapisuje scoped permissions i incident context w request, dzięki czemu dalsze, drobniejsze `permissionScope()`, `canAccessGroup()` i `canAccessMember()` nie korzystają z przypadkowo szerokiej projekcji. `req.user` oraz `/auth/me` pozostają szeroką projekcją do nawigacji i globalnych operacji.
+
+Semantyka authority pozostaje jedna:
+
+- GROUP grant wymaga aktywnych User, Role, OperationalGroup, GroupRoleAssignment i IncidentAssignment, a grupa musi należeć dokładnie do target Incident;
+- GLOBAL grant działa w dowolnym target Incident, ale nadal wymaga IncidentAssignment, z zachowaniem istniejącego, jawnego System Admin override;
+- aktywny DENY wygrywa, GRANT działa według dotychczasowej polityki, a expired/revoked override nie wpływa na następny request;
+- revoke GroupRoleAssignment, archive OperationalGroup albo archive Role usuwa GROUP access przy następnym requestcie bez restartu.
+
+Active Event i Briefings używają gate dla `briefing:read`, `briefing:read-history`, `briefing:create-draft`, `briefing:update-draft` i `briefing:publish`. Trasy `/briefings/:briefingId` najpierw pobierają z ActiveEvent service wyłącznie security metadata `briefingId -> sessionId/status`, autoryzują rzeczywisty Incident, a dopiero potem pobierają/serializują treść; nie używają aktywnej sesji ani client-supplied Incident. Draft/Superseded detail wymaga read i read-history, Published zachowuje read-only semantics.
+
+Audit produkcyjnych gate'ów sklasyfikował:
+
+| Klasa | Produkcyjne trasy / decyzja |
+| --- | --- |
+| A — istniejący service/object scope | Member Directory, Training, Documents i availability zachowują swoje group/member/record ownership rules; Notification routes są per-recipient, a permission-based dispatcher nadal używa `eligibleUsersForPermission()` |
+| B — wspólny scope-aware gate | Active Event/Briefings, Incidents, IncidentAssignments, Dashboard, Imports/confirm, Exports, Reports, Timeline/Audit, Exercises, Enquiries, Passengers, Families, Matching, Releases, Requests, Assignments i incident-bound Roster shifts |
+| C — split decision | brak reachowalnej trasy w production PostgreSQL composition |
+
+Resource-ID routes dla Briefing, import batch oraz persisted assignment/request/enquiry/passenger/family/matching/release resources rozwiązują Incident z zasobu lub repository, nie z niezależnego client Incident ID. Pozostałe `requirePermission()` dotyczą globalnych lub finer object-scope operacji; deklaracje w statycznym `routes/index.ts` są niezamontowanym legacy routerem i nie są production exception. Session create jest globalnym commandem bez istniejącego target Incident. Jawne wyjątki od zwykłego IncidentAssignment to wyłącznie wcześniej istniejący System Admin override.
+
+Dedykowane PostgreSQL/HTTP testy closure sprawdzają built-in i custom GROUP A przeciw A+B, Active Event/current/history/detail, GLOBAL control, active/expired/revoked DENY, GRANT, brak IncidentAssignment, revoke/archive lifecycle oraz zgodność HTTP z `hasEffectivePermission(..., { incidentId })`. Custom GROUP write do B zwraca `403`; Briefing version oraz liczności AuditLog, CaseTimelineEvent, NotificationOutbox i Notification pozostają bez zmian. Test `/auth/me` potwierdza zachowanie broad capability projection. Wszystkie wcześniejsze Notification scope tests pozostają zielone.
 
 ## AJ. Paging / scale
 
@@ -220,7 +247,7 @@ Zachowano Admin information architecture. Users & Access korzysta z trwałych de
 
 ## AL. Backfill / seed
 
-Migracja ma preflight duplicate checks, normalizację e-maili/nazw/statusów, constraints/indexes, nowe tabele, protected role backfill i assignment history. Closure fresh deploy wykonał 17/17 migracji oraz seed. Exact legacy rehearsal z merge Stage 13 (`5038dfb…`), jego 16 migracjami i seedem, a następnie Stage 14 deployem przeszedł; dedykowane 37/37 testów działa na fresh i upgraded DB.
+Migracja ma preflight duplicate checks, normalizację e-maili/nazw/statusów, constraints/indexes, nowe tabele, protected role backfill i assignment history. Closure 2 nie zmienia schematu ani nie rozpoczyna Briefing persistence. Fresh deploy wykonał 17/17 migracji oraz seed. Exact legacy rehearsal z merge Stage 13 (`5038dfb…`) wykonał jego 16 migracji i seed, następnie bieżący Stage 14 deploy 17. migracji i seed; dedykowane Stage 14 na upgraded DB przeszło 40/40.
 
 ## AM. Legacy removed + LOC
 
@@ -240,21 +267,21 @@ Mandatory search nadal znajduje memory writers w `demo-router.ts` (`roles.push`,
 
 ## AN. PostgreSQL tests
 
-- Dedicated Stage 14: 37/37 na fresh oraz upgraded Stage 13 DB.
-- Pełny Stage 1–14 PostgreSQL: 15 files, 173/173, zero skipów.
+- Dedicated Stage 14: 40/40 na fresh DB (37 poprzednich + 3 incident-scoped HTTP scenarios).
+- Pełny Stage 1–14 PostgreSQL: 15 files, 176/176, zero skipów.
 - Unit/API bez PostgreSQL: 13 files, 99/99; PostgreSQL suites są świadomie niewłączane do tej komendy, ale mandatory CI gate wywołuje je osobno.
 
 ## AO. Browser tests
 
-Playwright: finalnie 71/71. Wbudowany browser runtime był niedostępny (`No browser is available`), więc nie stanowił osobnej bramki.
+Playwright: finalnie 71/71 z wymuszonymi fresh web servers (`CI=1`). Wbudowany browser runtime był niedostępny (`No browser is available`), więc nie stanowił osobnej bramki.
 
 ## AP. CI
 
-Closure local gates: typecheck, Unit 99/99, build, Playwright 71/71, audit (0 vulnerabilities), fresh PostgreSQL 17/17 + seed, legacy Stage 13→14 rehearsal, production startup/health oraz `git diff --check` są zielone. Pełny PostgreSQL ma 173/173, dedicated Stage 14 37/37. Production startup zwrócił `200` na `/api/health` z `persistence=postgres` i `404` dla dev-auth endpointu. Implementacyjny SHA `c140dc7d50a415ae70e5fd3c89c6f9f55c81cad1` przeszedł wszystkie sześć remote checks (push + pull_request). Ten dokumentacyjny commit READY jest finalnym PR head; jego dwa PostgreSQL gates, dwa Typecheck/Unit/Build/Browser gates oraz dwa Production Dependency Audit gates muszą zostać zweryfikowane jako zielone dla dokładnego finalnego SHA przed handoffem.
+Closure 2 local gates: typecheck, Unit 99/99, build, Playwright 71/71, production audit (0 vulnerabilities), fresh PostgreSQL 17/17 + seed, pełny PostgreSQL 176/176 zero skipped, dedicated Stage 14 40/40 na fresh i upgraded DB, exact Stage 13→14 rehearsal, production Entra/PostgreSQL startup/health oraz `git diff --check` są zielone. Production startup zwrócił `200` na `/api/health` z `persistence=postgres` i `404` dla dev-auth endpointu. Verdict pozostaje NOT READY do czasu sześciu zielonych remote checks dla dokładnego finalnego SHA; jeśli verdict zmieni osobny commit dokumentacyjny, wymagane są ponowne checks tego SHA.
 
 ## AQ. Remaining split-brain
 
-Production identity split-brain jest usunięty. Memory Admin/Auth i memory Notifications adapter pozostają wyłącznie dla automated test mode i nie są authority w postgres. Permission-based Notifications korzystają z tego samego access graph co authorization. Pozostałe niezależne production memory writes: Briefings/Active Event, Imports, Reports/Exports derivation, Readiness/config projection oraz Admin Dictionaries.
+Production identity split-brain i incident request split-decision są usunięte. Memory Admin/Auth i memory Notifications adapter pozostają wyłącznie dla automated test mode i nie są authority w postgres. Permission-based Notifications i incident-scoped request gate korzystają z tego samego EffectiveAccess graph. Briefings/Active Event nadal są planowo memory-backed, ale ich minimalny metadata resolver zabezpiecza resource-ID authorization; persistence pozostaje wyłącznie przyszłym Stage 15 slice. Pozostałe niezależne production memory writes: Briefings/Active Event, Imports, Reports/Exports derivation, Readiness/config projection oraz Admin Dictionaries.
 
 ## AR. Risks — max 10
 
@@ -264,6 +291,8 @@ Production identity split-brain jest usunięty. Memory Admin/Auth i memory Notif
 4. Idempotency jest wdrożone dla invitation commands; pozostałe identity commands polegają na version/unique semantics.
 5. Frontend bundle nadal raportuje istniejące ostrzeżenie >500 kB.
 6. Recipient discovery nie ma page limitu i używa batched relation loading; przy znacznie większej niż przetestowane 1005 populacji może wymagać SQL-side candidate reduction bez rozdzielania semantyki polityki.
+7. Briefing security metadata resolver jest celowym adapterem do memory ActiveEvent do czasu przyszłej persistence; route regression tests muszą pozostać przy jego zastąpieniu.
+8. Niezamontowany legacy router w `routes/index.ts` nadal deklaruje szerokie gate'y; composition/order testy pozostają ważne, aby nie stał się ponownie reachowalny.
 
 ## AS. Next decision
 
@@ -281,4 +310,4 @@ Wybrany dokładnie jeden następny slice: **Briefings / Active Event persistence
 
 ## Final gate
 
-`READY FOR NEXT FOUNDATION SLICE`
+`NOT READY — exact-final-SHA remote CI pending`

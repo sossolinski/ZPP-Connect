@@ -108,7 +108,7 @@ postgresDescribe("Foundation Stage 2.5 PostgreSQL incident access closure", () =
     const initiallyVisible = await request(api).get("/api/sessions").query({ search: marker }).set(as("tec@lot.pl"));
     expect(initiallyVisible.status).toBe(200);
     expect(initiallyVisible.body.data).toHaveLength(0);
-    expect((await request(api).get(`/api/sessions/${exerciseId}`).set(as("tec@lot.pl"))).status).toBe(404);
+    expect((await request(api).get(`/api/sessions/${exerciseId}`).set(as("tec@lot.pl"))).status).toBe(403);
 
     const adminVisible = await request(api).get("/api/sessions").query({ search: marker }).set(as("admin@lot.pl"));
     expect(adminVisible.status).toBe(200);
@@ -128,8 +128,8 @@ postgresDescribe("Foundation Stage 2.5 PostgreSQL incident access closure", () =
     expect(scoped.status).toBe(200);
     expect(scoped.body.data.map((row: { id: string }) => row.id)).toEqual([exerciseId]);
     expect((await request(api).get(`/api/sessions/${exerciseId}`).set(as("tec@lot.pl"))).status).toBe(200);
-    expect((await request(api).get(`/api/sessions/${realId}`).set(as("tec@lot.pl"))).status).toBe(404);
-    expect((await request(api).get(`/api/sessions/${trainingId}`).set(as("tec@lot.pl"))).status).toBe(404);
+    expect((await request(api).get(`/api/sessions/${realId}`).set(as("tec@lot.pl"))).status).toBe(403);
+    expect((await request(api).get(`/api/sessions/${trainingId}`).set(as("tec@lot.pl"))).status).toBe(403);
   });
 
   it("revokes access immediately, retains history, and restores the same assignment on reactivation", async () => {
@@ -153,8 +153,8 @@ postgresDescribe("Foundation Stage 2.5 PostgreSQL incident access closure", () =
     });
     expect(revoked.status).toBe(200);
     expect(revoked.body).toMatchObject({ id: assignment.id, active: false, revokedById: adminId, revokeReason: "Access no longer required" });
-    expect((await request(api).get(`/api/sessions/${exerciseId}`).set(as("tec@lot.pl"))).status).toBe(404);
-    expect((await request(api).get(`/api/enquiries/${createdEnquiry.body.id}`).query({ sessionId: exerciseId }).set(as("tec@lot.pl"))).status).toBe(404);
+    expect((await request(api).get(`/api/sessions/${exerciseId}`).set(as("tec@lot.pl"))).status).toBe(403);
+    expect((await request(api).get(`/api/enquiries/${createdEnquiry.body.id}`).query({ sessionId: exerciseId }).set(as("tec@lot.pl"))).status).toBe(403);
 
     const history = await request(api).get(`/api/sessions/${exerciseId}/assignments`).query({ includeInactive: "true" }).set(as("admin@lot.pl"));
     expect(history.status).toBe(200);

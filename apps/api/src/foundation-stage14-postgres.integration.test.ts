@@ -70,11 +70,41 @@ postgresDescribe("Foundation Stage 14 PostgreSQL Admin and identity access integ
     return prisma!.incidentAssignment.create({ data: { incidentId, userId, function: marker, createdById: admin.id } });
   }
 
+  async function assignGroupRole(userId: string, roleId: string, incidentId: string, suffix: string) {
+    const group = await prisma!.operationalGroup.create({ data: {
+      id: `${markerEmail}-${suffix}-group`, operationalId: `${marker}-${suffix}-GROUP`, incidentId,
+      name: `${marker} ${suffix} group`, pool: "ZPP", functionName: "Stage 14 request authorization",
+      createdById: admin.id, updatedById: admin.id
+    } });
+    groupIds.push(group.id);
+    await prisma!.userRole.create({ data: { userId, roleId, scopeType: "GROUP", assignedBy: admin.id } });
+    const assignment = await prisma!.groupRoleAssignment.create({ data: { id: randomUUID(), userId, roleId, groupId: group.id, assignedBy: admin.id } });
+    return { group, assignment };
+  }
+
+  async function publishBriefing(app: ReturnType<typeof createApp>, email: string, incidentId: string) {
+    const draft = await request(app).post(`/api/sessions/${incidentId}/briefings/draft`).set(as(email)).send({});
+    expect(draft.status, JSON.stringify(draft.body)).toBe(200);
+    const updated = await request(app).patch(`/api/briefings/${draft.body.briefing.id}`).set(as(email)).send({
+      expectedVersion: draft.body.briefing.version,
+      title: `${marker} scoped briefing`,
+      situationSummary: "Incident-scoped request authorization regression fixture.",
+      priorities: [{ description: "Keep permissions bound to the target Incident.", status: "Not started" }]
+    });
+    expect(updated.status, JSON.stringify(updated.body)).toBe(200);
+    const published = await request(app).post(`/api/briefings/${draft.body.briefing.id}/publish`).set(as(email)).send({ expectedVersion: updated.body.version });
+    expect(published.status, JSON.stringify(published.body)).toBe(200);
+    return published.body;
+  }
+
   async function dispatchSessionClosed(incidentId: string, suffix: string) {
     const outbox = await prisma!.notificationOutbox.create({ data: {
       eventType: "SESSION_CLOSED", aggregateType: "session", aggregateId: incidentId,
       aggregateVersion: `${suffix}-${randomUUID()}`, sessionId: incidentId,
-      payload: { operationalId: `${marker}-${suffix}`, occurredAt: new Date().toISOString() }
+      payload: { operationalId: `${marker}-${suffix}`, occurredAt: new Date().toISOString() },
+      // The dispatcher clock is process-based while the default is database-based;
+      // make this intentionally dispatchable instead of racing two clocks in the test.
+      availableAt: new Date(Date.now() - 1_000)
     } });
     const dispatcher = createNotificationDispatcher(prisma!, createPrismaNotificationRepository(prisma!), { workerId: `${marker}-${suffix}`, batchSize: 10_000 });
     await dispatcher.runOnce();
@@ -250,8 +280,9 @@ postgresDescribe("Foundation Stage 14 PostgreSQL Admin and identity access integ
     await assignIncident(user.id, incident.id);
     await prisma!.permissionOverride.create({ data: { userId: user.id, permission: "session:read", effect: "GRANT", reason: marker, createdById: admin.id } });
 
-    const { notifications } = await dispatchSessionClosed(incident.id, "notify-grant");
-    expect(notifications.map(({ recipientUserId }) => recipientUserId)).toEqual([user.id]);
+    const { outbox, notifications } = await dispatchSessionClosed(incident.id, "notify-grant");
+    const durableOutbox = await prisma!.notificationOutbox.findUniqueOrThrow({ where: { id: outbox.id } });
+    expect(notifications.map(({ recipientUserId }) => recipientUserId), JSON.stringify({ status: durableOutbox.status, error: durableOutbox.lastError })).toEqual([user.id]);
   });
 
   it("excludes inactive accounts, archived roles and users without IncidentAssignment", async () => {
@@ -324,6 +355,114 @@ postgresDescribe("Foundation Stage 14 PostgreSQL Admin and identity access integ
     }
     expect(await service.hasEffectivePermission(groupOnly.id, "session:read", { incidentId: incidentA.id })).toBe(true);
     expect(await service.hasEffectivePermission(groupOnly.id, "session:read", { incidentId: incidentB.id })).toBe(false);
+  });
+
+  it("binds built-in and custom GROUP Briefing permissions to the target Incident at the HTTP boundary", async () => {
+    const incidentA = await createIncident("HTTP-SCOPE-A");
+    const incidentB = await createIncident("HTTP-SCOPE-B");
+    const builtIn = await createUser("http-built-in-group");
+    const custom = await createUser("http-custom-group");
+    const creator = await createUser("http-global-creator");
+    const builtInRole = await prisma!.role.findUniqueOrThrow({ where: { normalizedName: "zpp-group-leader" } });
+    const customRole = await createRole("http-custom-group", ["briefing:read", "briefing:read-history", "briefing:create-draft", "briefing:update-draft", "briefing:publish"], ["GROUP"]);
+    const creatorRole = await createRole("http-global-creator", ["briefing:read", "briefing:read-history", "briefing:create-draft", "briefing:update-draft", "briefing:publish"]);
+    await assignGroupRole(builtIn.id, builtInRole.id, incidentA.id, "http-built-in");
+    await assignGroupRole(custom.id, customRole.id, incidentA.id, "http-custom");
+    await prisma!.userRole.create({ data: { userId: creator.id, roleId: creatorRole.id, scopeType: "GLOBAL", assignedBy: admin.id } });
+    for (const user of [builtIn, custom]) {
+      await assignIncident(user.id, incidentA.id);
+      await assignIncident(user.id, incidentB.id);
+    }
+    await assignIncident(creator.id, incidentB.id);
+
+    const app = application();
+    const briefingB = await publishBriefing(app, creator.email, incidentB.id);
+    const service = new EffectiveAccessService(prisma!);
+
+    expect((await request(app).get("/api/auth/me").set(as(builtIn.email))).body.user.permissions).toContain("briefing:read");
+    expect(await service.hasEffectivePermission(builtIn.id, "briefing:read", { incidentId: incidentA.id })).toBe(true);
+    expect(await service.hasEffectivePermission(builtIn.id, "briefing:read", { incidentId: incidentB.id })).toBe(false);
+    expect((await request(app).get(`/api/sessions/${incidentA.id}/active-event`).set(as(builtIn.email))).status).toBe(200);
+    expect((await request(app).get(`/api/sessions/${incidentB.id}/active-event`).set(as(builtIn.email))).status).toBe(403);
+    expect((await request(app).get(`/api/sessions/${incidentB.id}/briefings/current`).set(as(builtIn.email))).status).toBe(403);
+    expect((await request(app).get(`/api/sessions/${incidentB.id}/briefings`).set(as(builtIn.email))).status).toBe(403);
+    expect((await request(app).get(`/api/briefings/${briefingB.id}`).set(as(builtIn.email))).status).toBe(403);
+
+    expect(await service.hasEffectivePermission(custom.id, "briefing:create-draft", { incidentId: incidentA.id })).toBe(true);
+    expect(await service.hasEffectivePermission(custom.id, "briefing:create-draft", { incidentId: incidentB.id })).toBe(false);
+    expect((await request(app).get(`/api/sessions/${incidentA.id}/active-event`).set(as(custom.email))).status).toBe(200);
+
+    const sideEffectsBefore = await Promise.all([
+      prisma!.auditLog.count({ where: { sessionId: incidentB.id } }),
+      prisma!.caseTimelineEvent.count({ where: { sessionId: incidentB.id } }),
+      prisma!.notificationOutbox.count({ where: { sessionId: incidentB.id } }),
+      prisma!.notification.count({ where: { sessionId: incidentB.id } })
+    ]);
+    const deniedWrite = await request(app).post(`/api/sessions/${incidentB.id}/briefings/draft`).set(as(custom.email)).send({});
+    expect(deniedWrite.status).toBe(403);
+    const sideEffectsAfter = await Promise.all([
+      prisma!.auditLog.count({ where: { sessionId: incidentB.id } }),
+      prisma!.caseTimelineEvent.count({ where: { sessionId: incidentB.id } }),
+      prisma!.notificationOutbox.count({ where: { sessionId: incidentB.id } }),
+      prisma!.notification.count({ where: { sessionId: incidentB.id } })
+    ]);
+    expect(sideEffectsAfter).toEqual(sideEffectsBefore);
+    expect((await request(app).get(`/api/sessions/${incidentB.id}/briefings/current`).set(as(creator.email))).body).toMatchObject({ id: briefingB.id, version: briefingB.version });
+  });
+
+  it("preserves GLOBAL and override behavior in scoped Briefing HTTP decisions", async () => {
+    const incident = await createIncident("HTTP-CONTROLS");
+    const role = await createRole("http-global-reader", ["briefing:read"]);
+    const creatorRole = await createRole("http-controls-creator", ["briefing:read", "briefing:read-history", "briefing:create-draft", "briefing:update-draft", "briefing:publish"]);
+    const creator = await createUser("http-controls-creator");
+    await prisma!.userRole.create({ data: { userId: creator.id, roleId: creatorRole.id, assignedBy: admin.id } });
+    await assignIncident(creator.id, incident.id);
+    const app = application();
+    await publishBriefing(app, creator.email, incident.id);
+
+    const global = await createUser("http-global-reader");
+    const denied = await createUser("http-denied-reader");
+    const expired = await createUser("http-expired-deny");
+    const revoked = await createUser("http-revoked-deny");
+    const granted = await createUser("http-granted-reader");
+    const unassigned = await createUser("http-unassigned-reader");
+    for (const user of [global, denied, expired, revoked, unassigned]) {
+      await prisma!.userRole.create({ data: { userId: user.id, roleId: role.id, assignedBy: admin.id } });
+    }
+    for (const user of [global, denied, expired, revoked, granted]) await assignIncident(user.id, incident.id);
+    await prisma!.permissionOverride.create({ data: { userId: denied.id, permission: "briefing:read", effect: "DENY", reason: marker, createdById: admin.id } });
+    await prisma!.permissionOverride.create({ data: { userId: expired.id, permission: "briefing:read", effect: "DENY", reason: marker, expiresAt: new Date(Date.now() - 1_000), createdById: admin.id } });
+    await prisma!.permissionOverride.create({ data: { userId: revoked.id, permission: "briefing:read", effect: "DENY", reason: marker, active: false, revokedAt: new Date(), revokedById: admin.id, revokeReason: marker, createdById: admin.id } });
+    await prisma!.permissionOverride.create({ data: { userId: granted.id, permission: "briefing:read", effect: "GRANT", reason: marker, createdById: admin.id } });
+
+    const service = new EffectiveAccessService(prisma!);
+    for (const [user, allowed] of [[global, true], [denied, false], [expired, true], [revoked, true], [granted, true], [unassigned, false]] as const) {
+      const effective = await service.hasEffectivePermission(user.id, "briefing:read", { incidentId: incident.id });
+      const response = await request(app).get(`/api/sessions/${incident.id}/briefings/current`).set(as(user.email));
+      expect(effective).toBe(allowed);
+      expect(response.status).toBe(allowed ? 200 : 403);
+    }
+  });
+
+  it("removes GROUP request permission on assignment, Group and Role lifecycle changes without restart", async () => {
+    const incident = await createIncident("HTTP-LIFECYCLE");
+    const user = await createUser("http-lifecycle");
+    const role = await createRole("http-lifecycle", ["briefing:read"], ["GROUP"]);
+    const { group, assignment } = await assignGroupRole(user.id, role.id, incident.id, "http-lifecycle");
+    await assignIncident(user.id, incident.id);
+    const app = application();
+    const route = () => request(app).get(`/api/sessions/${incident.id}/active-event`).set(as(user.email));
+
+    expect((await route()).status).toBe(200);
+    await prisma!.groupRoleAssignment.update({ where: { id: assignment.id }, data: { status: "Revoked", revokedAt: new Date(), revokedBy: admin.id, revokeReason: marker } });
+    expect((await route()).status).toBe(403);
+    await prisma!.operationalGroup.update({ where: { id: group.id }, data: { status: "Archived" } });
+    expect((await route()).status).toBe(403);
+    await prisma!.operationalGroup.update({ where: { id: group.id }, data: { status: "Active" } });
+    await prisma!.groupRoleAssignment.update({ where: { id: assignment.id }, data: { status: "Active", revokedAt: null, revokedBy: null, revokeReason: null } });
+    expect((await route()).status).toBe(200);
+    await prisma!.role.update({ where: { id: role.id }, data: { status: "Archived" } });
+    expect((await route()).status).toBe(403);
   });
 
   it("discovers permission recipients beyond 1000 candidates without first-page truncation", async () => {
