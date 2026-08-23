@@ -49,6 +49,7 @@ async function serializable<T>(client: PrismaClient, operation: (tx: Prisma.Tran
       return await client.$transaction(operation, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
     } catch (error) {
       if (!isSerializationFailure(error) || attempt === 64) throw error;
+      await new Promise((resolve) => setTimeout(resolve, Math.min(25, attempt) + Math.floor(Math.random() * 5)));
     }
   }
   throw new Error("Serializable transaction retry limit reached");

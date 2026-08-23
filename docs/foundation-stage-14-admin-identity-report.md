@@ -230,7 +230,7 @@ Migracja ma preflight duplicate checks, normalizację e-maili/nazw/statusów, co
 | `routes/index.ts` | 1330 | 1333 | postgres composition root; identity router montowany przed demo adapterem |
 | `app.ts` | 108 | 108 | runtime validation + composition |
 | `AdminPage.tsx` | 2168 | 2158 | durable Admin API, SSO-only UI |
-| `modules/identity/*` | 0 | 747 | auth, effective access, durable commands, dev transport |
+| `modules/identity/*` | 0 | 745 | auth, effective access, durable commands, dev transport |
 | Prisma schema | 1409 | 1550 | canonical identity graph |
 | Stage 14 migration / PG test | 0 | 270 / 552 | backfill+constraints / dedicated gate |
 
@@ -248,7 +248,7 @@ Playwright: finalnie 71/71. Wbudowany browser runtime był niedostępny (`No bro
 
 ## AP. CI
 
-Local gates: typecheck, unit, build, audit (0 vulnerabilities), fresh PostgreSQL, legacy rehearsal, production startup/health oraz `git diff --check` są zielone. Production startup zwrócił `200` na `/api/health` z `persistence=postgres` i `404` dla dev-auth endpointu. Remote exact-SHA CI pozostaje jedyną bramką przed READY.
+Local gates: typecheck, unit, build, audit (0 vulnerabilities), fresh PostgreSQL, legacy rehearsal, production startup/health oraz `git diff --check` są zielone. Production startup zwrócił `200` na `/api/health` z `persistence=postgres` i `404` dla dev-auth endpointu. Pierwszy zdublowany remote run dla implementacyjnego SHA ujawnił wyczerpanie retry w istniejącym Stage 10 burst test; dodano bounded backoff po błędzie serializacji i pięć kolejnych pełnych przebiegów Stage 10 oraz cały lokalny gate są zielone. Remote exact-SHA CI dla poprawionego finalnego head pozostaje jedyną bramką przed READY.
 
 ## AQ. Remaining split-brain
 
