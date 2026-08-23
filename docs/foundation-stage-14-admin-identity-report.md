@@ -250,7 +250,7 @@ Playwright: finalnie 71/71. Wbudowany browser runtime był niedostępny (`No bro
 
 ## AP. CI
 
-Closure local gates: typecheck, Unit 99/99, build, Playwright 71/71, audit (0 vulnerabilities), fresh PostgreSQL 17/17 + seed, legacy Stage 13→14 rehearsal, production startup/health oraz `git diff --check` są zielone. Pełny PostgreSQL ma 173/173, dedicated Stage 14 37/37. Production startup zwrócił `200` na `/api/health` z `persistence=postgres` i `404` dla dev-auth endpointu. Remote exact-SHA closure gate pozostaje wymagany po pushu implementacji oraz ponownie po ewentualnym dokumentacyjnym commicie READY.
+Closure local gates: typecheck, Unit 99/99, build, Playwright 71/71, audit (0 vulnerabilities), fresh PostgreSQL 17/17 + seed, legacy Stage 13→14 rehearsal, production startup/health oraz `git diff --check` są zielone. Pełny PostgreSQL ma 173/173, dedicated Stage 14 37/37. Production startup zwrócił `200` na `/api/health` z `persistence=postgres` i `404` dla dev-auth endpointu. Implementacyjny SHA `c140dc7d50a415ae70e5fd3c89c6f9f55c81cad1` przeszedł wszystkie sześć remote checks (push + pull_request). Ten dokumentacyjny commit READY jest finalnym PR head; jego dwa PostgreSQL gates, dwa Typecheck/Unit/Build/Browser gates oraz dwa Production Dependency Audit gates muszą zostać zweryfikowane jako zielone dla dokładnego finalnego SHA przed handoffem.
 
 ## AQ. Remaining split-brain
 
@@ -281,4 +281,4 @@ Wybrany dokładnie jeden następny slice: **Briefings / Active Event persistence
 
 ## Final gate
 
-`NOT READY` — local closure gates są zielone; wymagane jest exact-final-SHA remote CI dla draft PR #11.
+`READY FOR NEXT FOUNDATION SLICE`
