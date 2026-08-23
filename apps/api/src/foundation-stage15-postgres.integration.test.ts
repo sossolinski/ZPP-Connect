@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { PrismaClient } from "@prisma/client";
+import { Prisma, PrismaClient } from "@prisma/client";
 import request from "supertest";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { createApp } from "./app.js";
@@ -12,6 +12,22 @@ const databaseUrl = process.env.TEST_DATABASE_URL;
 const postgresDescribe = databaseUrl ? describe : describe.skip;
 const prisma = databaseUrl ? new PrismaClient({ datasources: { db: { url: databaseUrl } } }) : null;
 const as = (email: string) => ({ "x-user-email": email });
+
+function expectControlledServiceRace(results: PromiseSettledResult<unknown>[]) {
+  expect(results.filter((result) => result.status === "fulfilled")).toHaveLength(1);
+  const rejected = results.filter((result): result is PromiseRejectedResult => result.status === "rejected");
+  expect(rejected).toHaveLength(1);
+  expect(rejected[0]!.reason).toMatchObject({ status: 409 });
+  expect(rejected[0]!.reason).not.toBeInstanceOf(Prisma.PrismaClientKnownRequestError);
+  expect(String(rejected[0]!.reason?.message ?? rejected[0]!.reason)).not.toMatch(/P2034|Prisma|serializ|SQL|constraint/i);
+}
+
+function expectControlledHttpRace(responses: Array<{ status: number; body: unknown }>) {
+  expect(responses.map((response) => response.status).sort((left, right) => left - right)).toEqual([200, 409]);
+  const conflict = responses.find((response) => response.status === 409);
+  expect(conflict?.body).toMatchObject({ error: expect.any(String) });
+  expect(JSON.stringify(conflict?.body)).not.toMatch(/P2034|Prisma|transaction|serializ|SQL|OperationalBriefing|constraint/i);
+}
 
 postgresDescribe("Foundation Stage 15 PostgreSQL Operational Briefings and Active Event integrity", () => {
   const marker = `F15-${randomUUID().replaceAll("-", "").slice(0, 10)}`;
@@ -121,9 +137,9 @@ postgresDescribe("Foundation Stage 15 PostgreSQL Operational Briefings and Activ
     const restartedDraft = await createPrismaOperationalBriefingService(prisma!).getBriefing(draft.id, actor());
     expect(restartedDraft).toMatchObject({ id: draft.id, status: "Draft", situationSummary: "Durable Stage 15 operational situation.", version: draft.version });
     const attempts = await Promise.allSettled([service.publishDraft(draft.id, draft.version, actor()), service.publishDraft(draft.id, draft.version, actor())]);
-    expect(attempts.filter((result) => result.status === "fulfilled")).toHaveLength(1);
-    expect(attempts.filter((result) => result.status === "rejected")).toHaveLength(1);
+    expectControlledServiceRace(attempts);
     expect(await prisma!.operationalBriefing.count({ where: { sessionId: session.id, status: "Published" } })).toBe(1);
+    expect(await prisma!.auditLog.count({ where: { sessionId: session.id, action: "briefing_published" } })).toBe(1);
     expect(await prisma!.caseTimelineEvent.count({ where: { sessionId: session.id, eventType: "briefing" } })).toBe(1);
     expect(await prisma!.notificationOutbox.count({ where: { sessionId: session.id, eventType: "BRIEFING_PUBLISHED" } })).toBe(1);
     const intent = await prisma!.notificationOutbox.findFirstOrThrow({ where: { sessionId: session.id, eventType: "BRIEFING_PUBLISHED" } });
@@ -133,22 +149,82 @@ postgresDescribe("Foundation Stage 15 PostgreSQL Operational Briefings and Activ
     expect(restored.body).toMatchObject({ id: draft.id, status: "Published" });
   });
 
+  it("returns HTTP 200/409 for a same-version publish race without duplicate side effects", async () => {
+    const session = await incident("HTTP-PUBLISH-RACE");
+    const draft = await validDraft(session.id);
+    const app = createApp();
+    const responses = await Promise.all([
+      request(app).post(`/api/briefings/${draft.id}/publish`).set(as(operator.email)).send({ expectedVersion: draft.version }),
+      request(app).post(`/api/briefings/${draft.id}/publish`).set(as(operator.email)).send({ expectedVersion: draft.version }),
+    ]);
+    expectControlledHttpRace(responses);
+    expect(await prisma!.operationalBriefing.count({ where: { sessionId: session.id, status: "Published" } })).toBe(1);
+    expect(await prisma!.auditLog.count({ where: { sessionId: session.id, action: "briefing_published" } })).toBe(1);
+    expect(await prisma!.caseTimelineEvent.count({ where: { sessionId: session.id, eventType: "briefing" } })).toBe(1);
+    expect(await prisma!.notificationOutbox.count({ where: { sessionId: session.id, eventType: "BRIEFING_PUBLISHED" } })).toBe(1);
+  });
+
+  it("returns HTTP 200/409 for same-version updates and commits only the winner", async () => {
+    const session = await incident("HTTP-UPDATE-RACE");
+    const draft = await validDraft(session.id);
+    const app = createApp();
+    const responses = await Promise.all([
+      request(app).patch(`/api/briefings/${draft.id}`).set(as(operator.email)).send({ expectedVersion: draft.version, overview: "HTTP update A", confirmedFacts: [{ ...draft.confirmedFacts[0], statement: "HTTP fact A" }] }),
+      request(app).patch(`/api/briefings/${draft.id}`).set(as(operator.email)).send({ expectedVersion: draft.version, overview: "HTTP update B", confirmedFacts: [{ ...draft.confirmedFacts[0], statement: "HTTP fact B" }] }),
+    ]);
+    expectControlledHttpRace(responses);
+    const current = await prisma!.operationalBriefing.findUniqueOrThrow({ where: { id: draft.id }, include: { confirmedFacts: true } });
+    expect(current).toMatchObject({ status: "Draft", version: draft.version + 1 });
+    expect(current.overview).toMatch(/^HTTP update [AB]$/);
+    expect(current.confirmedFacts).toHaveLength(1);
+    expect(current.confirmedFacts[0]!.statement).toBe(current.overview === "HTTP update A" ? "HTTP fact A" : "HTTP fact B");
+    expect(await prisma!.auditLog.count({ where: { sessionId: session.id, action: "briefing_draft_updated" } })).toBe(2);
+  });
+
+  it("returns HTTP 200/409 for update versus publish with no loser side effects", async () => {
+    const session = await incident("HTTP-UPDATE-PUBLISH-RACE");
+    const draft = await validDraft(session.id);
+    const app = createApp();
+    const responses = await Promise.all([
+      request(app).patch(`/api/briefings/${draft.id}`).set(as(operator.email)).send({ expectedVersion: draft.version, overview: "HTTP update won" }),
+      request(app).post(`/api/briefings/${draft.id}/publish`).set(as(operator.email)).send({ expectedVersion: draft.version }),
+    ]);
+    expectControlledHttpRace(responses);
+    const publishSucceeded = responses[1]!.status === 200;
+    const current = await prisma!.operationalBriefing.findUniqueOrThrow({ where: { id: draft.id } });
+    expect(current.status).toBe(publishSucceeded ? "Published" : "Draft");
+    expect(current.version).toBe(draft.version + 1);
+    expect(await prisma!.auditLog.count({ where: { sessionId: session.id, action: "briefing_published" } })).toBe(publishSucceeded ? 1 : 0);
+    expect(await prisma!.caseTimelineEvent.count({ where: { sessionId: session.id, eventType: "briefing" } })).toBe(publishSucceeded ? 1 : 0);
+    expect(await prisma!.notificationOutbox.count({ where: { sessionId: session.id, eventType: "BRIEFING_PUBLISHED" } })).toBe(publishSucceeded ? 1 : 0);
+    expect(await prisma!.auditLog.count({ where: { sessionId: session.id, action: "briefing_draft_updated" } })).toBe(publishSucceeded ? 1 : 2);
+  });
+
   it("serializes two-user updates and createDraft versus publish without an invalid revision graph", async () => {
     const session = await incident("MULTI-RACE");
     const service = createPrismaOperationalBriefingService(prisma!);
     const draft = await validDraft(session.id, service);
     const coordinatorActor = { ...actor(), id: coordinator.id, email: coordinator.email, displayName: "Coordinator" };
     const updates = await Promise.allSettled([
-      service.updateDraft(draft.id, { expectedVersion: draft.version, overview: "Operator wins" }, actor()),
-      service.updateDraft(draft.id, { expectedVersion: draft.version, overview: "Coordinator wins" }, coordinatorActor),
+      service.updateDraft(draft.id, { expectedVersion: draft.version, overview: "Operator wins", confirmedFacts: [{ ...draft.confirmedFacts[0], statement: "Operator fact wins" }] }, actor()),
+      service.updateDraft(draft.id, { expectedVersion: draft.version, overview: "Coordinator wins", confirmedFacts: [{ ...draft.confirmedFacts[0], statement: "Coordinator fact wins" }] }, coordinatorActor),
     ]);
-    expect(updates.filter((result) => result.status === "fulfilled")).toHaveLength(1);
-    const current = await prisma!.operationalBriefing.findUniqueOrThrow({ where: { id: draft.id } });
+    expectControlledServiceRace(updates);
+    const current = await prisma!.operationalBriefing.findUniqueOrThrow({ where: { id: draft.id }, include: { confirmedFacts: true } });
+    expect(current.version).toBe(draft.version + 1);
+    expect(current.overview).toMatch(/^(Operator|Coordinator) wins$/);
+    expect(current.confirmedFacts).toHaveLength(1);
+    expect(current.confirmedFacts[0]!.statement).toBe(current.overview === "Operator wins" ? "Operator fact wins" : "Coordinator fact wins");
+    expect(await prisma!.auditLog.count({ where: { sessionId: session.id, action: "briefing_draft_updated" } })).toBe(2);
     const graphRace = await Promise.allSettled([
       service.publishDraft(draft.id, current.version, actor()),
       service.createDraft(session.id, coordinatorActor),
     ]);
     expect(graphRace.some((result) => result.status === "fulfilled")).toBe(true);
+    for (const result of graphRace) if (result.status === "rejected") {
+      expect(result.reason).toMatchObject({ status: 409 });
+      expect(result.reason).not.toBeInstanceOf(Prisma.PrismaClientKnownRequestError);
+    }
     expect(await prisma!.operationalBriefing.count({ where: { sessionId: session.id, status: "Published" } })).toBe(1);
     expect(await prisma!.operationalBriefing.count({ where: { sessionId: session.id, status: "Draft" } })).toBeLessThanOrEqual(1);
     const revisions = await prisma!.operationalBriefing.findMany({ where: { sessionId: session.id }, orderBy: { revision: "asc" }, select: { revision: true } });
@@ -164,7 +240,13 @@ postgresDescribe("Foundation Stage 15 PostgreSQL Operational Briefings and Activ
       prisma!.session.update({ where: { id: session.id }, data: { status: "Closed", endAt: new Date() } }),
     ]);
     const publicationSucceeded = race[0]!.status === "fulfilled";
+    if (race[0]!.status === "rejected") {
+      expect(race[0]!.reason).toMatchObject({ status: 409 });
+      expect(race[0]!.reason).not.toBeInstanceOf(Prisma.PrismaClientKnownRequestError);
+    }
     expect(await prisma!.operationalBriefing.count({ where: { sessionId: session.id, status: "Published" } })).toBe(publicationSucceeded ? 1 : 0);
+    expect(await prisma!.auditLog.count({ where: { sessionId: session.id, action: "briefing_published" } })).toBe(publicationSucceeded ? 1 : 0);
+    expect(await prisma!.caseTimelineEvent.count({ where: { sessionId: session.id, eventType: "briefing" } })).toBe(publicationSucceeded ? 1 : 0);
     expect(await prisma!.notificationOutbox.count({ where: { sessionId: session.id, eventType: "BRIEFING_PUBLISHED" } })).toBe(publicationSucceeded ? 1 : 0);
     await expect(service.createDraft(session.id, actor())).rejects.toMatchObject({ status: 409 });
     const row = await prisma!.operationalBriefing.findUniqueOrThrow({ where: { id: draft.id } });
@@ -182,7 +264,7 @@ postgresDescribe("Foundation Stage 15 PostgreSQL Operational Briefings and Activ
       service.updateDraft(firstDraft.id, { expectedVersion: firstDraft.version, overview: "Concurrent update" }, actor()),
       service.publishDraft(firstDraft.id, firstDraft.version, actor()),
     ]);
-    expect(race.filter((result) => result.status === "fulfilled")).toHaveLength(1);
+    expectControlledServiceRace(race);
     let currentDraft = await prisma!.operationalBriefing.findFirst({ where: { sessionId: session.id, status: "Draft" } });
     if (currentDraft) await service.publishDraft(currentDraft.id, currentDraft.version, actor());
     const next = await service.createDraft(session.id, actor());

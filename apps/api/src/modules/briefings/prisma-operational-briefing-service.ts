@@ -221,13 +221,35 @@ function assignmentRelationChanges(before: BriefingRow, after: BriefingRow, time
   });
 }
 
-async function withSerializableRetry<T>(client: PrismaClient, operation: (tx: Tx) => Promise<T>) {
+type SerializableCommand = "create" | "update" | "publish";
+
+const serializableConflictMessages: Record<SerializableCommand, string> = {
+  create: "Briefing draft creation conflicted with another change. Reload and try again.",
+  update: "Briefing has changed. Reload before saving.",
+  publish: "Briefing has changed. Reload before publishing.",
+};
+
+function isExpectedCreateUniquenessConflict(error: Prisma.PrismaClientKnownRequestError) {
+  if (error.code !== "P2002" || error.meta?.modelName !== "OperationalBriefing") return false;
+  const target = Array.isArray(error.meta.target) ? error.meta.target.map(String) : [String(error.meta.target ?? "")];
+  return target.some((item) => ["id", "sessionId", "revision"].includes(item)
+    || ["OperationalBriefing_pkey", "OperationalBriefing_sessionId_revision_key", "OperationalBriefing_one_draft_per_session"].includes(item));
+}
+
+function isSerializableConflict(error: Prisma.PrismaClientKnownRequestError) {
+  if (error.code === "P2034") return true;
+  return error.code === "P2010" && ["40001", "40P01"].includes(String(error.meta?.code ?? ""));
+}
+
+async function runSerializableCommand<T>(client: PrismaClient, command: SerializableCommand, operation: (tx: Tx) => Promise<T>) {
   for (let attempt = 0; attempt < 5; attempt += 1) {
     try {
       return await client.$transaction(operation, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
     } catch (error) {
-      const retryable = error instanceof Prisma.PrismaClientKnownRequestError && ["P2002", "P2034"].includes(error.code);
-      if (!retryable || attempt === 4) throw error;
+      if (!(error instanceof Prisma.PrismaClientKnownRequestError)) throw error;
+      const retryable = isSerializableConflict(error) || (command === "create" && isExpectedCreateUniquenessConflict(error));
+      if (!retryable) throw error;
+      if (attempt === 4) fail(409, serializableConflictMessages[command]);
     }
   }
   throw new Error("Unreachable transaction retry state");
@@ -271,7 +293,7 @@ export function createPrismaOperationalBriefingService(client: PrismaClient, hoo
 
   async function createDraft(sessionId: string, actor: ActiveEventActor) {
     if (!has(actor, "briefing:create-draft")) fail(403, "Forbidden");
-    return withSerializableRetry(client, async (tx) => {
+    return runSerializableCommand(client, "create", async (tx) => {
       const session = await lockSession(tx, sessionId);
       writable(session.status);
       const existing = await tx.operationalBriefing.findFirst({ where: { sessionId, status: "Draft" }, include: briefingInclude });
@@ -309,7 +331,7 @@ export function createPrismaOperationalBriefingService(client: PrismaClient, hoo
     if (disallowed.length) fail(400, "Briefing status and session fields cannot be changed here");
     const expectedVersion = requiredVersion(input.expectedVersion);
     const security = await metadata(briefingId);
-    return client.$transaction(async (tx) => {
+    return runSerializableCommand(client, "update", async (tx) => {
       const session = await lockSession(tx, security.sessionId);
       const before = await lockBriefing(tx, briefingId);
       if (before.status !== "Draft") fail(409, "Only draft briefings can be edited");
@@ -399,14 +421,14 @@ export function createPrismaOperationalBriefingService(client: PrismaClient, hoo
         await audit(tx, actor, { action, entityId: briefingId, sessionId: after.sessionId, summary: change.changeType === "linked" ? "Assignment linked to briefing priority" : change.changeType === "changed" ? "Assignment link changed on briefing priority" : "Assignment unlinked from briefing priority", metadata: { briefingId, revision: after.revision, ...change } });
       }
       return { briefing: serialize(after), changedSections: sections, assignmentRelationChanges: relations };
-    }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
+    });
   }
 
   async function publishDraft(briefingId: string, expectedVersionInput: unknown, actor: ActiveEventActor) {
     if (!has(actor, "briefing:publish")) fail(403, "Forbidden");
     const expectedVersion = requiredVersion(expectedVersionInput);
     const security = await metadata(briefingId);
-    return client.$transaction(async (tx) => {
+    return runSerializableCommand(client, "publish", async (tx) => {
       const session = await lockSession(tx, security.sessionId);
       const draft = await lockBriefing(tx, briefingId);
       if (draft.status !== "Draft") fail(409, "Only draft briefings can be published");
@@ -430,7 +452,7 @@ export function createPrismaOperationalBriefingService(client: PrismaClient, hoo
       await hooks.beforeOutbox?.();
       await enqueueNotification(tx, { eventType: "BRIEFING_PUBLISHED", aggregateType: "briefing", aggregateId: published.id, aggregateVersion: String(published.version), sessionId: published.sessionId, payload: { revision: published.revision, occurredAt: timestamp.toISOString() } });
       return { briefing: serialize(published), superseded: superseded ? serialize(superseded) : null };
-    }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
+    });
   }
 
   async function getBriefing(briefingId: string, actor: ActiveEventActor) {
