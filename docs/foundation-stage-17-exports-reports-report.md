@@ -1,6 +1,6 @@
 # Foundation Stage 17 — Exports / Reports Disclosure Integrity + Durable Generation Provenance
 
-Status: **NOT READY — implementation and exact-SHA evidence pending**
+Status: **READY FOR NEXT FOUNDATION SLICE**
 
 ## A. Stage 16 merge verification
 
@@ -201,7 +201,7 @@ Production `NODE_ENV=production AUTH_MODE=entra PERSISTENCE_MODE=postgres` start
 
 ## AJ. Exact-SHA CI
 
-Pending first implementation commit and remote checks. CI now runs 224 PostgreSQL tests, the dedicated 18-test Stage 17 suite, both Stage 16 and Stage 17 PostgreSQL browser workflows, exact Stage 16→17 migration rehearsal, general typecheck/unit/build/browser, and production dependency audit. Verdict cannot become READY until the exact implementation SHA and any later report-only SHA pass all required checks.
+Exact implementation SHA `9dfaea0190d95fae2082c7720920b22370e82fca` passed all six required checks: two Foundation PostgreSQL Gates, two Typecheck/Unit/Build/Browser gates, and two Production Dependency Audits. CI ran 224 PostgreSQL tests, the dedicated 18-test Stage 17 suite, both Stage 16 and Stage 17 PostgreSQL browser workflows, exact Stage 16→17 migration rehearsal, general typecheck/unit/build/browser, and production dependency audit. This READY report is the only change after that implementation SHA; handoff still requires the same six-check gate to pass on the resulting exact final report SHA.
 
 ## AK. Remaining split-brain
 
