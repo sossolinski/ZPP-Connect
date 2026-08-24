@@ -13,7 +13,7 @@ export function ExercisePage() {
   const { activeSession, activeSessionWritable, dictionaries, can, verifyActiveSessionWrite } = useApp();
   const [injects, setInjects] = useState<AnyRecord[]>([]);
   const [observations, setObservations] = useState<AnyRecord[]>([]);
-  const [injectForm, setInjectForm] = useState<AnyRecord>({ injectNumber: 1, targetRole: "TEC Member", status: "Planned" });
+  const [injectForm, setInjectForm] = useState<AnyRecord>({ injectNumber: 1, targetRole: "TEC Member" });
   const [observationForm, setObservationForm] = useState<AnyRecord>({ area: "Intake", severity: "Low", includeInAar: true, status: "Open" });
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -27,8 +27,8 @@ export function ExercisePage() {
     setError("");
     try {
       const [injectList, observationList] = await Promise.all([
-        api.listAll("exercise/injects", { sessionId: activeSession.id }),
-        api.listAll("exercise/observations", { sessionId: activeSession.id })
+        api.listInjects({ sessionId: activeSession.id }),
+        api.listObservations({ sessionId: activeSession.id })
       ]);
       setInjects(injectList.data);
       setObservations(observationList.data);
@@ -40,7 +40,7 @@ export function ExercisePage() {
   }
 
   useEffect(() => {
-    setInjectForm({ injectNumber: 1, targetRole: "TEC Member", status: "Planned", sessionId: activeSession?.id });
+    setInjectForm({ injectNumber: 1, targetRole: "TEC Member", sessionId: activeSession?.id });
     setObservationForm({ area: "Intake", severity: "Low", includeInAar: true, status: "Open", sessionId: activeSession?.id });
     void load();
   }, [activeSession?.id]);
@@ -50,8 +50,8 @@ export function ExercisePage() {
     if (!String(injectForm.text ?? "").trim()) { setError("Inject text is required."); return; }
     setCreatingKey("inject"); setError("");
     try {
-      await api.create("exercise/injects", { ...injectForm, sessionId: activeSession.id });
-      setInjectForm({ injectNumber: Number(injectForm.injectNumber ?? 0) + 1, targetRole: "TEC Member", status: "Planned", sessionId: activeSession.id });
+      await api.createInject({ ...injectForm, sessionId: activeSession.id });
+      setInjectForm({ injectNumber: Number(injectForm.injectNumber ?? 0) + 1, targetRole: "TEC Member", sessionId: activeSession.id });
       await load();
     } catch (err) { setError(err instanceof Error ? err.message : "Unable to create inject"); }
     finally { setCreatingKey(""); }
@@ -62,7 +62,7 @@ export function ExercisePage() {
     if (!String(observationForm.observation ?? "").trim()) { setError("Observation text is required."); return; }
     setCreatingKey("observation"); setError("");
     try {
-      await api.create("exercise/observations", { ...observationForm, sessionId: activeSession.id });
+      await api.createObservation({ ...observationForm, sessionId: activeSession.id });
       setObservationForm({ area: "Intake", severity: "Low", includeInAar: true, status: "Open", sessionId: activeSession.id });
       await load();
     } catch (err) { setError(err instanceof Error ? err.message : "Unable to add observation"); }
@@ -76,7 +76,8 @@ export function ExercisePage() {
     }
     setTransitionBusy(true);
     try {
-      await api.action("exercise/injects", row.id, action);
+      if (action === "release") await api.releaseInject(String(row.id), Number(row.version));
+      else await api.completeInject(String(row.id), Number(row.version));
       setTransitionTarget(null);
       await load();
     } catch (err) {
@@ -106,8 +107,8 @@ export function ExercisePage() {
                 actionWidth="w-24"
                 rowAction={(row) => (
                   <div className="grid w-[4.5rem] grid-cols-2 gap-1.5">
-                    <Button icon={Play} size="icon" variant="secondary" title="Release inject" aria-label="Release inject" disabled={!activeSessionWritable || !can("exercise:manage")} onClick={() => setTransitionTarget({ row, action: "release", error: "" })} />
-                    <Button icon={CheckCircle2} size="icon" variant="success" title="Complete inject" aria-label="Complete inject" disabled={!activeSessionWritable || !can("exercise:manage")} onClick={() => setTransitionTarget({ row, action: "complete", error: "" })} />
+                    <Button icon={Play} size="icon" variant="secondary" title="Release inject" aria-label="Release inject" disabled={!activeSessionWritable || !can("exercise:manage") || row.status !== "Planned"} onClick={() => setTransitionTarget({ row, action: "release", error: "" })} />
+                    <Button icon={CheckCircle2} size="icon" variant="success" title="Complete inject" aria-label="Complete inject" disabled={!activeSessionWritable || !can("exercise:manage") || row.status !== "Released"} onClick={() => setTransitionTarget({ row, action: "complete", error: "" })} />
                   </div>
                 )}
               />

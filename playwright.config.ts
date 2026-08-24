@@ -11,7 +11,7 @@ const databaseUrl = process.env.DATABASE_URL ?? "";
 
 export default defineConfig({
   testDir: "./tests/smoke",
-  testIgnore: persistenceMode === "postgres" ? [] : ["**/zz-stage16-imports.spec.ts", "**/zz-stage17-exports.spec.ts"],
+  testIgnore: persistenceMode === "postgres" ? [] : ["**/zz-stage16-imports.spec.ts", "**/zz-stage17-exports.spec.ts", "**/zz-stage18-exercise.spec.ts"],
   timeout: 30_000,
   expect: {
     timeout: 10_000

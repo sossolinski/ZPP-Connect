@@ -35,6 +35,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Setup Node
         uses: actions/setup-node@v4
@@ -90,13 +92,13 @@ jobs:
           kill "$api_pid"
           wait "$api_pid" || true
 
-      - name: PostgreSQL Foundation Stage 1 through 17 integration tests (zero skipped)
+      - name: PostgreSQL Foundation Stage 1 through 18 integration tests (zero skipped)
         run: npm run test:postgres
 
-      - name: Dedicated Foundation Stage 17 PostgreSQL tests
-        run: npm exec -w @zpp/api vitest run -- --no-file-parallelism --maxWorkers=1 src/foundation-stage17-postgres.integration.test.ts
+      - name: Dedicated Foundation Stage 18 PostgreSQL tests
+        run: npm exec -w @zpp/api vitest run -- --no-file-parallelism --maxWorkers=1 src/foundation-stage18-postgres.integration.test.ts
 
-      - name: Install Chromium for Stage 16 and 17 workflow coverage
+      - name: Install Chromium for Stage 16 through 18 workflow coverage
         run: npx playwright install --with-deps chromium
 
       - name: Stage 16 PostgreSQL browser workflow
@@ -109,7 +111,12 @@ jobs:
           PLAYWRIGHT_PERSISTENCE_MODE: postgres
         run: npx playwright test tests/smoke/zz-stage17-exports.spec.ts
 
-      - name: Rehearse legacy Foundation through Stage 16 to 17 upgrade
+      - name: Stage 18 PostgreSQL browser workflow
+        env:
+          PLAYWRIGHT_PERSISTENCE_MODE: postgres
+        run: npx playwright test tests/smoke/zz-stage18-exercise.spec.ts
+
+      - name: Rehearse exact Stage 17 to Stage 18 upgrade
         env:
           PGPASSWORD: zpp
           BACKFILL_DATABASE_URL: postgresql://zpp:zpp@127.0.0.1:5432/zpp_backfill_test?schema=public
@@ -336,7 +343,11 @@ jobs:
           test "$historical_import_retained" = "1"
           import_row_table=$(psql "$BACKFILL_PSQL_URL" --tuples-only --no-align --command='SELECT count(*) FROM information_schema.tables WHERE table_schema = '\''public'\'' AND table_name = '\''ImportValidatedRow'\'';')
           test "$import_row_table" = "1"
-          DATABASE_URL="$BACKFILL_DATABASE_URL" npm run prisma:seed -w @zpp/api
+          git show d4df699c12d0aea9e5d336081c04bf17aa62419d:apps/api/prisma/seed.ts > apps/api/prisma/stage17-rehearsal-seed.ts
+          git show d4df699c12d0aea9e5d336081c04bf17aa62419d:apps/api/prisma/schema.prisma > apps/api/prisma/stage17-rehearsal-schema.prisma
+          DATABASE_URL="$BACKFILL_DATABASE_URL" npx prisma generate --schema apps/api/prisma/stage17-rehearsal-schema.prisma
+          DATABASE_URL="$BACKFILL_DATABASE_URL" npm exec -w @zpp/api tsx -- prisma/stage17-rehearsal-seed.ts
+          rm apps/api/prisma/stage17-rehearsal-seed.ts apps/api/prisma/stage17-rehearsal-schema.prisma
           pre_stage17_users=$(psql "$BACKFILL_PSQL_URL" --tuples-only --no-align --command='SELECT count(*) FROM "User";')
           pre_stage17_sessions=$(psql "$BACKFILL_PSQL_URL" --tuples-only --no-align --command='SELECT count(*) FROM "Session";')
           pre_stage17_imports=$(psql "$BACKFILL_PSQL_URL" --tuples-only --no-align --command='SELECT count(*) FROM "ImportBatch";')
@@ -353,7 +364,34 @@ jobs:
           test "$(psql "$BACKFILL_PSQL_URL" --tuples-only --no-align --command='SELECT count(*) FROM "Session";')" = "$pre_stage17_sessions"
           test "$(psql "$BACKFILL_PSQL_URL" --tuples-only --no-align --command='SELECT count(*) FROM "ImportBatch";')" = "$pre_stage17_imports"
           test "$(psql "$BACKFILL_PSQL_URL" --tuples-only --no-align --command='SELECT count(*) FROM "OperationalBriefing";')" = "$pre_stage17_briefings"
-          TEST_DATABASE_URL="$BACKFILL_DATABASE_URL" DATABASE_URL="$BACKFILL_DATABASE_URL" npm exec -w @zpp/api vitest run -- --no-file-parallelism --maxWorkers=1 src/foundation-stage17-postgres.integration.test.ts
+          psql "$BACKFILL_PSQL_URL" --set=ON_ERROR_STOP=1 <<'SQL'
+          INSERT INTO "ExportGeneration" (
+            "id", "operationId", "commandFingerprint", "incidentId", "exportType", "format",
+            "schemaVersion", "fileName", "contentSha256", "contentSizeBytes", "rowCount",
+            "sectionCounts", "includedSections", "preparedById", "requestId"
+          ) VALUES (
+            'a0000000-0000-4000-8000-000000000001', 'a0000000-0000-4000-8000-000000000002', repeat('a', 64),
+            '20000000-0000-4000-8000-000000000001', 'session-package', 'csv', 'stage17-v1',
+            'stage17-rehearsal.csv', repeat('b', 64), 12, 1, '{"session":1}'::jsonb, '["session"]'::jsonb,
+            '10000000-0000-4000-8000-000000000001', 'stage17-rehearsal'
+          );
+          SQL
+          pre_stage18_users=$(psql "$BACKFILL_PSQL_URL" --tuples-only --no-align --command='SELECT count(*) FROM "User";')
+          pre_stage18_sessions=$(psql "$BACKFILL_PSQL_URL" --tuples-only --no-align --command='SELECT count(*) FROM "Session";')
+          pre_stage18_imports=$(psql "$BACKFILL_PSQL_URL" --tuples-only --no-align --command='SELECT count(*) FROM "ImportBatch";')
+          pre_stage18_briefings=$(psql "$BACKFILL_PSQL_URL" --tuples-only --no-align --command='SELECT count(*) FROM "OperationalBriefing";')
+          pre_stage18_exports=$(psql "$BACKFILL_PSQL_URL" --tuples-only --no-align --command='SELECT count(*) FROM "ExportGeneration";')
+          cp -R apps/api/prisma/migrations/20260824110000_exercise_evidence_integrity "$migration_workspace/migrations/"
+          DATABASE_URL="$BACKFILL_DATABASE_URL" npx prisma migrate deploy --schema "$migration_workspace/schema.prisma"
+          npm run prisma:generate -w @zpp/api
+          test "$(psql "$BACKFILL_PSQL_URL" --tuples-only --no-align --command='SELECT count(*) FROM "_prisma_migrations" WHERE finished_at IS NOT NULL AND rolled_back_at IS NULL;')" = "21"
+          test "$(psql "$BACKFILL_PSQL_URL" --tuples-only --no-align --command='SELECT count(*) FROM "User";')" = "$pre_stage18_users"
+          test "$(psql "$BACKFILL_PSQL_URL" --tuples-only --no-align --command='SELECT count(*) FROM "Session";')" = "$pre_stage18_sessions"
+          test "$(psql "$BACKFILL_PSQL_URL" --tuples-only --no-align --command='SELECT count(*) FROM "ImportBatch";')" = "$pre_stage18_imports"
+          test "$(psql "$BACKFILL_PSQL_URL" --tuples-only --no-align --command='SELECT count(*) FROM "OperationalBriefing";')" = "$pre_stage18_briefings"
+          test "$(psql "$BACKFILL_PSQL_URL" --tuples-only --no-align --command='SELECT count(*) FROM "ExportGeneration";')" = "$pre_stage18_exports"
+          test "$(psql "$BACKFILL_PSQL_URL" --tuples-only --no-align --command='SELECT count(*) FROM "ExportGeneration" WHERE "id" = '\''a0000000-0000-4000-8000-000000000001'\'' AND "contentSha256" = repeat('\''b'\'', 64);')" = "1"
+          TEST_DATABASE_URL="$BACKFILL_DATABASE_URL" DATABASE_URL="$BACKFILL_DATABASE_URL" npm exec -w @zpp/api vitest run -- --no-file-parallelism --maxWorkers=1 src/foundation-stage18-postgres.integration.test.ts
 
   quality:
     name: Typecheck, Unit, Build and Browser

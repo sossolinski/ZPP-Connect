@@ -28,5 +28,8 @@
     "@playwright/test": "^1.61.1",
     "concurrently": "^9.1.2",
     "prisma": "^6.1.0"
+  },
+  "overrides": {
+    "deepmerge-ts": "8.0.2"
   }
 }

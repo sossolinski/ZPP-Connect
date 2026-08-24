@@ -110,6 +110,8 @@ import { createImportRouter } from "./modules/imports/import-router.js";
 import type { PrismaImportService } from "./modules/imports/prisma-import-service.js";
 import { createExportRouter } from "./modules/exports/export-router.js";
 import type { PrismaExportService } from "./modules/exports/prisma-export-service.js";
+import { createExerciseRouter } from "./modules/exercise/exercise-router.js";
+import type { PrismaExerciseService } from "./modules/exercise/prisma-exercise-service.js";
 import { hydrateReadOnlyProjection, mergeProjectionPage, syncProjectionRow } from "./modules/compatibility/read-only-projection.js";
 
 type Row = Record<string, any>;
@@ -1972,6 +1974,7 @@ export function createDemoRouter(options: {
   operationalBriefingService?: PrismaOperationalBriefingService;
   importService?: PrismaImportService;
   exportService?: PrismaExportService;
+  exerciseService?: PrismaExerciseService;
   documentNotificationHook?: (record: Record<string, unknown>) => void;
   assignmentNotificationHook?: (record: Record<string, unknown>, command: string) => void;
   rosteringNotificationHook?: (record: Record<string, unknown>, command: string) => void;
@@ -2293,6 +2296,7 @@ export function createDemoRouter(options: {
   router.get("/dictionaries", (_req, res) => res.json(dictionaryRows()));
   if (options.importService) router.use(createImportRouter(options.importService, requireIncidentPermission));
   if (options.exportService) router.use(createExportRouter(options.exportService, requireIncidentPermission));
+  if (options.exerciseService) router.use(createExerciseRouter(options.exerciseService, requireIncidentPermission));
   router.use(createIncidentRouter(incidentService, {
     requireIncidentPermission,
     effectiveIncidentIdsForPermission: effectiveAccessAuthority.effectiveIncidentIdsForPermission
@@ -2913,8 +2917,10 @@ export function createDemoRouter(options: {
 
   const demoResourceRoutes = [
     ...(options.importService ? [] : [{ resource: "files", read: "import:create", create: "import:create", update: "import:create" }]),
-    { resource: "exercise/injects", read: "exercise:manage", create: "exercise:manage", update: "exercise:manage" },
-    { resource: "exercise/observations", read: "exercise:manage", create: "exercise:manage", update: "exercise:manage" }
+    ...(options.exerciseService ? [] : [
+      { resource: "exercise/injects", read: "exercise:manage", create: "exercise:manage", update: "exercise:manage" },
+      { resource: "exercise/observations", read: "exercise:manage", create: "exercise:manage", update: "exercise:manage" }
+    ])
   ];
 
   const incidentForResource = (resource: string, id: string) => {
@@ -2963,8 +2969,10 @@ export function createDemoRouter(options: {
   });
   router.get("/audit-logs", incidentPermissionGate("audit:read", activeSessionId), (req, res) => res.json(listRows("audit-logs", req, activeSessionId(req))));
 
-  router.post("/exercise/injects/:id/release", incidentPermissionGate("exercise:manage", (req) => incidentForResource("exercise/injects", String(req.params.id)), false, true), (req, res) => res.json(updateRow("exercise/injects", String(req.params.id), { status: "Released", releasedAt: now() }, req)));
-  router.post("/exercise/injects/:id/complete", incidentPermissionGate("exercise:manage", (req) => incidentForResource("exercise/injects", String(req.params.id)), false, true), (req, res) => res.json(updateRow("exercise/injects", String(req.params.id), { status: "Completed" }, req)));
+  if (!options.exerciseService) {
+    router.post("/exercise/injects/:id/release", incidentPermissionGate("exercise:manage", (req) => incidentForResource("exercise/injects", String(req.params.id)), false, true), (req, res) => res.json(updateRow("exercise/injects", String(req.params.id), { status: "Released", releasedAt: now() }, req)));
+    router.post("/exercise/injects/:id/complete", incidentPermissionGate("exercise:manage", (req) => incidentForResource("exercise/injects", String(req.params.id)), false, true), (req, res) => res.json(updateRow("exercise/injects", String(req.params.id), { status: "Completed" }, req)));
+  }
 
   if (!options.importService) {
     const importPermissions = (req: Request): Permission[] => [

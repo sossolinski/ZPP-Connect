@@ -95,6 +95,13 @@ model User {
   createdBriefingUnconfirmedItems OperationalBriefingUnconfirmedItem[]  @relation("OperationalBriefingUnconfirmedCreatedBy")
   createdBriefingNotes            OperationalBriefingCoordinationNote[] @relation("OperationalBriefingNoteCreatedBy")
   preparedExportGenerations       ExportGeneration[]                    @relation("ExportGenerationPreparedBy")
+  createdExerciseInjects          ExerciseInject[]                      @relation("ExerciseInjectCreatedBy")
+  updatedExerciseInjects          ExerciseInject[]                      @relation("ExerciseInjectUpdatedBy")
+  releasedExerciseInjects         ExerciseInject[]                      @relation("ExerciseInjectReleasedBy")
+  completedExerciseInjects        ExerciseInject[]                      @relation("ExerciseInjectCompletedBy")
+  createdExerciseObservations     ExerciseObservation[]                 @relation("ExerciseObservationCreatedBy")
+  updatedExerciseObservations     ExerciseObservation[]                 @relation("ExerciseObservationUpdatedBy")
+  exerciseObservationRevisions    ExerciseObservationRevision[]         @relation("ExerciseObservationRevisionChangedBy")
 
   @@index([organizationId])
   @@index([status, displayName, id])
@@ -143,6 +150,7 @@ model Role {
   updatedAt        DateTime              @updatedAt
   users            UserRole[]
   groupAssignments GroupRoleAssignment[]
+  targetExerciseInjects ExerciseInject[] @relation("ExerciseInjectTargetRole")
 }
 
 model UserRole {
@@ -1658,42 +1666,92 @@ model StoredFile {
 }
 
 model ExerciseInject {
-  id             String    @id @default(uuid()) @db.Uuid
-  operationalId  String    @unique
-  sessionId      String    @db.Uuid
-  injectNumber   Int
-  scenarioTime   DateTime?
-  targetRole     String
-  text           String
-  expectedAction String?
-  status         String    @default("Planned")
-  releasedById   String?   @db.Uuid
-  releasedAt     DateTime?
-  createdAt      DateTime  @default(now())
-  updatedAt      DateTime  @updatedAt
-  session        Session   @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  id                       String    @id @default(uuid()) @db.Uuid
+  operationalId            String    @unique
+  sessionId                String    @db.Uuid
+  injectNumber             Int
+  scenarioTime             DateTime?
+  targetRoleId             String    @db.Uuid
+  targetRoleKey            String
+  targetRole               String
+  text                     String
+  expectedAction           String?
+  status                   String    @default("Planned")
+  version                  Int       @default(1)
+  createOperationId        String?   @unique @db.Uuid
+  createCommandFingerprint String?
+  createdById              String?   @db.Uuid
+  updatedById              String?   @db.Uuid
+  releasedById             String?   @db.Uuid
+  releasedAt               DateTime?
+  completedById            String?   @db.Uuid
+  completedAt              DateTime?
+  createdAt                DateTime  @default(now())
+  updatedAt                DateTime  @updatedAt
+  session                  Session   @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  targetRoleRecord         Role      @relation("ExerciseInjectTargetRole", fields: [targetRoleId], references: [id], onDelete: Restrict)
+  createdBy                User?     @relation("ExerciseInjectCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
+  updatedBy                User?     @relation("ExerciseInjectUpdatedBy", fields: [updatedById], references: [id], onDelete: SetNull)
+  releasedBy               User?     @relation("ExerciseInjectReleasedBy", fields: [releasedById], references: [id], onDelete: SetNull)
+  completedBy              User?     @relation("ExerciseInjectCompletedBy", fields: [completedById], references: [id], onDelete: SetNull)
 
   @@unique([sessionId, injectNumber])
   @@index([sessionId, status])
+  @@index([sessionId, scenarioTime, id])
+  @@index([sessionId, createdAt, id])
+  @@index([targetRoleId])
 }
 
 model ExerciseObservation {
-  id             String   @id @default(uuid()) @db.Uuid
-  operationalId  String   @unique
-  sessionId      String   @db.Uuid
-  area           String
-  observation    String
-  severity       String   @default("Low")
-  recommendation String?
-  owner          String?
-  includeInAar   Boolean  @default(true)
-  status         String   @default("Open")
-  createdById    String?  @db.Uuid
-  createdAt      DateTime @default(now())
-  updatedAt      DateTime @updatedAt
-  session        Session  @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  id                       String                        @id @default(uuid()) @db.Uuid
+  operationalId            String                        @unique
+  sessionId                String                        @db.Uuid
+  area                     String
+  observation              String
+  severity                 String                        @default("Low")
+  recommendation           String?
+  owner                    String?
+  includeInAar             Boolean                       @default(true)
+  status                   String                        @default("Open")
+  version                  Int                           @default(1)
+  createOperationId        String?                       @unique @db.Uuid
+  createCommandFingerprint String?
+  createdById              String?                       @db.Uuid
+  updatedById              String?                       @db.Uuid
+  createdAt                DateTime                      @default(now())
+  updatedAt                DateTime                      @updatedAt
+  session                  Session                       @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  createdBy                User?                         @relation("ExerciseObservationCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
+  updatedBy                User?                         @relation("ExerciseObservationUpdatedBy", fields: [updatedById], references: [id], onDelete: SetNull)
+  revisions                ExerciseObservationRevision[]
 
   @@index([sessionId, severity])
+  @@index([sessionId, createdAt(sort: Desc), id])
+  @@index([sessionId, status])
+  @@index([sessionId, includeInAar])
+}
+
+model ExerciseObservationRevision {
+  id             String              @id @default(uuid()) @db.Uuid
+  observationId  String              @db.Uuid
+  version        Int
+  area           String
+  severity       String
+  observation    String
+  recommendation String?
+  owner          String?
+  includeInAar   Boolean
+  status         String
+  changedFields  String[]
+  changedAt      DateTime            @default(now())
+  changedById    String?             @db.Uuid
+  source         String              @default("Mutation")
+  sourceRecord   ExerciseObservation @relation(fields: [observationId], references: [id], onDelete: Cascade)
+  changedBy      User?               @relation("ExerciseObservationRevisionChangedBy", fields: [changedById], references: [id], onDelete: SetNull)
+
+  @@unique([observationId, version])
+  @@index([observationId, version])
+  @@index([changedById, changedAt])
 }
 
 model Dictionary {

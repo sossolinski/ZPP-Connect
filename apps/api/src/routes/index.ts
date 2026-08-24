@@ -14,8 +14,6 @@ import { nextOperationalId, nextSessionId, withOperationalIdRetry } from "../ids
 import { redactForUser } from "../redaction.js";
 import { requirePermission } from "../rbac.js";
 import {
-  exerciseInjectSchema,
-  exerciseObservationSchema,
   idParam,
   listQuery,
   sessionCloseSchema,
@@ -65,6 +63,7 @@ import { EffectiveAccessService } from "../modules/identity/effective-access-ser
 import { createPrismaOperationalBriefingService, type PrismaOperationalBriefingService } from "../modules/briefings/prisma-operational-briefing-service.js";
 import { createPrismaImportService, type PrismaImportService } from "../modules/imports/prisma-import-service.js";
 import { createPrismaExportService, type PrismaExportService } from "../modules/exports/prisma-export-service.js";
+import { createPrismaExerciseService, type PrismaExerciseService } from "../modules/exercise/prisma-exercise-service.js";
 
 type Delegate = {
   count(args: unknown): Promise<number>;
@@ -1043,62 +1042,6 @@ api.get(
 );
 
 api.get(
-  "/exercise/injects",
-  requirePermission("exercise:manage"),
-  asyncHandler((req, res) => listRecords(req, res, prisma.exerciseInject, ["operationalId", "targetRole", "text"]))
-);
-
-api.post(
-  "/exercise/injects",
-  requirePermission("exercise:manage"),
-  asyncHandler(async (req, res) => {
-    const body = clean(exerciseInjectSchema.parse(req.body));
-    const record = await withOperationalIdRetry(async () => prisma.exerciseInject.create({ data: { ...body, operationalId: await nextOperationalId("exerciseInject", "INJ") } }));
-    await logAudit(req, { action: "create_exercise_inject", entityType: "exerciseInject", entityId: record.id, sessionId: record.sessionId, summary: `Exercise inject ${record.operationalId} created` });
-    res.status(201).json(record);
-  })
-);
-
-api.post(
-  "/exercise/injects/:id/release",
-  requirePermission("exercise:manage"),
-  asyncHandler(async (req, res) => {
-    const { id } = idParam.parse(req.params);
-    const record = await prisma.exerciseInject.update({ where: { id }, data: { status: "Released", releasedById: actorId(req), releasedAt: new Date() } });
-    await logAudit(req, { action: "release_exercise_inject", entityType: "exerciseInject", entityId: id, sessionId: record.sessionId, summary: `Exercise inject ${record.operationalId} released` });
-    res.json(record);
-  })
-);
-
-api.post(
-  "/exercise/injects/:id/complete",
-  requirePermission("exercise:manage"),
-  asyncHandler(async (req, res) => {
-    const { id } = idParam.parse(req.params);
-    const record = await prisma.exerciseInject.update({ where: { id }, data: { status: "Completed" } });
-    await logAudit(req, { action: "complete_exercise_inject", entityType: "exerciseInject", entityId: id, sessionId: record.sessionId, summary: `Exercise inject ${record.operationalId} completed` });
-    res.json(record);
-  })
-);
-
-api.get(
-  "/exercise/observations",
-  requirePermission("exercise:manage"),
-  asyncHandler((req, res) => listRecords(req, res, prisma.exerciseObservation, ["operationalId", "area", "observation", "recommendation"]))
-);
-
-api.post(
-  "/exercise/observations",
-  requirePermission("exercise:manage"),
-  asyncHandler(async (req, res) => {
-    const body = clean(exerciseObservationSchema.parse(req.body));
-    const record = await withOperationalIdRetry(async () => prisma.exerciseObservation.create({ data: { ...body, operationalId: await nextOperationalId("exerciseObservation", "OBS"), createdById: actorId(req) } }));
-    await logAudit(req, { action: "create_exercise_observation", entityType: "exerciseObservation", entityId: record.id, sessionId: record.sessionId, summary: `Exercise observation ${record.operationalId} created` });
-    res.status(201).json(record);
-  })
-);
-
-api.get(
   "/reports/session-summary",
   requirePermission("reports:read"),
   asyncHandler(async (req, res) => {
@@ -1269,13 +1212,14 @@ export function registerRoutes(app: Express, options: {
   operationalBriefingService?: PrismaOperationalBriefingService;
   importService?: PrismaImportService;
   exportService?: PrismaExportService;
+  exerciseService?: PrismaExerciseService;
   documentClock?: { now(): Date };
   documentNotificationHook?: (record: Record<string, unknown>) => void;
   assignmentNotificationHook?: (record: Record<string, unknown>, command: string) => void;
   rosteringNotificationHook?: (record: Record<string, unknown>, command: string) => void;
   trainingNotificationHook?: (record: Record<string, unknown>, command: string) => void;
 } = {}) {
-  const usePostgres = config.persistenceMode === "postgres" || options.incidentRepository?.kind === "postgres" || options.enquiryRepository?.kind === "postgres" || options.passengerRepository?.kind === "postgres" || options.familyRepository?.kind === "postgres" || options.matchingRepository?.kind === "postgres" || options.releaseRepository?.kind === "postgres" || options.requestRepository?.kind === "postgres" || options.assignmentRepository?.kind === "postgres" || options.memberDirectoryRepository?.kind === "postgres" || options.rosteringRepository?.kind === "postgres" || options.trainingRepository?.kind === "postgres" || options.documentRepository?.kind === "postgres" || options.notificationRepository?.kind === "postgres" || options.operationalBriefingService?.kind === "postgres" || options.importService?.kind === "postgres" || options.exportService?.kind === "postgres";
+  const usePostgres = config.persistenceMode === "postgres" || options.incidentRepository?.kind === "postgres" || options.enquiryRepository?.kind === "postgres" || options.passengerRepository?.kind === "postgres" || options.familyRepository?.kind === "postgres" || options.matchingRepository?.kind === "postgres" || options.releaseRepository?.kind === "postgres" || options.requestRepository?.kind === "postgres" || options.assignmentRepository?.kind === "postgres" || options.memberDirectoryRepository?.kind === "postgres" || options.rosteringRepository?.kind === "postgres" || options.trainingRepository?.kind === "postgres" || options.documentRepository?.kind === "postgres" || options.notificationRepository?.kind === "postgres" || options.operationalBriefingService?.kind === "postgres" || options.importService?.kind === "postgres" || options.exportService?.kind === "postgres" || options.exerciseService?.kind === "postgres";
   const incidentRepository = options.incidentRepository ?? (
     usePostgres ? createPrismaIncidentRepository(prisma) : undefined
   );
@@ -1323,8 +1267,9 @@ export function registerRoutes(app: Express, options: {
   const operationalBriefingService = options.operationalBriefingService ?? (usePostgres ? createPrismaOperationalBriefingService(prisma) : undefined);
   const importService = options.importService ?? (usePostgres ? createPrismaImportService(prisma) : undefined);
   const exportService = options.exportService ?? (usePostgres ? createPrismaExportService(prisma) : undefined);
+  const exerciseService = options.exerciseService ?? (usePostgres ? createPrismaExerciseService(prisma) : undefined);
   if (usePostgres) app.use("/api", createIdentityRouter(prisma));
-  app.use("/api", createDemoRouter({ incidentRepository, enquiryRepository, incidentAccessRepository, incidentAssignmentRepository, passengerRepository, familyRepository, matchingRepository, releaseRepository, requestRepository, assignmentRepository, memberDirectoryRepository, rosteringRepository, trainingRepository, trainingClock: options.trainingClock, documentRepository, documentClock: options.documentClock, notificationService, effectiveAccessAuthority: usePostgres ? new EffectiveAccessService(prisma) : undefined, operationalBriefingService, importService, exportService, documentNotificationHook: options.documentNotificationHook, assignmentNotificationHook: options.assignmentNotificationHook, rosteringNotificationHook: options.rosteringNotificationHook, trainingNotificationHook: options.trainingNotificationHook }));
+  app.use("/api", createDemoRouter({ incidentRepository, enquiryRepository, incidentAccessRepository, incidentAssignmentRepository, passengerRepository, familyRepository, matchingRepository, releaseRepository, requestRepository, assignmentRepository, memberDirectoryRepository, rosteringRepository, trainingRepository, trainingClock: options.trainingClock, documentRepository, documentClock: options.documentClock, notificationService, effectiveAccessAuthority: usePostgres ? new EffectiveAccessService(prisma) : undefined, operationalBriefingService, importService, exportService, exerciseService, documentNotificationHook: options.documentNotificationHook, assignmentNotificationHook: options.assignmentNotificationHook, rosteringNotificationHook: options.rosteringNotificationHook, trainingNotificationHook: options.trainingNotificationHook }));
   if (notificationRepository?.kind === "postgres" && trainingRepository && documentRepository) {
     const dispatcher = createNotificationDispatcher(prisma, notificationRepository, { batchSize: config.notificationDispatchBatchSize, logger });
     const projector = createNotificationProjector(prisma, notificationRepository, { training: trainingRepository, documents: documentRepository, batchSize: config.notificationProjectBatchSize, maxRows: config.notificationProjectMaxRows });

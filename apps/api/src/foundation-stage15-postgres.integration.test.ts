@@ -98,7 +98,7 @@ postgresDescribe("Foundation Stage 15 PostgreSQL Operational Briefings and Activ
     const migrations = await prisma!.$queryRaw<Array<{ count: bigint }>>`SELECT COUNT(*)::bigint AS count FROM "_prisma_migrations" WHERE finished_at IS NOT NULL AND rolled_back_at IS NULL`;
     const indexes = await prisma!.$queryRaw<Array<{ indexname: string }>>`SELECT indexname FROM pg_indexes WHERE tablename = 'OperationalBriefing'`;
     const checks = await prisma!.$queryRaw<Array<{ conname: string }>>`SELECT conname FROM pg_constraint WHERE conrelid = '"OperationalBriefing"'::regclass AND contype = 'c'`;
-    expect(Number(migrations[0]!.count)).toBe(20);
+    expect(Number(migrations[0]!.count)).toBe(21);
     expect(indexes.map((row) => row.indexname)).toEqual(expect.arrayContaining(["OperationalBriefing_one_draft_per_session", "OperationalBriefing_one_published_per_session", "OperationalBriefing_sessionId_revision_key"]));
     expect(checks.map((row) => row.conname)).toEqual(expect.arrayContaining(["OperationalBriefing_revision_positive", "OperationalBriefing_version_positive", "OperationalBriefing_status_valid", "OperationalBriefing_publication_state_valid"]));
   });
