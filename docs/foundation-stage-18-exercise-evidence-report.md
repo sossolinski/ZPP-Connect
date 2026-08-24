@@ -1,6 +1,6 @@
 # Foundation Stage 18 — Exercise Inject / Observation Persistence + Evidence Integrity
 
-Verdict: **NOT READY — exact implementation-SHA CI is pending.**
+Verdict: **READY FOR NEXT FOUNDATION SLICE.**
 
 ## A. Stage 17 merge verification
 
@@ -124,7 +124,7 @@ Production Entra/PostgreSQL startup returned health 200 with `persistence: postg
 
 ## AE. Exact-SHA CI
 
-Pending. CI now runs fresh migration/seed/startup, ordered Stage 1–18, dedicated Stage 18, Stage 16–18 PostgreSQL browser workflows, and the Stage 17→18 rehearsal. READY requires every check on the eventual exact final SHA.
+Implementation SHA `70b34ec5405e546f7c47da3b576c0f3981d80a5a` passed all six exact-head checks (push and PR instances of Foundation PostgreSQL Gate, Typecheck/Unit/Build/Browser, and Production Dependency Audit). CI covers fresh migration/seed/startup, ordered Stage 1–18, dedicated Stage 18, Stage 16–18 PostgreSQL browser workflows, and the Stage 17→18 rehearsal. This report-only READY commit is valid only after the same complete gate succeeds on the exact final PR head.
 
 ## AF. Remaining split-brain
 
@@ -139,7 +139,7 @@ Exercise PostgreSQL production split-brain: **none**. Remaining broader candidat
 5. Operational ID sequences may contain rollback gaps by design.
 6. Database triggers require PostgreSQL and are intentionally absent from memory compatibility tests.
 7. The dependency override should be removed when Prisma natively consumes patched `deepmerge-ts`.
-8. Exact-final-SHA CI remains the READY gate.
+8. GitHub currently warns that checkout/setup actions target deprecated Node 20 internals; runners force Node 24 and checks remain green, but action upgrades should be tracked separately.
 
 ## AH. Next Foundation candidate
 
