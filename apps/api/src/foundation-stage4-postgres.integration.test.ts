@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { PrismaClient } from "@prisma/client";
 import request from "supertest";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
@@ -161,7 +162,7 @@ postgresDescribe("Foundation Stage 4 PostgreSQL Family/NOK relationship claims",
     const csv = ["firstName,lastName,email,claimedRelationship", ...rows].join("\n");
     const createAuditBefore = await prisma!.auditLog.count({ where: { sessionId: incidentA, action: "create_family_record" } });
     const api = application();
-    const validated = await request(api).post("/api/imports/family").set(as("coordinator@lot.pl")).field("sessionId", incidentA).attach("file", Buffer.from(csv), { filename: "family-1000.csv", contentType: "text/csv" });
+    const validated = await request(api).post("/api/imports/family").set(as("coordinator@lot.pl")).field("sessionId", incidentA).field("operationId", randomUUID()).attach("file", Buffer.from(csv), { filename: "family-1000.csv", contentType: "text/csv" });
     expect(validated.status).toBe(201);
     expect(validated.body).toMatchObject({ totalRecords: 1_000, validRecords: 1_000, invalidRecords: 0 });
     batchIds.push(validated.body.id);

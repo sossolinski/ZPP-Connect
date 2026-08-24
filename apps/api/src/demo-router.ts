@@ -106,6 +106,8 @@ import type { FoundationDocumentRepository } from "./modules/documents/document-
 import { createNotificationRouter } from "./modules/notifications/notification-router.js";
 import type { createPersistentNotificationService } from "./modules/notifications/notification-service.js";
 import type { PrismaOperationalBriefingService } from "./modules/briefings/prisma-operational-briefing-service.js";
+import { createImportRouter } from "./modules/imports/import-router.js";
+import type { PrismaImportService } from "./modules/imports/prisma-import-service.js";
 import { hydrateReadOnlyProjection, mergeProjectionPage, syncProjectionRow } from "./modules/compatibility/read-only-projection.js";
 
 type Row = Record<string, any>;
@@ -1966,6 +1968,7 @@ export function createDemoRouter(options: {
   notificationService?: ReturnType<typeof createPersistentNotificationService>;
   effectiveAccessAuthority?: IncidentPermissionAuthority;
   operationalBriefingService?: PrismaOperationalBriefingService;
+  importService?: PrismaImportService;
   documentNotificationHook?: (record: Record<string, unknown>) => void;
   assignmentNotificationHook?: (record: Record<string, unknown>, command: string) => void;
   rosteringNotificationHook?: (record: Record<string, unknown>, command: string) => void;
@@ -2285,6 +2288,7 @@ export function createDemoRouter(options: {
 
   router.get("/config/profile", (_req, res) => res.json(defaultProfile));
   router.get("/dictionaries", (_req, res) => res.json(dictionaryRows()));
+  if (options.importService) router.use(createImportRouter(options.importService, requireIncidentPermission));
   router.use(createIncidentRouter(incidentService, {
     requireIncidentPermission,
     effectiveIncidentIdsForPermission: effectiveAccessAuthority.effectiveIncidentIdsForPermission
@@ -2904,7 +2908,7 @@ export function createDemoRouter(options: {
   }
 
   const demoResourceRoutes = [
-    { resource: "files", read: "import:create", create: "import:create", update: "import:create" },
+    ...(options.importService ? [] : [{ resource: "files", read: "import:create", create: "import:create", update: "import:create" }]),
     { resource: "exercise/injects", read: "exercise:manage", create: "exercise:manage", update: "exercise:manage" },
     { resource: "exercise/observations", read: "exercise:manage", create: "exercise:manage", update: "exercise:manage" }
   ];
@@ -2958,21 +2962,22 @@ export function createDemoRouter(options: {
   router.post("/exercise/injects/:id/release", incidentPermissionGate("exercise:manage", (req) => incidentForResource("exercise/injects", String(req.params.id)), false, true), (req, res) => res.json(updateRow("exercise/injects", String(req.params.id), { status: "Released", releasedAt: now() }, req)));
   router.post("/exercise/injects/:id/complete", incidentPermissionGate("exercise:manage", (req) => incidentForResource("exercise/injects", String(req.params.id)), false, true), (req, res) => res.json(updateRow("exercise/injects", String(req.params.id), { status: "Completed" }, req)));
 
-  const importPermissions = (req: Request): Permission[] => [
-    "import:create",
-    req.params.type === "manifest" ? "passenger:create" : "family:create"
-  ];
-  const importBatchForRequest = (req: Request) => {
-    const batch = importBatches.find((item) => item.id === req.params.id);
-    if (!batch) throw new HttpError(404, "Import batch not found");
-    return batch;
-  };
-  const importBatchPermissions = (req: Request): Permission[] => {
-    const batch = importBatchForRequest(req);
-    return ["import:create", batch.importType === "manifest" ? "passenger:create" : "family:create"];
-  };
+  if (!options.importService) {
+    const importPermissions = (req: Request): Permission[] => [
+      "import:create",
+      req.params.type === "manifest" ? "passenger:create" : "family:create"
+    ];
+    const importBatchForRequest = (req: Request) => {
+      const batch = importBatches.find((item) => item.id === req.params.id);
+      if (!batch) throw new HttpError(404, "Import batch not found");
+      return batch;
+    };
+    const importBatchPermissions = (req: Request): Permission[] => {
+      const batch = importBatchForRequest(req);
+      return ["import:create", batch.importType === "manifest" ? "passenger:create" : "family:create"];
+    };
 
-  router.post("/imports/:type", requirePermission("import:create"), upload.single("file"), incidentPermissionGate(importPermissions, (req) => String(req.body?.sessionId ?? ""), false, true), (req, res) => {
+    router.post("/imports/:type", requirePermission("import:create"), upload.single("file"), incidentPermissionGate(importPermissions, (req) => String(req.body?.sessionId ?? ""), false, true), (req, res) => {
     try {
       const importType = String(req.params.type);
       if (!["manifest", "family"].includes(importType)) {
@@ -3030,9 +3035,9 @@ export function createDemoRouter(options: {
       const status = error instanceof DirectoryError ? error.status : 400;
       res.status(status).json({ error: error instanceof Error ? error.message : "Unable to validate import" });
     }
-  });
+    });
 
-  router.post("/imports/:id/confirm", requirePermission("import:create"), incidentPermissionGate(importBatchPermissions, (req) => String(importBatchForRequest(req).sessionId), false, true), (req, res, next) => {
+    router.post("/imports/:id/confirm", requirePermission("import:create"), incidentPermissionGate(importBatchPermissions, (req) => String(importBatchForRequest(req).sessionId), false, true), (req, res, next) => {
     const batch = importBatches.find((item) => item.id === req.params.id);
     if (!batch) {
       res.status(404).json({ error: "Import batch not found" });
@@ -3073,7 +3078,8 @@ export function createDemoRouter(options: {
       importRowsByBatchId.delete(String(batch.id));
       res.json(batch);
     })().catch(next);
-  });
+    });
+  }
 
   const exportPermissions = (req: Request): Permission[] => {
     const byType: Record<string, Permission> = {

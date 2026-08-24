@@ -35,6 +35,7 @@ export function parseFamilyImportRow(rawRow: Row, sessionId: string) {
     preferredLanguage: cell(row, "preferredLanguage", "preferred_language"),
     location: cell(row, "location"),
     claimedRelationship,
+    passengerRecordId: cell(row, "passengerRecordId", "passenger_record_id"),
     passengerFirstName: cell(row, "passengerFirstName", "passenger_first_name"),
     passengerLastName: cell(row, "passengerLastName", "passenger_last_name"),
     passengerFlight: cell(row, "passengerFlight", "passenger_flight"),

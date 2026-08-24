@@ -270,7 +270,22 @@ export const openApiDocument = {
       post: { summary: "Add timeline note/event" },
     },
     "/imports/{type}": {
-      post: { summary: "Validate CSV records and create import batch" },
+      post: { summary: "Idempotently validate a bounded CSV into a durable Incident-scoped import snapshot" },
+    },
+    "/imports/{id}": {
+      get: { summary: "Read an authorized durable Import batch" },
+    },
+    "/imports/{id}/rows": {
+      get: { summary: "Page authorized durable validation rows in stable row order" },
+    },
+    "/imports/{id}/confirm": {
+      post: { summary: "Idempotently confirm a durable Import batch in one target-domain transaction" },
+    },
+    "/sessions/{sessionId}/imports": {
+      get: { summary: "List authorized durable Import batches for an Incident" },
+    },
+    "/files": {
+      get: { summary: "List truthful source-provenance projections for authorized Import batches" },
     },
     "/exports/{type}": {
       get: { summary: "Export logs or session package as CSV/PDF" },

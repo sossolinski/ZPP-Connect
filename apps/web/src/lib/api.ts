@@ -306,12 +306,15 @@ export const api = {
     request<AnyRecord>(`/matching/claims/${claimId}/reject`, { method: "POST", body: JSON.stringify(body) }),
   invalidateMatchingDecision: (claimId: string, body: AnyRecord) =>
     request<AnyRecord>(`/matching/claims/${claimId}/invalidate`, { method: "POST", body: JSON.stringify(body) }),
-  importFile: (type: string, file: File, sessionId?: string) => {
+  importFile: (type: string, file: File, sessionId: string, operationId: string) => {
     const form = new FormData();
     form.set("file", file);
-    if (sessionId) form.set("sessionId", sessionId);
+    form.set("sessionId", sessionId);
+    form.set("operationId", operationId);
     return request<AnyRecord>(`/imports/${type}`, { method: "POST", body: form });
   },
+  getImport: (id: string) => request<AnyRecord>(`/imports/${id}`),
+  importRows: (id: string, query: AnyRecord = {}) => request<ApiList<AnyRecord>>(`/imports/${id}/rows${queryString(query)}`),
   confirmImport: (id: string) => request<AnyRecord>(`/imports/${id}/confirm`, { method: "POST", body: JSON.stringify({}) }),
   exportUrl: (type: string, sessionId?: string) => `${API_URL}/exports/${type}${queryString({ sessionId })}`,
   download: async (url: string) => {

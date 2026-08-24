@@ -6,9 +6,12 @@ const apiPort = Number(process.env.PLAYWRIGHT_API_PORT ?? 4100);
 const webPort = Number(process.env.PLAYWRIGHT_WEB_PORT ?? 4173);
 const apiUrl = process.env.PLAYWRIGHT_API_URL ?? `http://127.0.0.1:${apiPort}/api`;
 const webUrl = process.env.PLAYWRIGHT_WEB_URL ?? `http://127.0.0.1:${webPort}`;
+const persistenceMode = process.env.PLAYWRIGHT_PERSISTENCE_MODE ?? "memory";
+const databaseUrl = process.env.DATABASE_URL ?? "";
 
 export default defineConfig({
   testDir: "./tests/smoke",
+  testIgnore: persistenceMode === "postgres" ? [] : ["**/zz-stage16-imports.spec.ts"],
   timeout: 30_000,
   expect: {
     timeout: 10_000
@@ -22,7 +25,7 @@ export default defineConfig({
   },
   webServer: [
     {
-      command: `NODE_ENV=test PERSISTENCE_MODE=memory AUTH_MODE=dev DATABASE_URL= API_PORT=${apiPort} APP_ORIGIN=${webUrl} LOG_LEVEL=silent npm run dev -w @zpp/api`,
+      command: `NODE_ENV=test PERSISTENCE_MODE=${persistenceMode} AUTH_MODE=dev DATABASE_URL='${databaseUrl}' DATA_DIR=/tmp/zpp-playwright-storage API_PORT=${apiPort} APP_ORIGIN=${webUrl} LOG_LEVEL=silent npm run dev -w @zpp/api`,
       url: `${apiUrl}/health`,
       timeout: 120_000,
       reuseExistingServer: !process.env.CI
