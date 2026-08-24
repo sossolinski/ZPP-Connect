@@ -286,7 +286,7 @@ postgresDescribe("Foundation Stage 3 PostgreSQL Passenger persistence and source
     const before = await prisma!.passengerRecord.count({ where: { sessionId: incidentA } });
     expect((await request(restarted).get("/api/dashboard").set(as("coordinator@lot.pl")).query({ sessionId: incidentA })).status).toBe(200);
     expect((await request(restarted).get("/api/matching-records/suggestions").set(as("coordinator@lot.pl")).query({ sessionId: incidentA })).status).toBe(200);
-    expect((await request(restarted).get("/api/exports/passenger-register").set(as("coordinator@lot.pl")).query({ sessionId: incidentA })).status).toBe(200);
+    expect((await request(restarted).post("/api/exports/passenger-register").set(as("coordinator@lot.pl")).send({ sessionId: incidentA, operationId: randomUUID() })).status).toBe(200);
     expect(await prisma!.passengerRecord.count({ where: { sessionId: incidentA } })).toBe(before);
   });
 

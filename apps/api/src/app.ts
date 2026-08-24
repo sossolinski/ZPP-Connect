@@ -26,6 +26,7 @@ import type { FoundationDocumentRepository } from "./modules/documents/document-
 import type { NotificationRepository } from "./modules/notifications/notification-repository.js";
 import type { PrismaOperationalBriefingService } from "./modules/briefings/prisma-operational-briefing-service.js";
 import type { PrismaImportService } from "./modules/imports/prisma-import-service.js";
+import type { PrismaExportService } from "./modules/exports/prisma-export-service.js";
 
 export function createApp(options: {
   incidentRepository?: IncidentRepository;
@@ -46,6 +47,7 @@ export function createApp(options: {
   notificationRepository?: NotificationRepository;
   operationalBriefingService?: PrismaOperationalBriefingService;
   importService?: PrismaImportService;
+  exportService?: PrismaExportService;
   documentClock?: { now(): Date };
   documentNotificationHook?: (record: Record<string, unknown>) => void;
   assignmentNotificationHook?: (record: Record<string, unknown>, command: string) => void;
@@ -75,7 +77,8 @@ export function createApp(options: {
   app.use(
     cors({
       origin: config.appOrigin.split(",").map((origin) => origin.trim()),
-      credentials: true
+      credentials: true,
+      exposedHeaders: ["Content-Disposition", "X-Export-Generation-Id"]
     })
   );
   app.use(express.json({ limit: "2mb" }));
@@ -100,6 +103,7 @@ export function createApp(options: {
     notificationRepository: options.notificationRepository,
     operationalBriefingService: options.operationalBriefingService,
     importService: options.importService,
+    exportService: options.exportService,
     documentClock: options.documentClock,
     documentNotificationHook: options.documentNotificationHook,
     assignmentNotificationHook: options.assignmentNotificationHook,

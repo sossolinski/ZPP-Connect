@@ -288,7 +288,16 @@ export const openApiDocument = {
       get: { summary: "List truthful source-provenance projections for authorized Import batches" },
     },
     "/exports/{type}": {
-      get: { summary: "Export logs or session package as CSV/PDF" },
+      post: { summary: "Prepare an authorized CSV export and commit durable provenance before returning bytes" },
+    },
+    "/exports/generations/{id}": {
+      get: { summary: "Read authorized durable export preparation metadata" },
+    },
+    "/sessions/{sessionId}/export-generations": {
+      get: { summary: "Page authorized durable export preparation metadata for an Incident" },
+    },
+    "/reports/session-summary": {
+      get: { summary: "Read a permission-filtered PostgreSQL session-summary projection" },
     },
     "/exercise/injects": {
       get: { summary: "List exercise injects" },
