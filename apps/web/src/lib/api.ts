@@ -316,6 +316,17 @@ export const api = {
   getImport: (id: string) => request<AnyRecord>(`/imports/${id}`),
   importRows: (id: string, query: AnyRecord = {}) => request<ApiList<AnyRecord>>(`/imports/${id}/rows${queryString(query)}`),
   confirmImport: (id: string) => request<AnyRecord>(`/imports/${id}/confirm`, { method: "POST", body: JSON.stringify({}) }),
+  listInjects: (query: AnyRecord, options?: ListAllOptions) =>
+    listAllPages<AnyRecord>((pageQuery) => request<ApiList<AnyRecord>>(`/exercise/injects${queryString(pageQuery)}`), query, options),
+  createInject: (body: AnyRecord) => request<AnyRecord>("/exercise/injects", { method: "POST", body: JSON.stringify({ ...body, operationId: body.operationId ?? crypto.randomUUID() }) }),
+  updateInject: (id: string, body: AnyRecord) => request<AnyRecord>(`/exercise/injects/${id}`, { method: "PATCH", body: JSON.stringify(body) }),
+  releaseInject: (id: string, expectedVersion: number) => request<AnyRecord>(`/exercise/injects/${id}/release`, { method: "POST", body: JSON.stringify({ expectedVersion }) }),
+  completeInject: (id: string, expectedVersion: number) => request<AnyRecord>(`/exercise/injects/${id}/complete`, { method: "POST", body: JSON.stringify({ expectedVersion }) }),
+  listObservations: (query: AnyRecord, options?: ListAllOptions) =>
+    listAllPages<AnyRecord>((pageQuery) => request<ApiList<AnyRecord>>(`/exercise/observations${queryString(pageQuery)}`), query, options),
+  createObservation: (body: AnyRecord) => request<AnyRecord>("/exercise/observations", { method: "POST", body: JSON.stringify({ ...body, operationId: body.operationId ?? crypto.randomUUID() }) }),
+  updateObservation: (id: string, body: AnyRecord) => request<AnyRecord>(`/exercise/observations/${id}`, { method: "PATCH", body: JSON.stringify(body) }),
+  observationHistory: (id: string, query?: AnyRecord) => request<ApiList<AnyRecord>>(`/exercise/observations/${id}/history${queryString(query)}`),
   downloadExport: async (type: string, sessionId: string) => {
     const response = await fetch(`${API_URL}/exports/${type}`, {
       method: "POST",

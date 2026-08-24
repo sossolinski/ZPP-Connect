@@ -963,39 +963,74 @@ async function seedOperationalData() {
     )
   `;
 
-  await prisma.exerciseInject.upsert({
-    where: { sessionId_injectNumber: { sessionId: session.id, injectNumber: 1 } },
-    update: {},
-    create: {
+  const tecRole = await prisma.role.findUniqueOrThrow({ where: { normalizedName: "tec-member" } });
+  if (!await prisma.exerciseInject.findUnique({ where: { sessionId_injectNumber: { sessionId: session.id, injectNumber: 1 } } })) {
+    await prisma.exerciseInject.create({ data: {
       operationalId: "INJ-2026-000001",
       sessionId: session.id,
       injectNumber: 1,
       scenarioTime: new Date("2026-06-21T08:15:00.000Z"),
-      targetRole: "TEC",
+      targetRoleId: tecRole.id,
+      targetRoleKey: tecRole.normalizedName,
+      targetRole: tecRole.displayName,
       text: "Caller reports missing contact with a passenger and asks if they are injured.",
       expectedAction: "Create enquiry, mark urgent welfare if appropriate, do not disclose passenger/casualty status.",
       status: "Released",
+      version: 2,
+      createdById: coordinator.id,
+      updatedById: coordinator.id,
       releasedById: coordinator.id,
       releasedAt: new Date("2026-06-21T08:15:00.000Z")
-    }
-  });
+    } });
+  }
 
-  await prisma.exerciseObservation.upsert({
-    where: { operationalId: "OBS-2026-000001" },
-    update: {},
-    create: {
-      operationalId: "OBS-2026-000001",
-      sessionId: session.id,
-      area: "Intake",
-      observation: "Intake correctly recorded the enquiry without confirming passenger or casualty status.",
-      severity: "Low",
-      recommendation: "Continue reinforcing controlled disclosure language.",
-      owner: "Exercise Director",
-      includeInAar: true,
-      status: "Open",
-      createdById: coordinator.id
-    }
-  });
+  if (!await prisma.exerciseObservation.findUnique({ where: { operationalId: "OBS-2026-000001" } })) {
+    await prisma.$transaction(async (tx) => {
+      const observation = await tx.exerciseObservation.create({ data: {
+        operationalId: "OBS-2026-000001",
+        sessionId: session.id,
+        area: "Intake",
+        observation: "Intake correctly recorded the enquiry without confirming passenger or casualty status.",
+        severity: "Low",
+        recommendation: "Continue reinforcing controlled disclosure language.",
+        owner: "Exercise Director",
+        includeInAar: true,
+        status: "Open",
+        version: 1,
+        createdById: coordinator.id,
+        updatedById: coordinator.id
+      } });
+      await tx.exerciseObservationRevision.create({ data: {
+        observationId: observation.id,
+        version: 1,
+        area: observation.area,
+        severity: observation.severity,
+        observation: observation.observation,
+        recommendation: observation.recommendation,
+        owner: observation.owner,
+        includeInAar: observation.includeInAar,
+        status: observation.status,
+        changedFields: ["area", "severity", "observation", "recommendation", "owner", "includeInAar", "status"],
+        changedById: coordinator.id,
+        source: "Seed"
+      } });
+    });
+  }
+
+  await prisma.$queryRaw`
+    SELECT setval(
+      '"ExerciseInject_operational_seq"',
+      GREATEST(COALESCE((SELECT MAX(substring("operationalId" FROM '([0-9]+)$')::BIGINT) FROM "ExerciseInject"), 0) + 1, 1),
+      false
+    )
+  `;
+  await prisma.$queryRaw`
+    SELECT setval(
+      '"ExerciseObservation_operational_seq"',
+      GREATEST(COALESCE((SELECT MAX(substring("operationalId" FROM '([0-9]+)$')::BIGINT) FROM "ExerciseObservation"), 0) + 1, 1),
+      false
+    )
+  `;
 
   const timelineCount = await prisma.caseTimelineEvent.count({ where: { sessionId: session.id } });
   if (timelineCount === 0) {
