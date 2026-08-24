@@ -356,7 +356,7 @@ export function GroupsPage() {
     setError("");
     setReadinessError("");
     try {
-      const [membersResult, groupsResult, readinessResult] = await Promise.all([
+      const [membersResult, groupsResult] = await Promise.all([
         api.memberProfilesPage({ limit: 100, offset: 0, sortBy: "displayName", sortDirection: "asc" }),
         api.groupsPage({
           sessionId: activeSession?.id,
@@ -368,14 +368,15 @@ export function GroupsPage() {
           offset: 0,
           sortBy: "name",
           sortDirection: "asc"
-        }),
-        canReadOrgReadiness
-          ? api.readinessGroups(activeSession?.id ? { sessionId: activeSession.id } : undefined, { pageLimit: 200 }).catch((err) => {
+        })
+      ]);
+      const groupIds = groupsResult.data.map((group) => String(group.id)).filter(Boolean);
+      const readinessResult = canReadOrgReadiness && groupIds.length
+          ? await api.readinessGroupsPage({ groupIds: groupIds.join(","), limit: groupIds.length, offset: 0 }).catch((err) => {
               setReadinessError(err instanceof Error ? err.message : "Unable to load readiness.");
               return null;
             })
-          : Promise.resolve(null)
-      ]);
+          : null;
       setRecords(membersResult.data.map(normalizeMember));
       setGroups(groupsResult.data.map(normalizeGroup));
       setGroupReadinessRows(readinessResult?.data.map(normalizeGroupReadiness) ?? []);

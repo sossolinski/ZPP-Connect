@@ -1975,6 +1975,7 @@ export function createDemoRouter(options: {
   importService?: PrismaImportService;
   exportService?: PrismaExportService;
   exerciseService?: PrismaExerciseService;
+  disableLegacyReadiness?: boolean;
   documentNotificationHook?: (record: Record<string, unknown>) => void;
   assignmentNotificationHook?: (record: Record<string, unknown>, command: string) => void;
   rosteringNotificationHook?: (record: Record<string, unknown>, command: string) => void;
@@ -2147,7 +2148,9 @@ export function createDemoRouter(options: {
     ? createDocumentService(options.documentRepository, incidentAccessService, options.documentClock)
     : null;
   const documentsRepository = createDocumentRepository(memberDirectory);
-  const readiness = createReadinessService({ directory: memberDirectory, training, documents: documentsRepository, rostering, foundationRostering: foundationRosteringService, foundationTraining: foundationTrainingService, foundationDocuments: foundationDocumentService });
+  const readiness = options.disableLegacyReadiness
+    ? null
+    : createReadinessService({ directory: memberDirectory, training, documents: documentsRepository, rostering, foundationRostering: foundationRosteringService, foundationTraining: foundationTrainingService, foundationDocuments: foundationDocumentService });
   const memoryActiveEvent = options.operationalBriefingService ? null : createActiveEventService({ users, sessions, assignments, enquiries, familyRecords, passengerRecords, matchingRecords, releases, requests });
   const activeEvent = options.operationalBriefingService ?? memoryActiveEvent!;
   const effectiveAccessAuthority = options.effectiveAccessAuthority ?? {
@@ -2568,13 +2571,15 @@ export function createDemoRouter(options: {
   }));
 
   router.get("/dashboard", incidentPermissionGate("session:read", activeSessionId, true), (req, res) => res.json(dashboard(req, activeSessionId(req))));
-  router.get("/readiness/me", requirePermission("readiness:read-own"), directoryRoute((req) => readiness.me(req.query, directoryActor(req))));
-  router.get("/readiness/members", requireAnyPermission(["readiness:read-all", "readiness:read-group"]), directoryRoute((req) => readiness.members(req.query, directoryActor(req))));
-  router.get("/readiness/members/:memberProfileId", requireAnyPermission(["readiness:read-own", "readiness:read-all", "readiness:read-group"]), directoryRoute((req) => readiness.member(String(req.params.memberProfileId), req.query, directoryActor(req))));
-  router.get("/readiness/groups", requireAnyPermission(["readiness:read-all", "readiness:read-group"]), directoryRoute((req) => readiness.groups(req.query, directoryActor(req))));
-  router.get("/readiness/groups/:groupId", requireAnyPermission(["readiness:read-all", "readiness:read-group"]), directoryRoute((req) => readiness.group(String(req.params.groupId), req.query, directoryActor(req))));
-  router.get("/readiness/summary", requireAnyPermission(["readiness:read-summary", "readiness:read-all", "readiness:read-group"]), directoryRoute((req) => readiness.summary(req.query, directoryActor(req))));
-  router.get("/readiness/policy", requireAnyPermission(["readiness:policy:read", "readiness:policy:manage"]), directoryRoute((req) => readiness.policy(directoryActor(req))));
+  if (!options.disableLegacyReadiness) {
+    router.get("/readiness/me", requirePermission("readiness:read-own"), directoryRoute((req) => readiness!.me(req.query, directoryActor(req))));
+    router.get("/readiness/members", requireAnyPermission(["readiness:read-all", "readiness:read-group"]), directoryRoute((req) => readiness!.members(req.query, directoryActor(req))));
+    router.get("/readiness/members/:memberProfileId", requireAnyPermission(["readiness:read-own", "readiness:read-all", "readiness:read-group"]), directoryRoute((req) => readiness!.member(String(req.params.memberProfileId), req.query, directoryActor(req))));
+    router.get("/readiness/groups", requireAnyPermission(["readiness:read-all", "readiness:read-group"]), directoryRoute((req) => readiness!.groups(req.query, directoryActor(req))));
+    router.get("/readiness/groups/:groupId", requireAnyPermission(["readiness:read-all", "readiness:read-group"]), directoryRoute((req) => readiness!.group(String(req.params.groupId), req.query, directoryActor(req))));
+    router.get("/readiness/summary", requireAnyPermission(["readiness:read-summary", "readiness:read-all", "readiness:read-group"]), directoryRoute((req) => readiness!.summary(req.query, directoryActor(req))));
+    router.get("/readiness/policy", requireAnyPermission(["readiness:policy:read", "readiness:policy:manage"]), directoryRoute((req) => readiness!.policy(directoryActor(req))));
+  }
 
   if (!foundationMemberDirectoryService) {
   router.get("/member-profiles", requirePermission("member:read"), directoryRoute((req) => memberDirectory.listMembers(req.query, directoryActor(req))));

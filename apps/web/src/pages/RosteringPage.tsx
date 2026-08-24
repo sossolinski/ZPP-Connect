@@ -160,12 +160,13 @@ function normalizeReadinessStatus(value: unknown): ReadinessStatus {
 }
 
 function normalizeReadiness(input: Record<string, any>): MemberReadiness {
+  const primary = input.primaryIssue && typeof input.primaryIssue === "object" ? input.primaryIssue : null;
   return {
     member: input.member,
     calculatedAt: typeof input.calculatedAt === "string" ? input.calculatedAt : undefined,
     overallStatus: normalizeReadinessStatus(input.overallStatus),
-    blockers: Array.isArray(input.blockers) ? input.blockers : [],
-    warnings: Array.isArray(input.warnings) ? input.warnings : []
+    blockers: Array.isArray(input.blockers) ? input.blockers : primary?.severity === "blocker" ? [primary] : [],
+    warnings: Array.isArray(input.warnings) ? input.warnings : primary?.severity === "warning" ? [primary] : []
   };
 }
 
@@ -304,14 +305,17 @@ export function RosteringPage({ user }: { user: DemoUser }) {
       const availabilityPromise = canReadAvailability ? (api.availabilityPage({ limit: pageSize, offset: availabilityOffset, ...(!can("availability:read-all") ? { mine: true } : {}) }) as Promise<ApiListResult<AvailabilityRecord>>) : Promise.resolve({ total: 0, data: [], linkedMemberProfile: null });
       const membersPromise = canCreateShift || canUpdateShift || canManageAllAvailability ? api.memberProfiles({ status: "Active" }) : Promise.resolve({ total: 0, data: [] });
       const groupsPromise = canCreateShift || canUpdateShift ? api.groups({ sessionId }) : Promise.resolve({ total: 0, data: [] });
-      const readinessPromise = canReadRosterReadiness
-        ? api.readinessMembers(undefined, { pageLimit: 200 }).catch((nextError) => {
+      const [rosterResult, availabilityResult, memberResult, groupResult] = await Promise.all([rosterPromise, availabilityPromise, membersPromise, groupsPromise]);
+      const readinessMemberIds = [...new Set([
+        ...rosterResult.data.map((shift) => String(shift.assignedMemberProfileId ?? "")),
+        ...(memberResult.data ?? []).map((member) => String(member.id)),
+      ].filter(Boolean))].slice(0, 200);
+      const readinessResult = canReadRosterReadiness && readinessMemberIds.length
+        ? await api.readinessMembersPage({ memberProfileIds: readinessMemberIds.join(","), limit: readinessMemberIds.length, offset: 0 }).catch((nextError) => {
             setReadinessError(errorMessage(nextError));
             return null;
           })
-        : Promise.resolve(null);
-
-      const [rosterResult, availabilityResult, memberResult, groupResult, readinessResult] = await Promise.all([rosterPromise, availabilityPromise, membersPromise, groupsPromise, readinessPromise]);
+        : null;
       setShifts(rosterResult.data);
       setRosterTotal(rosterResult.total);
       setAvailability(availabilityResult.data);
