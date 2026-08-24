@@ -1,6 +1,6 @@
 # Foundation Stage 16 — Imports Persistence + Orchestration Integrity
 
-Status: **NOT READY — exact-final-SHA remote CI pending**
+Status: **READY FOR NEXT FOUNDATION SLICE**
 
 ## A. Stage 15 merge verification
 
@@ -200,7 +200,7 @@ Local exact rehearsal: 18 Stage 15 migrations + current seed (6 Users, 2 Session
 - Foundation PostgreSQL Stage 1–16: 206/206 PASS, zero skipped.
 - Dedicated Stage 16 PostgreSQL: 16/16 PASS.
 - Unit/memory: 99/99 PASS (PostgreSQL suites intentionally excluded from this command).
-- General Playwright: 73/73 PASS after the two independently rerun browser flakes passed; final clean rerun pending before handoff.
+- General Playwright: 73/73 PASS in exact-implementation-SHA remote CI; the two unrelated local timing flakes also passed on isolated rerun.
 - Dedicated PostgreSQL Stage 16 Playwright: 3/3 PASS.
 - Typecheck and production build: PASS.
 - Production dependency audit: 0 vulnerabilities.
@@ -208,7 +208,13 @@ Local exact rehearsal: 18 Stage 15 migrations + current seed (6 Users, 2 Session
 
 ## AH. CI exact-SHA evidence
 
-Pending first implementation commit and remote checks. CI has been updated to run 206 PostgreSQL tests, dedicated 16-test Stage 16 gate, dedicated PostgreSQL browser workflow, Stage 15→16 migration rehearsal, general typecheck/unit/build/browser and production dependency audit. Report verdict cannot become READY until all six checks succeed on the exact final SHA.
+Implementation commit `cc8ed7237b85c3cf569ea37fd98d2a3fc3469dcd` passed all six exact-head checks:
+
+- `Foundation PostgreSQL Gate` — SUCCESS twice (push and pull request), including 206 PostgreSQL tests, the dedicated 16-test Stage 16 gate, dedicated PostgreSQL browser workflow and Stage 15→16 migration rehearsal.
+- `Typecheck, Unit, Build and Browser` — SUCCESS twice (push and pull request), including the clean 73-test general browser suite.
+- `Production Dependency Audit` — SUCCESS twice (push and pull request), with zero production vulnerabilities.
+
+This report-only readiness commit must pass the same six exact-final-SHA checks before handoff; it does not alter runtime code or test evidence.
 
 ## AI. Remaining split-brain
 
