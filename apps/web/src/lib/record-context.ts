@@ -50,7 +50,7 @@ const assignmentActions = new Set([
   "reassign_assignment"
 ]);
 const systemActions = new Set(["login", "system", "system_event"]);
-const importExportActions = new Set(["import", "export", "validate_import"]);
+const importExportActions = new Set(["import", "export", "export_prepared", "validate_import"]);
 
 const timelineDecisionTitles = new Set([
   "family/nok verification completed",

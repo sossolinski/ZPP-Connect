@@ -23,7 +23,8 @@ export function ReportsPage() {
   async function download(type: string) {
     setError("");
     try {
-      await api.download(api.exportUrl(type, activeSession?.id));
+      if (!activeSession?.id) throw new Error("Select an Incident before creating an export.");
+      await api.downloadExport(type, activeSession.id);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Unable to create export.");
     }

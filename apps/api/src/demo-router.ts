@@ -108,6 +108,8 @@ import type { createPersistentNotificationService } from "./modules/notification
 import type { PrismaOperationalBriefingService } from "./modules/briefings/prisma-operational-briefing-service.js";
 import { createImportRouter } from "./modules/imports/import-router.js";
 import type { PrismaImportService } from "./modules/imports/prisma-import-service.js";
+import { createExportRouter } from "./modules/exports/export-router.js";
+import type { PrismaExportService } from "./modules/exports/prisma-export-service.js";
 import { hydrateReadOnlyProjection, mergeProjectionPage, syncProjectionRow } from "./modules/compatibility/read-only-projection.js";
 
 type Row = Record<string, any>;
@@ -1969,6 +1971,7 @@ export function createDemoRouter(options: {
   effectiveAccessAuthority?: IncidentPermissionAuthority;
   operationalBriefingService?: PrismaOperationalBriefingService;
   importService?: PrismaImportService;
+  exportService?: PrismaExportService;
   documentNotificationHook?: (record: Record<string, unknown>) => void;
   assignmentNotificationHook?: (record: Record<string, unknown>, command: string) => void;
   rosteringNotificationHook?: (record: Record<string, unknown>, command: string) => void;
@@ -2289,6 +2292,7 @@ export function createDemoRouter(options: {
   router.get("/config/profile", (_req, res) => res.json(defaultProfile));
   router.get("/dictionaries", (_req, res) => res.json(dictionaryRows()));
   if (options.importService) router.use(createImportRouter(options.importService, requireIncidentPermission));
+  if (options.exportService) router.use(createExportRouter(options.exportService, requireIncidentPermission));
   router.use(createIncidentRouter(incidentService, {
     requireIncidentPermission,
     effectiveIncidentIdsForPermission: effectiveAccessAuthority.effectiveIncidentIdsForPermission
@@ -3081,6 +3085,7 @@ export function createDemoRouter(options: {
     });
   }
 
+  if (!options.exportService) {
   const exportPermissions = (req: Request): Permission[] => {
     const byType: Record<string, Permission> = {
       "enquiry-log": "enquiry:read",
@@ -3168,6 +3173,7 @@ export function createDemoRouter(options: {
         : []
     });
   });
+  }
 
   router.get("/admin/users", requirePermission("admin:manage"), (req, res) => {
     const search = String(req.query.search ?? req.query.q ?? "").toLowerCase().trim();

@@ -316,19 +316,28 @@ export const api = {
   getImport: (id: string) => request<AnyRecord>(`/imports/${id}`),
   importRows: (id: string, query: AnyRecord = {}) => request<ApiList<AnyRecord>>(`/imports/${id}/rows${queryString(query)}`),
   confirmImport: (id: string) => request<AnyRecord>(`/imports/${id}/confirm`, { method: "POST", body: JSON.stringify({}) }),
-  exportUrl: (type: string, sessionId?: string) => `${API_URL}/exports/${type}${queryString({ sessionId })}`,
-  download: async (url: string) => {
-    const response = await fetch(url, { headers: authHeaders() });
-    if (!response.ok) throw new Error(response.statusText);
+  downloadExport: async (type: string, sessionId: string) => {
+    const response = await fetch(`${API_URL}/exports/${type}`, {
+      method: "POST",
+      headers: headers(),
+      body: JSON.stringify({ sessionId, operationId: crypto.randomUUID() })
+    });
+    if (!response.ok) {
+      const contentType = response.headers.get("content-type") ?? "";
+      const body = contentType.includes("application/json") ? await response.json().catch(() => null) : null;
+      throw new ApiRequestError(body?.error ?? response.statusText, response.status);
+    }
     const blob = await response.blob();
     const disposition = response.headers.get("content-disposition");
     const fileName = disposition?.match(/filename="([^"]+)"/)?.[1] ?? "zpp-connect-export";
+    const generationId = response.headers.get("x-export-generation-id");
     const objectUrl = URL.createObjectURL(blob);
     const link = document.createElement("a");
     link.href = objectUrl;
     link.download = fileName;
     link.click();
     URL.revokeObjectURL(objectUrl);
+    return { fileName, generationId };
   },
   adminUsers: (query?: AnyRecord) => request<ApiList<AnyRecord>>(`/admin/users${queryString(query)}`),
   adminUser: (id: string) => request<AnyRecord>(`/admin/users/${id}`),

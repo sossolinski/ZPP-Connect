@@ -94,6 +94,7 @@ model User {
   createdBriefingFacts            OperationalBriefingFact[]             @relation("OperationalBriefingFactCreatedBy")
   createdBriefingUnconfirmedItems OperationalBriefingUnconfirmedItem[]  @relation("OperationalBriefingUnconfirmedCreatedBy")
   createdBriefingNotes            OperationalBriefingCoordinationNote[] @relation("OperationalBriefingNoteCreatedBy")
+  preparedExportGenerations       ExportGeneration[]                    @relation("ExportGenerationPreparedBy")
 
   @@index([organizationId])
   @@index([status, displayName, id])
@@ -221,6 +222,7 @@ model Session {
   auditLogs             AuditLog[]
   notifications         Notification[]
   operationalBriefings  OperationalBriefing[]
+  exportGenerations     ExportGeneration[]
 
   @@index([mode, status])
 }
@@ -1609,6 +1611,33 @@ model ImportValidatedRow {
   @@unique([importBatchId, rowNumber])
   @@index([importBatchId, rowNumber])
   @@index([importBatchId, validationStatus, rowNumber])
+}
+
+model ExportGeneration {
+  id                 String   @id @default(uuid()) @db.Uuid
+  operationId        String   @unique @db.Uuid
+  commandFingerprint String
+  incidentId         String   @db.Uuid
+  exportType         String
+  format             String
+  schemaVersion      String
+  fileName           String
+  contentSha256      String
+  contentSizeBytes   BigInt
+  rowCount           Int
+  sectionCounts      Json
+  includedSections   Json
+  preparedById       String?  @db.Uuid
+  preparedAt         DateTime @default(now())
+  requestId          String?
+  status             String   @default("Prepared")
+  createdAt          DateTime @default(now())
+  incident           Session  @relation(fields: [incidentId], references: [id], onDelete: Cascade)
+  preparedBy         User?    @relation("ExportGenerationPreparedBy", fields: [preparedById], references: [id], onDelete: SetNull)
+
+  @@index([incidentId, preparedAt(sort: Desc), id])
+  @@index([incidentId, exportType, preparedAt(sort: Desc)])
+  @@index([preparedById, preparedAt(sort: Desc)])
 }
 
 model StoredFile {
