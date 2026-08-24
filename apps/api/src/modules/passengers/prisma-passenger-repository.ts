@@ -5,6 +5,7 @@ import type {
   PassengerActor,
   PassengerControlledField,
   PassengerCreateInput,
+  PassengerImportInput,
   PassengerRecord,
   PassengerSourceCorrection
 } from "./passenger-types.js";
@@ -63,6 +64,34 @@ function createData(input: PassengerCreateInput, operationalId: string, actorId:
 async function assertWritable(tx: Prisma.TransactionClient, incidentId: string) {
   const writable = await tx.session.count({ where: { id: incidentId, status: { notIn: ["Closed", "Archived"] } } });
   if (writable !== 1) throw new HttpError(409, "Passenger records in a closed incident are read-only");
+}
+
+export async function createPassengerImportRecords(
+  tx: Prisma.TransactionClient,
+  input: {
+    incidentId: string;
+    batchId: string;
+    records: PassengerImportInput["records"];
+    actorId: string;
+    importedAt?: Date;
+  }
+) {
+  const ids = await operationalIds(tx, input.records.length);
+  if (input.records.length === 0) return;
+  const importedAt = input.importedAt ?? new Date();
+  await tx.passengerRecord.createMany({
+    data: input.records.map((record, index) => ({
+      ...sourceData(record as PassengerCreateInput),
+      operationalId: ids[index]!,
+      sessionId: input.incidentId,
+      caseId: record.caseId,
+      notes: record.notes,
+      sourceBatchId: input.batchId,
+      sourceImportedAt: importedAt,
+      createdById: input.actorId,
+      updatedById: input.actorId
+    })) as Prisma.PassengerRecordCreateManyInput[]
+  });
 }
 
 async function audit(
@@ -281,8 +310,6 @@ export function createPrismaPassengerRepository(client: PrismaClient): Passenger
           await assertWritable(tx, context.incidentId);
           const existingBatch = await tx.importBatch.findFirst({ where: { id: input.batchId, sessionId: context.incidentId } });
           if (existingBatch) throw new HttpError(409, "Import batch has already been confirmed");
-          const ids = await operationalIds(tx, input.records.length);
-          const importedAt = new Date();
           const batchStatus = input.invalidRecords > 0 ? "Imported with errors" : "Imported";
           await tx.importBatch.create({
             data: {
@@ -299,21 +326,12 @@ export function createPrismaPassengerRepository(client: PrismaClient): Passenger
               createdById: context.actorId
             }
           });
-          if (input.records.length > 0) {
-            await tx.passengerRecord.createMany({
-              data: input.records.map((record, index) => ({
-                ...sourceData(record as PassengerCreateInput),
-                operationalId: ids[index]!,
-                sessionId: context.incidentId,
-                caseId: record.caseId,
-                notes: record.notes,
-                sourceBatchId: input.batchId,
-                sourceImportedAt: importedAt,
-                createdById: context.actorId,
-                updatedById: context.actorId
-              })) as Prisma.PassengerRecordCreateManyInput[]
-            });
-          }
+          await createPassengerImportRecords(tx, {
+            incidentId: context.incidentId,
+            batchId: input.batchId,
+            records: input.records,
+            actorId: context.actorId
+          });
           await tx.auditLog.create({
             data: {
               action: "import_passenger_manifest",

@@ -3,7 +3,7 @@ import { Prisma, type PrismaClient } from "@prisma/client";
 import { HttpError } from "../../errors.js";
 import type { FamilyRepository } from "./family-repository.js";
 import { normalizeEmail, normalizePhone } from "./family-service.js";
-import type { FamilyActor, FamilyClaimCorrection, FamilyClaimFacts, FamilyCreateInput, FamilyRecord } from "./family-types.js";
+import type { FamilyActor, FamilyClaimCorrection, FamilyClaimFacts, FamilyCreateInput, FamilyImportInput, FamilyRecord } from "./family-types.js";
 
 const familyInclude = {
   verificationDecisionBy: { select: { displayName: true } },
@@ -181,6 +181,31 @@ function createFamilyRow(input: FamilyCreateInput, operationalId: string, actorI
   } as Prisma.FamilyRecordUncheckedCreateInput;
 }
 
+export async function createFamilyImportRecords(
+  tx: Prisma.TransactionClient,
+  input: {
+    incidentId: string;
+    batchId: string;
+    records: FamilyImportInput["records"];
+    actorId: string;
+  }
+) {
+  const linkedPassengerIds = Array.from(new Set(input.records.map((item) => item.passengerRecordId).filter((id): id is string => Boolean(id))));
+  if (linkedPassengerIds.length) {
+    const validPassengerCount = await tx.passengerRecord.count({ where: { id: { in: linkedPassengerIds }, sessionId: input.incidentId } });
+    if (validPassengerCount !== linkedPassengerIds.length) throw new HttpError(409, "Every linked Passenger must belong to the import incident");
+  }
+  if (input.records.length === 0) return;
+  const ids = await operationalIds(tx, input.records.length);
+  const familyIds = input.records.map(() => randomUUID());
+  await tx.familyRecord.createMany({
+    data: input.records.map((item, index) => ({ id: familyIds[index]!, ...createFamilyRow({ ...item, sessionId: input.incidentId, source: "IMPORT" }, ids[index]!, input.actorId, input.batchId) })) as Prisma.FamilyRecordCreateManyInput[]
+  });
+  await tx.relationshipClaim.createMany({
+    data: input.records.map((item, index) => ({ id: randomUUID(), incidentId: input.incidentId, familyRecordId: familyIds[index]!, ...claimData(item), source: "IMPORT", claimedById: input.actorId })) as Prisma.RelationshipClaimCreateManyInput[]
+  });
+}
+
 export function createPrismaFamilyRepository(client: PrismaClient): FamilyRepository {
   return {
     kind: "postgres",
@@ -307,23 +332,14 @@ export function createPrismaFamilyRepository(client: PrismaClient): FamilyReposi
         await assertWritable(tx, context.incidentId);
         const existing = await tx.importBatch.findFirst({ where: { id: input.batchId, sessionId: context.incidentId } });
         if (existing) throw new HttpError(409, "Import batch has already been confirmed");
-        const ids = await operationalIds(tx, input.records.length);
         const status = input.invalidRecords > 0 ? "Imported with errors" : "Imported";
         await tx.importBatch.create({ data: { id: input.batchId, operationalId: `IMP-${new Date().getFullYear()}-${input.batchId.replaceAll("-", "").slice(0, 12).toUpperCase()}`, sessionId: context.incidentId, importType: "family", sourceFilename: input.sourceFilename, status, totalRecords: input.totalRecords, validRecords: input.records.length, invalidRecords: input.invalidRecords, errors: input.errors as Prisma.InputJsonValue, createdById: context.actorId } });
-        const linkedPassengerIds = Array.from(new Set(input.records.map((item) => item.passengerRecordId).filter((id): id is string => Boolean(id))));
-        if (linkedPassengerIds.length) {
-          const validPassengerCount = await tx.passengerRecord.count({ where: { id: { in: linkedPassengerIds }, sessionId: context.incidentId } });
-          if (validPassengerCount !== linkedPassengerIds.length) throw new HttpError(409, "Every linked Passenger must belong to the import incident");
-        }
-        if (input.records.length) {
-          const familyIds = input.records.map(() => randomUUID());
-          await tx.familyRecord.createMany({
-            data: input.records.map((item, index) => ({ id: familyIds[index]!, ...createFamilyRow({ ...item, sessionId: context.incidentId, source: "IMPORT" }, ids[index]!, context.actorId, input.batchId) })) as Prisma.FamilyRecordCreateManyInput[]
-          });
-          await tx.relationshipClaim.createMany({
-            data: input.records.map((item, index) => ({ id: randomUUID(), incidentId: context.incidentId, familyRecordId: familyIds[index]!, ...claimData(item), source: "IMPORT", claimedById: context.actorId })) as Prisma.RelationshipClaimCreateManyInput[]
-          });
-        }
+        await createFamilyImportRecords(tx, {
+          incidentId: context.incidentId,
+          batchId: input.batchId,
+          records: input.records,
+          actorId: context.actorId
+        });
         await tx.auditLog.create({ data: { action: "import_family_records", entityType: "importBatch", entityId: input.batchId, sessionId: context.incidentId, actorId: context.actorId, actorEmail: actor.email, summary: `Imported Family/NOK records: ${input.records.length}/${input.totalRecords} valid`, metadata: metadata({ sourceFilename: input.sourceFilename, totalRecords: input.totalRecords, validRecords: input.records.length, invalidRecords: input.invalidRecords, requestId: actor.requestId }) } });
         await tx.caseTimelineEvent.create({ data: { sessionId: context.incidentId, eventType: "family_import", entityType: "importBatch", entityId: input.batchId, title: `Family/NOK records imported (${input.records.length} records)`, metadata: { totalRecords: input.totalRecords, validRecords: input.records.length }, createdById: context.actorId } });
         return { batchId: input.batchId, status, totalRecords: input.totalRecords, validRecords: input.records.length, invalidRecords: input.invalidRecords };

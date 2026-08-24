@@ -17,6 +17,7 @@ export function FilesPage() {
   const [files, setFiles] = useState<AnyRecord[]>([]);
   const [importType, setImportType] = useState("manifest");
   const [selectedFile, setSelectedFile] = useState<File>();
+  const [validationOperationId, setValidationOperationId] = useState("");
   const [pendingBatch, setPendingBatch] = useState<AnyRecord>();
   const [uploading, setUploading] = useState(false);
   const [confirmingId, setConfirmingId] = useState("");
@@ -26,6 +27,8 @@ export function FilesPage() {
   const [confirmTarget, setConfirmTarget] = useState<AnyRecord>();
 
   const batchErrors = ((pendingBatch?.errors ?? pendingBatch?.importErrors ?? []) as Array<{ row: number; error: string }>).slice(0, 8);
+  const previewRows = ((pendingBatch?.previewRows ?? []) as Array<{ row: number; status: string; values: AnyRecord; error?: string }>).slice(0, 10);
+  const storageKey = activeSession ? `zpp-import-batch:${activeSession.id}` : "";
 
   async function load() {
     if (!activeSession) {
@@ -47,22 +50,33 @@ export function FilesPage() {
 
   useEffect(() => {
     setSelectedFile(undefined);
+    setValidationOperationId("");
     setPendingBatch(undefined);
     setFileInputKey((current) => current + 1);
     void load();
+    if (storageKey) {
+      const batchId = window.localStorage.getItem(storageKey);
+      if (batchId) {
+        void api.getImport(batchId)
+          .then((batch) => setPendingBatch(batch))
+          .catch(() => window.localStorage.removeItem(storageKey));
+      }
+    }
   }, [activeSession?.id]);
 
   async function uploadFile() {
-    if (!activeSession || !selectedFile || !can("import:create") || !isSessionWriteContextCurrent(activeSession, activeSession.id) || !(await verifyActiveSessionWrite(activeSession.id))) {
+    if (!activeSession || !selectedFile || !validationOperationId || !can("import:create") || !isSessionWriteContextCurrent(activeSession, activeSession.id) || !(await verifyActiveSessionWrite(activeSession.id))) {
       setError("Select an open session before uploading an import file.");
       return;
     }
     setUploading(true);
     setError("");
     try {
-      const batch = await api.importFile(importType, selectedFile, activeSession.id);
+      const batch = await api.importFile(importType, selectedFile, activeSession.id, validationOperationId);
       setPendingBatch(batch);
+      window.localStorage.setItem(`zpp-import-batch:${activeSession.id}`, String(batch.id));
       setSelectedFile(undefined);
+      setValidationOperationId("");
       setFileInputKey((current) => current + 1);
       await load();
     } catch (err) {
@@ -82,6 +96,7 @@ export function FilesPage() {
     try {
       const batch = await api.confirmImport(batchId);
       setPendingBatch(batch);
+      if (sessionId) window.localStorage.setItem(`zpp-import-batch:${sessionId}`, String(batch.id));
       setConfirmTarget(undefined);
       await load();
     } catch (err) {
@@ -150,7 +165,10 @@ export function FilesPage() {
         <CardHeader title="Import Batch" />
         <div className="grid gap-3 p-4">
           <Field label="Import type">
-            <Select value={importType} disabled={!activeSessionWritable} onChange={(event) => setImportType(event.target.value)}>
+            <Select value={importType} disabled={!activeSessionWritable} onChange={(event) => {
+              setImportType(event.target.value);
+              if (selectedFile) setValidationOperationId(crypto.randomUUID());
+            }}>
               {importTypes.map((type) => (
                 <option key={type.value} value={type.value}>
                   {type.label}
@@ -165,7 +183,11 @@ export function FilesPage() {
               type="file"
               disabled={!activeSessionWritable}
               accept=".csv,text/csv"
-              onChange={(event) => setSelectedFile(event.target.files?.[0])}
+              onChange={(event) => {
+                const file = event.target.files?.[0];
+                setSelectedFile(file);
+                setValidationOperationId(file ? crypto.randomUUID() : "");
+              }}
             />
           </Field>
           <Button icon={Upload} variant="primary" disabled={!activeSessionWritable || !can("import:create") || !selectedFile || uploading} onClick={uploadFile}>
@@ -191,6 +213,17 @@ export function FilesPage() {
                   ))}
                 </div>
               ) : null}
+              {previewRows.length ? (
+                <div className="grid gap-1.5" aria-label="Import preview">
+                  <p className="text-xs font-black uppercase tracking-wide text-slate-500">Preview</p>
+                  {previewRows.map((item) => (
+                    <div key={item.row} className="rounded-md border border-slate-200 bg-white px-2 py-1.5 text-xs text-slate-700">
+                      <span className="font-black">Row {item.row} · {item.status}</span>
+                      <span className="ml-2">{Object.entries(item.values ?? {}).slice(0, 3).map(([key, value]) => `${key}: ${String(value ?? "")}`).join(" · ")}</span>
+                    </div>
+                  ))}
+                </div>
+              ) : null}
               {isConfirmable(pendingBatch) ? (
                 <Button icon={CheckCircle2} variant="success" disabled={!activeSessionWritable || !can("import:create") || confirmingId === pendingBatch.id} onClick={() => setConfirmTarget(pendingBatch)}>
                   {confirmingId === pendingBatch.id ? "Confirming" : "Confirm import"}
@@ -204,7 +237,7 @@ export function FilesPage() {
         <ConfirmDialog
           title="Confirm import execution?"
           recordLabel={confirmTarget.operationalId ?? confirmTarget.sourceFilename ?? confirmTarget.fileName ?? "Import batch"}
-          description={Number(confirmTarget.invalidRecords ?? 0) > 0 ? `${confirmTarget.validRecords ?? 0} valid rows will be imported and ${confirmTarget.invalidRecords} invalid rows will be skipped. Confirmation cannot be repeated for this batch.` : `${confirmTarget.validRecords ?? confirmTarget.totalRecords ?? 0} validated rows will be imported. Confirmation cannot be repeated for this batch.`}
+          description={Number(confirmTarget.invalidRecords ?? 0) > 0 ? `${confirmTarget.validRecords ?? 0} valid rows will be imported and ${confirmTarget.invalidRecords} invalid rows will be skipped. A safe retry returns the same final result.` : `${confirmTarget.validRecords ?? confirmTarget.totalRecords ?? 0} validated rows will be imported. A safe retry returns the same final result.`}
           confirmLabel="Confirm import"
           confirmVariant="success"
           confirmIcon={CheckCircle2}

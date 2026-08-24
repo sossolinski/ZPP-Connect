@@ -1563,21 +1563,52 @@ model CaseTimelineEvent {
 }
 
 model ImportBatch {
-  id               String            @id @default(uuid()) @db.Uuid
-  operationalId    String            @unique
-  sessionId        String?           @db.Uuid
-  importType       String
-  sourceFilename   String?
-  status           String            @default("Validated")
-  totalRecords     Int               @default(0)
-  validRecords     Int               @default(0)
-  invalidRecords   Int               @default(0)
-  errors           Json?
-  createdById      String?           @db.Uuid
-  createdAt        DateTime          @default(now())
-  session          Session?          @relation(fields: [sessionId], references: [id], onDelete: SetNull)
-  passengerRecords PassengerRecord[]
-  familyRecords    FamilyRecord[]
+  id                      String               @id @default(uuid()) @db.Uuid
+  operationalId           String               @unique
+  sessionId               String?              @db.Uuid
+  importType              String
+  sourceFilename          String?
+  sourceMimeType          String?
+  sourceSizeBytes         BigInt?
+  sourceSha256            String?
+  status                  String               @default("Validated")
+  totalRecords            Int                  @default(0)
+  validRecords            Int                  @default(0)
+  invalidRecords          Int                  @default(0)
+  errors                  Json?
+  version                 Int                  @default(1)
+  validationOperationId   String?              @unique @db.Uuid
+  validationFingerprint   String?
+  validatedAt             DateTime?
+  validatedById           String?              @db.Uuid
+  confirmedAt             DateTime?
+  confirmedById           String?              @db.Uuid
+  createdById             String?              @db.Uuid
+  createdAt               DateTime             @default(now())
+  updatedAt               DateTime             @updatedAt
+  session                 Session?             @relation(fields: [sessionId], references: [id], onDelete: SetNull)
+  validatedRows           ImportValidatedRow[]
+  passengerRecords        PassengerRecord[]
+  familyRecords           FamilyRecord[]
+
+  @@index([sessionId, createdAt])
+  @@index([sessionId, importType, status, createdAt])
+}
+
+model ImportValidatedRow {
+  id                String      @id @default(uuid()) @db.Uuid
+  importBatchId     String      @db.Uuid
+  rowNumber         Int
+  validationStatus  String
+  normalizedPayload Json
+  errorCode         String?
+  errorMessage      String?
+  createdAt         DateTime    @default(now())
+  importBatch       ImportBatch @relation(fields: [importBatchId], references: [id], onDelete: Cascade)
+
+  @@unique([importBatchId, rowNumber])
+  @@index([importBatchId, rowNumber])
+  @@index([importBatchId, validationStatus, rowNumber])
 }
 
 model StoredFile {

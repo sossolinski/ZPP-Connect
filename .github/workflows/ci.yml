@@ -90,13 +90,21 @@ jobs:
           kill "$api_pid"
           wait "$api_pid" || true
 
-      - name: PostgreSQL Foundation Stage 1 through 15 integration tests (zero skipped)
+      - name: PostgreSQL Foundation Stage 1 through 16 integration tests (zero skipped)
         run: npm run test:postgres
 
-      - name: Dedicated Foundation Stage 15 PostgreSQL tests
-        run: npm exec -w @zpp/api vitest run -- --no-file-parallelism --maxWorkers=1 src/foundation-stage15-postgres.integration.test.ts
+      - name: Dedicated Foundation Stage 16 PostgreSQL tests
+        run: npm exec -w @zpp/api vitest run -- --no-file-parallelism --maxWorkers=1 src/foundation-stage16-postgres.integration.test.ts
 
-      - name: Rehearse legacy Foundation and Stage 14 to 15 upgrade
+      - name: Install Chromium for Stage 16 workflow coverage
+        run: npx playwright install --with-deps chromium
+
+      - name: Stage 16 PostgreSQL browser workflow
+        env:
+          PLAYWRIGHT_PERSISTENCE_MODE: postgres
+        run: npx playwright test tests/smoke/zz-stage16-imports.spec.ts
+
+      - name: Rehearse legacy Foundation and Stage 15 to 16 upgrade
         env:
           PGPASSWORD: zpp
           BACKFILL_DATABASE_URL: postgresql://zpp:zpp@127.0.0.1:5432/zpp_backfill_test?schema=public
@@ -305,6 +313,24 @@ jobs:
           test "$briefing_tables" = "6"
           historical_data_retained=$(psql "$BACKFILL_PSQL_URL" --tuples-only --no-align --command='SELECT count(*) FROM "Session" WHERE "id" = '\''20000000-0000-4000-8000-000000000001'\'';')
           test "$historical_data_retained" = "1"
+          psql "$BACKFILL_PSQL_URL" --set=ON_ERROR_STOP=1 <<'SQL'
+          INSERT INTO "ImportBatch" (
+            "id", "operationalId", "sessionId", "importType", "sourceFilename", "status",
+            "totalRecords", "validRecords", "invalidRecords", "errors", "createdById"
+          ) VALUES (
+            '90000000-0000-4000-8000-000000000001', 'IMP-BACKFILL-001',
+            '20000000-0000-4000-8000-000000000001', 'manifest', 'historical-manifest.csv', 'Imported',
+            1, 1, 0, '[]'::jsonb, '10000000-0000-4000-8000-000000000001'
+          );
+          SQL
+          cp -R apps/api/prisma/migrations/20260824090000_imports_persistence "$migration_workspace/migrations/"
+          DATABASE_URL="$BACKFILL_DATABASE_URL" npx prisma migrate deploy --schema "$migration_workspace/schema.prisma"
+          stage16_migration_count=$(psql "$BACKFILL_PSQL_URL" --tuples-only --no-align --command='SELECT count(*) FROM "_prisma_migrations" WHERE finished_at IS NOT NULL AND rolled_back_at IS NULL;')
+          test "$stage16_migration_count" = "19"
+          historical_import_retained=$(psql "$BACKFILL_PSQL_URL" --tuples-only --no-align --command='SELECT count(*) FROM "ImportBatch" WHERE "id" = '\''90000000-0000-4000-8000-000000000001'\'' AND "status" = '\''Imported'\'' AND "validationOperationId" IS NULL AND "sourceSha256" IS NULL AND "validatedAt" IS NULL AND "confirmedAt" IS NULL;')
+          test "$historical_import_retained" = "1"
+          import_row_table=$(psql "$BACKFILL_PSQL_URL" --tuples-only --no-align --command='SELECT count(*) FROM information_schema.tables WHERE table_schema = '\''public'\'' AND table_name = '\''ImportValidatedRow'\'';')
+          test "$import_row_table" = "1"
 
   quality:
     name: Typecheck, Unit, Build and Browser

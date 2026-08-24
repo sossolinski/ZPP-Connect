@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { PrismaClient } from "@prisma/client";
 import request from "supertest";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
@@ -248,6 +249,7 @@ postgresDescribe("Foundation Stage 3 PostgreSQL Passenger persistence and source
       .post("/api/imports/manifest")
       .set(as("coordinator@lot.pl"))
       .field("sessionId", incidentA)
+      .field("operationId", randomUUID())
       .attach("file", Buffer.from(csv), { filename: "stage3-manifest.csv", contentType: "text/csv" });
     expect(validated.status).toBe(201);
     expect(validated.body).toMatchObject({ totalRecords: 1_000, validRecords: 1_000, invalidRecords: 0 });
