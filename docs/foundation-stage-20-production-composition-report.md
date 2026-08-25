@@ -1,8 +1,8 @@
 # Foundation Stage 20 — Production Composition Consolidation
 
-Status: **NOT READY — exact-final-SHA CI and upgrade-rehearsal evidence pending.**
+Status: **READY FOR NEXT FOUNDATION SLICE.**
 
-This report records the Stage 20 route/authority audit, implementation, and evidence. Stage 20 adds no migration; the expected migration count remains **21**.
+This report records the Stage 20 route/authority audit, implementation, and evidence. The complete required workflow succeeded on exact implementation SHA `faac7e8437f6a3d5f0db5954e6d4987d6f707961`. This report-only verdict commit must receive the same complete exact-final-SHA gate before handoff. Stage 20 adds no migration; the expected migration count remains **21**. Stage 21 has not been implemented.
 
 ## A. Stage 19 merge verification and workspace isolation
 
@@ -168,11 +168,15 @@ The dedicated Stage 20 suite creates unique durable sentinels for Incident, Requ
 - Production memory-mode startup: rejected before listening with `PERSISTENCE_MODE=postgres is required when NODE_ENV=production`.
 - Production dependency audit: **0 vulnerabilities**.
 - `git diff --check`: passed.
-- Exact upgrade rehearsal and exact-final-SHA CI: pending.
+- Draft PR #17 exact implementation-SHA CI: all **six checks passed**—two Foundation PostgreSQL Gates, two Typecheck/Unit/Build/Browser gates, and two Production Dependency Audits.
+- The exact implementation-SHA PostgreSQL gates completed the Stage 18→20 unchanged-21-migration upgrade rehearsal and ran the Stage 20 provenance suite after Stage 19.
+- This report-only closure commit changes no product code and is subject to the same complete exact-final-SHA gate before handoff.
 
 ## L. CI/rehearsal changes
 
 The ordered PostgreSQL command now includes Stage 20. CI adds a dedicated Stage 20 run and extends the unchanged 21-migration rehearsal database through the Stage 20 provenance suite after Stage 19. No schema or migration file changed.
+
+On exact implementation SHA `faac7e8437f6a3d5f0db5954e6d4987d6f707961`, both PostgreSQL jobs passed that rehearsal unchanged. Representative Identity, Member, Group, Training, Documents, Availability/Rostering, Incident, Import, Briefing, ExportGeneration, and Exercise state survived schema redeployment; Stage 19 and Stage 20 then passed on the same database without compatibility hydration.
 
 ## M. Deliberately deferred debt
 
@@ -182,4 +186,4 @@ The ordered PostgreSQL command now includes Stage 20. CI adds a dedicated Stage 
 
 ## Verdict
 
-**NOT READY** until the upgrade rehearsal and exact-final-SHA CI gates pass. All local composition, PostgreSQL, startup, browser, build, audit, and ownership gates are green.
+**READY FOR NEXT FOUNDATION SLICE**
