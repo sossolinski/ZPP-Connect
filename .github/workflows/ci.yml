@@ -92,13 +92,16 @@ jobs:
           kill "$api_pid"
           wait "$api_pid" || true
 
-      - name: PostgreSQL Foundation Stage 1 through 18 integration tests (zero skipped)
+      - name: PostgreSQL Foundation Stage 1 through 19 integration tests (zero skipped)
         run: npm run test:postgres
 
       - name: Dedicated Foundation Stage 18 PostgreSQL tests
         run: npm exec -w @zpp/api vitest run -- --no-file-parallelism --maxWorkers=1 src/foundation-stage18-postgres.integration.test.ts
 
-      - name: Install Chromium for Stage 16 through 18 workflow coverage
+      - name: Dedicated Foundation Stage 19 PostgreSQL tests
+        run: npm exec -w @zpp/api vitest run -- --no-file-parallelism --maxWorkers=1 src/foundation-stage19-postgres.integration.test.ts
+
+      - name: Install Chromium for Stage 16 through 19 workflow coverage
         run: npx playwright install --with-deps chromium
 
       - name: Stage 16 PostgreSQL browser workflow
@@ -116,7 +119,12 @@ jobs:
           PLAYWRIGHT_PERSISTENCE_MODE: postgres
         run: npx playwright test tests/smoke/zz-stage18-exercise.spec.ts
 
-      - name: Rehearse exact Stage 17 to Stage 18 upgrade
+      - name: Stage 19 PostgreSQL browser workflow
+        env:
+          PLAYWRIGHT_PERSISTENCE_MODE: postgres
+        run: npx playwright test tests/smoke/zz-stage19-readiness.spec.ts
+
+      - name: Rehearse exact Stage 18 to Stage 19 no-migration upgrade
         env:
           PGPASSWORD: zpp
           BACKFILL_DATABASE_URL: postgresql://zpp:zpp@127.0.0.1:5432/zpp_backfill_test?schema=public
@@ -392,6 +400,19 @@ jobs:
           test "$(psql "$BACKFILL_PSQL_URL" --tuples-only --no-align --command='SELECT count(*) FROM "ExportGeneration";')" = "$pre_stage18_exports"
           test "$(psql "$BACKFILL_PSQL_URL" --tuples-only --no-align --command='SELECT count(*) FROM "ExportGeneration" WHERE "id" = '\''a0000000-0000-4000-8000-000000000001'\'' AND "contentSha256" = repeat('\''b'\'', 64);')" = "1"
           TEST_DATABASE_URL="$BACKFILL_DATABASE_URL" DATABASE_URL="$BACKFILL_DATABASE_URL" npm exec -w @zpp/api vitest run -- --no-file-parallelism --maxWorkers=1 src/foundation-stage18-postgres.integration.test.ts
+          pre_stage19_users=$(psql "$BACKFILL_PSQL_URL" --tuples-only --no-align --command='SELECT count(*) FROM "User";')
+          pre_stage19_members=$(psql "$BACKFILL_PSQL_URL" --tuples-only --no-align --command='SELECT count(*) FROM "MemberProfile";')
+          pre_stage19_groups=$(psql "$BACKFILL_PSQL_URL" --tuples-only --no-align --command='SELECT count(*) FROM "OperationalGroup";')
+          pre_stage19_training=$(psql "$BACKFILL_PSQL_URL" --tuples-only --no-align --command='SELECT count(*) FROM "MemberTrainingRecord";')
+          pre_stage19_documents=$(psql "$BACKFILL_PSQL_URL" --tuples-only --no-align --command='SELECT count(*) FROM "DocumentAcknowledgement";')
+          DATABASE_URL="$BACKFILL_DATABASE_URL" npx prisma migrate deploy --schema "$migration_workspace/schema.prisma"
+          test "$(psql "$BACKFILL_PSQL_URL" --tuples-only --no-align --command='SELECT count(*) FROM "_prisma_migrations" WHERE finished_at IS NOT NULL AND rolled_back_at IS NULL;')" = "21"
+          test "$(psql "$BACKFILL_PSQL_URL" --tuples-only --no-align --command='SELECT count(*) FROM "User";')" = "$pre_stage19_users"
+          test "$(psql "$BACKFILL_PSQL_URL" --tuples-only --no-align --command='SELECT count(*) FROM "MemberProfile";')" = "$pre_stage19_members"
+          test "$(psql "$BACKFILL_PSQL_URL" --tuples-only --no-align --command='SELECT count(*) FROM "OperationalGroup";')" = "$pre_stage19_groups"
+          test "$(psql "$BACKFILL_PSQL_URL" --tuples-only --no-align --command='SELECT count(*) FROM "MemberTrainingRecord";')" = "$pre_stage19_training"
+          test "$(psql "$BACKFILL_PSQL_URL" --tuples-only --no-align --command='SELECT count(*) FROM "DocumentAcknowledgement";')" = "$pre_stage19_documents"
+          TEST_DATABASE_URL="$BACKFILL_DATABASE_URL" DATABASE_URL="$BACKFILL_DATABASE_URL" npm exec -w @zpp/api vitest run -- --no-file-parallelism --maxWorkers=1 src/foundation-stage19-postgres.integration.test.ts
 
   quality:
     name: Typecheck, Unit, Build and Browser

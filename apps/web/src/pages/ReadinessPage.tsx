@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import { RefreshCw, X } from "lucide-react";
 import { DialogSurface } from "../components/DialogSurface";
@@ -199,7 +199,7 @@ function MemberTable({
         </thead>
         <tbody className="divide-y divide-border bg-card">
           {members.map((item) => {
-            const primary = item.blockers?.[0] ?? item.warnings?.[0] ?? null;
+            const primary = item.primaryIssue ?? item.blockers?.[0] ?? item.warnings?.[0] ?? null;
             return (
               <tr key={item.member.id} className="hover:bg-muted">
                 <td className="px-3 py-3">
@@ -208,7 +208,7 @@ function MemberTable({
                 </td>
                 <td className="px-3 py-3"><StatusPill status={item.overallStatus} /></td>
                 <td className="px-3 py-3 text-sm font-semibold text-muted-foreground">
-                  {item.blockers.length} blockers · {item.warnings.length} warnings
+                  {item.blockerCount ?? item.blockers?.length ?? 0} blockers · {item.warningCount ?? item.warnings?.length ?? 0} warnings
                 </td>
                 <td className="px-3 py-3">
                   {primary ? (
@@ -230,7 +230,7 @@ function MemberTable({
   );
 }
 
-function ReadinessDrawer({ assessment, onClose }: { assessment: Assessment; onClose: () => void }) {
+function ReadinessDrawer({ assessment, loading, error, onClose }: { assessment: Assessment; loading?: boolean; error?: string; onClose: () => void }) {
   return (
     <DialogSurface
       title={`${assessment.member.displayName} readiness`}
@@ -247,6 +247,9 @@ function ReadinessDrawer({ assessment, onClose }: { assessment: Assessment; onCl
         </button>
       </div>
       <div className="scrollbar-soft flex-1 overflow-y-auto p-5">
+        {loading ? <Loading label="Loading readiness detail" /> : null}
+        {error ? <AlertBox>{error}</AlertBox> : null}
+        {!loading && !error ? <>
         <div className="mb-4 flex flex-wrap items-center gap-2">
           <StatusPill status={assessment.overallStatus} />
           <span className="text-sm font-semibold text-muted-foreground">Calculated {formatDateTime(assessment.calculatedAt)}</span>
@@ -260,6 +263,7 @@ function ReadinessDrawer({ assessment, onClose }: { assessment: Assessment; onCl
             <NextActions actions={assessment.nextActions ?? []} />
           </div>
         </div>
+        </> : null}
       </div>
     </DialogSurface>
   );
@@ -275,38 +279,91 @@ export function ReadinessPage() {
   const [members, setMembers] = useState<Assessment[]>([]);
   const [groups, setGroups] = useState<any[]>([]);
   const [selected, setSelected] = useState<Assessment | null>(null);
+  const [selectedDetail, setSelectedDetail] = useState<Assessment | null>(null);
+  const [detailLoading, setDetailLoading] = useState(false);
+  const [detailError, setDetailError] = useState("");
   const [statusFilter, setStatusFilter] = useState("");
   const [groupFilter, setGroupFilter] = useState("");
+  const [groupSearch, setGroupSearch] = useState("");
   const [search, setSearch] = useState("");
+  const [offset, setOffset] = useState(0);
+  const [total, setTotal] = useState(0);
+  const [groupOffset, setGroupOffset] = useState(0);
+  const [groupTotal, setGroupTotal] = useState(0);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  const loadGeneration = useRef(0);
+  const detailGeneration = useRef(0);
+  const pageSize = 50;
+  const groupPageSize = 50;
 
-  const query = useMemo(() => ({ status: statusFilter, groupId: groupFilter, search }), [groupFilter, search, statusFilter]);
+  const query = useMemo(() => ({ status: statusFilter, groupId: groupFilter, search, limit: pageSize, offset }), [groupFilter, offset, search, statusFilter]);
 
   const load = useCallback(async () => {
+    const generation = ++loadGeneration.current;
+    const controller = new AbortController();
     setLoading(true);
     setError("");
     try {
       const [nextPersonal, nextSummary, nextMembers, nextGroups] = await Promise.all([
-        canOwn ? api.readinessMe() : Promise.resolve(null),
-        canSummary ? api.readinessSummary() : Promise.resolve(null),
-        canManage ? api.readinessMembers(query) : Promise.resolve({ data: [] }),
-        canManage ? api.readinessGroups() : Promise.resolve({ data: [] })
+        canOwn ? api.readinessMeRequest(undefined, controller.signal) : Promise.resolve(null),
+        canSummary ? api.readinessSummaryRequest(undefined, controller.signal) : Promise.resolve(null),
+        canManage ? api.readinessMembersPage(query, controller.signal) : Promise.resolve({ total: 0, data: [] }),
+        canManage ? api.readinessGroupsPage({ limit: groupPageSize, offset: groupOffset, search: groupSearch, optionsOnly: true }, controller.signal) : Promise.resolve({ total: 0, data: [] })
       ]);
+      if (generation !== loadGeneration.current) return;
       setPersonal(nextPersonal);
       setSummary(nextSummary);
       setMembers(nextMembers?.data ?? []);
+      setTotal(nextMembers?.total ?? 0);
       setGroups(nextGroups?.data ?? []);
+      setGroupTotal(nextGroups?.total ?? 0);
     } catch (loadError) {
+      if (generation !== loadGeneration.current || (loadError instanceof DOMException && loadError.name === "AbortError")) return;
       setError(loadError instanceof Error ? loadError.message : "Readiness could not be loaded.");
     } finally {
-      setLoading(false);
+      if (generation === loadGeneration.current) setLoading(false);
     }
-  }, [canManage, canOwn, canSummary, query]);
+    return () => controller.abort();
+  }, [canManage, canOwn, canSummary, groupOffset, groupSearch, query]);
 
   useEffect(() => {
     void load();
   }, [load]);
+
+  useEffect(() => {
+    setOffset(0);
+  }, [groupFilter, search, statusFilter]);
+
+  useEffect(() => {
+    setGroupOffset(0);
+  }, [groupSearch]);
+
+  const openMember = useCallback(async (row: Assessment) => {
+    const generation = ++detailGeneration.current;
+    const controller = new AbortController();
+    setSelected(row);
+    setSelectedDetail(null);
+    setDetailError("");
+    setDetailLoading(true);
+    try {
+      const detail = await api.readinessMemberRequest(row.member.id, undefined, controller.signal);
+      if (generation === detailGeneration.current) setSelectedDetail(detail);
+    } catch (nextError) {
+      if (generation === detailGeneration.current && !(nextError instanceof DOMException && nextError.name === "AbortError")) {
+        setDetailError(nextError instanceof Error ? nextError.message : "Readiness detail could not be loaded.");
+      }
+    } finally {
+      if (generation === detailGeneration.current) setDetailLoading(false);
+    }
+  }, []);
+
+  const closeMember = () => {
+    detailGeneration.current += 1;
+    setSelected(null);
+    setSelectedDetail(null);
+    setDetailError("");
+  };
 
   const groupOptions = groups.map((item) => item.group).filter(Boolean);
   const summaryStatusCounts = summary?.byStatus ?? {};
@@ -364,23 +421,40 @@ export function ReadinessPage() {
                   </div>
                   <div>
                     <label className="mb-1 block text-sm font-bold text-muted-foreground" htmlFor="readiness-group">Group</label>
+                    <Input className="mb-2" value={groupSearch} onChange={(event) => setGroupSearch(event.target.value)} placeholder="Find group" aria-label="Find readiness group" />
                     <Select id="readiness-group" value={groupFilter} onChange={(event) => setGroupFilter(event.target.value)}>
                       <option value="">All groups</option>
                       {groupOptions.map((group) => <option key={group.id} value={group.id}>{group.name}</option>)}
                     </Select>
                   </div>
                   <div className="flex items-end">
-                    <Button onClick={() => { setSearch(""); setStatusFilter(""); setGroupFilter(""); }}>Clear</Button>
+                    <Button onClick={() => { setSearch(""); setStatusFilter(""); setGroupFilter(""); setGroupSearch(""); }}>Clear</Button>
                   </div>
                 </div>
-                <MemberTable members={members} onSelect={setSelected} />
+                {groupTotal > groupPageSize ? (
+                  <div className="flex flex-wrap items-center justify-between gap-2 text-sm font-semibold text-muted-foreground">
+                    <span>Groups {groupOffset + 1}–{Math.min(groupOffset + groups.length, groupTotal)} of {groupTotal}</span>
+                    <div className="flex gap-2">
+                      <Button size="sm" disabled={groupOffset === 0} onClick={() => setGroupOffset(Math.max(0, groupOffset - groupPageSize))}>Previous groups</Button>
+                      <Button size="sm" disabled={groupOffset + groups.length >= groupTotal} onClick={() => setGroupOffset(groupOffset + groupPageSize)}>Next groups</Button>
+                    </div>
+                  </div>
+                ) : null}
+                <MemberTable members={members} onSelect={(row) => void openMember(row)} />
+                <div className="flex flex-wrap items-center justify-between gap-2 text-sm font-semibold text-muted-foreground">
+                  <span>{total ? `Members ${offset + 1}–${Math.min(offset + members.length, total)} of ${total}` : "No members"}</span>
+                  <div className="flex gap-2">
+                    <Button size="sm" disabled={offset === 0} onClick={() => setOffset(Math.max(0, offset - pageSize))}>Previous</Button>
+                    <Button size="sm" disabled={offset + members.length >= total} onClick={() => setOffset(offset + pageSize)}>Next</Button>
+                  </div>
+                </div>
               </div>
             </Card>
           ) : null}
         </div>
       )}
 
-      {selected ? <ReadinessDrawer assessment={selected} onClose={() => setSelected(null)} /> : null}
+      {selected ? <ReadinessDrawer assessment={selectedDetail ?? selected} loading={detailLoading} error={detailError} onClose={closeMember} /> : null}
     </>
   );
 }

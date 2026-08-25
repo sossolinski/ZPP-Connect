@@ -132,12 +132,13 @@ function readinessTone(status: ReadinessStatus): BadgeTone {
 }
 
 function normalizeReadiness(input: Record<string, any>): MemberReadiness {
+  const primary = input.primaryIssue && typeof input.primaryIssue === "object" ? input.primaryIssue : null;
   return {
     member: input.member,
     calculatedAt: typeof input.calculatedAt === "string" ? input.calculatedAt : undefined,
     overallStatus: normalizeReadinessStatus(input.overallStatus),
-    blockers: Array.isArray(input.blockers) ? input.blockers : [],
-    warnings: Array.isArray(input.warnings) ? input.warnings : []
+    blockers: Array.isArray(input.blockers) ? input.blockers : primary?.severity === "blocker" ? [primary] : [],
+    warnings: Array.isArray(input.warnings) ? input.warnings : primary?.severity === "warning" ? [primary] : []
   };
 }
 
@@ -310,8 +311,7 @@ export function VolunteersPage() {
     setLoadError("");
     setReadinessError("");
     try {
-      const [membersResponse, readinessResponse] = await Promise.all([
-        api.memberProfilesPage({
+      const membersResponse = await api.memberProfilesPage({
           search: query || undefined,
           pool: poolFilter === "all" ? undefined : poolFilter,
           status: statusFilter === "all" ? undefined : statusFilter,
@@ -320,14 +320,14 @@ export function VolunteersPage() {
           sortDirection: "asc",
           limit: pageSize,
           offset: (page - 1) * pageSize
-        }),
-        canReadOrgReadiness
-          ? api.readinessMembers(undefined, { pageLimit: 200 }).catch((error) => {
+        });
+      const memberProfileIds = membersResponse.data.map((member) => String(member.id)).filter(Boolean);
+      const readinessResponse = canReadOrgReadiness && memberProfileIds.length
+          ? await api.readinessMembersPage({ memberProfileIds: memberProfileIds.join(","), limit: memberProfileIds.length, offset: 0 }).catch((error) => {
               setReadinessError(error instanceof Error ? error.message : "Unable to load readiness.");
               return null;
             })
-          : Promise.resolve(null)
-      ]);
+          : null;
       setRecords(membersResponse.data.map(normalizeMember));
       setTotalMembers(membersResponse.total ?? membersResponse.data.length);
       setReadinessRows(readinessResponse?.data.map(normalizeReadiness) ?? []);

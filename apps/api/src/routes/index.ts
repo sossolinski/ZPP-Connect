@@ -64,6 +64,8 @@ import { createPrismaOperationalBriefingService, type PrismaOperationalBriefingS
 import { createPrismaImportService, type PrismaImportService } from "../modules/imports/prisma-import-service.js";
 import { createPrismaExportService, type PrismaExportService } from "../modules/exports/prisma-export-service.js";
 import { createPrismaExerciseService, type PrismaExerciseService } from "../modules/exercise/prisma-exercise-service.js";
+import { createPrismaReadinessProjectionService, type ReadinessProjectionService } from "../modules/readiness/prisma-readiness-service.js";
+import { createReadinessRouter } from "../modules/readiness/readiness-router.js";
 
 type Delegate = {
   count(args: unknown): Promise<number>;
@@ -1213,13 +1215,14 @@ export function registerRoutes(app: Express, options: {
   importService?: PrismaImportService;
   exportService?: PrismaExportService;
   exerciseService?: PrismaExerciseService;
+  readinessService?: ReadinessProjectionService;
   documentClock?: { now(): Date };
   documentNotificationHook?: (record: Record<string, unknown>) => void;
   assignmentNotificationHook?: (record: Record<string, unknown>, command: string) => void;
   rosteringNotificationHook?: (record: Record<string, unknown>, command: string) => void;
   trainingNotificationHook?: (record: Record<string, unknown>, command: string) => void;
 } = {}) {
-  const usePostgres = config.persistenceMode === "postgres" || options.incidentRepository?.kind === "postgres" || options.enquiryRepository?.kind === "postgres" || options.passengerRepository?.kind === "postgres" || options.familyRepository?.kind === "postgres" || options.matchingRepository?.kind === "postgres" || options.releaseRepository?.kind === "postgres" || options.requestRepository?.kind === "postgres" || options.assignmentRepository?.kind === "postgres" || options.memberDirectoryRepository?.kind === "postgres" || options.rosteringRepository?.kind === "postgres" || options.trainingRepository?.kind === "postgres" || options.documentRepository?.kind === "postgres" || options.notificationRepository?.kind === "postgres" || options.operationalBriefingService?.kind === "postgres" || options.importService?.kind === "postgres" || options.exportService?.kind === "postgres" || options.exerciseService?.kind === "postgres";
+  const usePostgres = config.persistenceMode === "postgres" || options.incidentRepository?.kind === "postgres" || options.enquiryRepository?.kind === "postgres" || options.passengerRepository?.kind === "postgres" || options.familyRepository?.kind === "postgres" || options.matchingRepository?.kind === "postgres" || options.releaseRepository?.kind === "postgres" || options.requestRepository?.kind === "postgres" || options.assignmentRepository?.kind === "postgres" || options.memberDirectoryRepository?.kind === "postgres" || options.rosteringRepository?.kind === "postgres" || options.trainingRepository?.kind === "postgres" || options.documentRepository?.kind === "postgres" || options.notificationRepository?.kind === "postgres" || options.operationalBriefingService?.kind === "postgres" || options.importService?.kind === "postgres" || options.exportService?.kind === "postgres" || options.exerciseService?.kind === "postgres" || options.readinessService?.kind === "postgres";
   const incidentRepository = options.incidentRepository ?? (
     usePostgres ? createPrismaIncidentRepository(prisma) : undefined
   );
@@ -1268,8 +1271,10 @@ export function registerRoutes(app: Express, options: {
   const importService = options.importService ?? (usePostgres ? createPrismaImportService(prisma) : undefined);
   const exportService = options.exportService ?? (usePostgres ? createPrismaExportService(prisma) : undefined);
   const exerciseService = options.exerciseService ?? (usePostgres ? createPrismaExerciseService(prisma) : undefined);
+  const readinessService = options.readinessService ?? (usePostgres ? createPrismaReadinessProjectionService(prisma, options.trainingClock) : undefined);
   if (usePostgres) app.use("/api", createIdentityRouter(prisma));
-  app.use("/api", createDemoRouter({ incidentRepository, enquiryRepository, incidentAccessRepository, incidentAssignmentRepository, passengerRepository, familyRepository, matchingRepository, releaseRepository, requestRepository, assignmentRepository, memberDirectoryRepository, rosteringRepository, trainingRepository, trainingClock: options.trainingClock, documentRepository, documentClock: options.documentClock, notificationService, effectiveAccessAuthority: usePostgres ? new EffectiveAccessService(prisma) : undefined, operationalBriefingService, importService, exportService, exerciseService, documentNotificationHook: options.documentNotificationHook, assignmentNotificationHook: options.assignmentNotificationHook, rosteringNotificationHook: options.rosteringNotificationHook, trainingNotificationHook: options.trainingNotificationHook }));
+  if (readinessService) app.use("/api", createReadinessRouter(readinessService));
+  app.use("/api", createDemoRouter({ incidentRepository, enquiryRepository, incidentAccessRepository, incidentAssignmentRepository, passengerRepository, familyRepository, matchingRepository, releaseRepository, requestRepository, assignmentRepository, memberDirectoryRepository, rosteringRepository, trainingRepository, trainingClock: options.trainingClock, documentRepository, documentClock: options.documentClock, notificationService, effectiveAccessAuthority: usePostgres ? new EffectiveAccessService(prisma) : undefined, operationalBriefingService, importService, exportService, exerciseService, disableLegacyReadiness: usePostgres, documentNotificationHook: options.documentNotificationHook, assignmentNotificationHook: options.assignmentNotificationHook, rosteringNotificationHook: options.rosteringNotificationHook, trainingNotificationHook: options.trainingNotificationHook }));
   if (notificationRepository?.kind === "postgres" && trainingRepository && documentRepository) {
     const dispatcher = createNotificationDispatcher(prisma, notificationRepository, { batchSize: config.notificationDispatchBatchSize, logger });
     const projector = createNotificationProjector(prisma, notificationRepository, { training: trainingRepository, documents: documentRepository, batchSize: config.notificationProjectBatchSize, maxRows: config.notificationProjectMaxRows });

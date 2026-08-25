@@ -28,6 +28,7 @@ import type { PrismaOperationalBriefingService } from "./modules/briefings/prism
 import type { PrismaImportService } from "./modules/imports/prisma-import-service.js";
 import type { PrismaExportService } from "./modules/exports/prisma-export-service.js";
 import type { PrismaExerciseService } from "./modules/exercise/prisma-exercise-service.js";
+import type { ReadinessProjectionService } from "./modules/readiness/prisma-readiness-service.js";
 
 export function createApp(options: {
   incidentRepository?: IncidentRepository;
@@ -50,6 +51,7 @@ export function createApp(options: {
   importService?: PrismaImportService;
   exportService?: PrismaExportService;
   exerciseService?: PrismaExerciseService;
+  readinessService?: ReadinessProjectionService;
   documentClock?: { now(): Date };
   documentNotificationHook?: (record: Record<string, unknown>) => void;
   assignmentNotificationHook?: (record: Record<string, unknown>, command: string) => void;
@@ -107,6 +109,7 @@ export function createApp(options: {
     importService: options.importService,
     exportService: options.exportService,
     exerciseService: options.exerciseService,
+    readinessService: options.readinessService,
     documentClock: options.documentClock,
     documentNotificationHook: options.documentNotificationHook,
     assignmentNotificationHook: options.assignmentNotificationHook,
