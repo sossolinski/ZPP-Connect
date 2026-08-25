@@ -92,7 +92,7 @@ jobs:
           kill "$api_pid"
           wait "$api_pid" || true
 
-      - name: PostgreSQL Foundation Stage 1 through 19 integration tests (zero skipped)
+      - name: PostgreSQL Foundation Stage 1 through 20 integration tests (zero skipped)
         run: npm run test:postgres
 
       - name: Dedicated Foundation Stage 18 PostgreSQL tests
@@ -100,6 +100,9 @@ jobs:
 
       - name: Dedicated Foundation Stage 19 PostgreSQL tests
         run: npm exec -w @zpp/api vitest run -- --no-file-parallelism --maxWorkers=1 src/foundation-stage19-postgres.integration.test.ts
+
+      - name: Dedicated Foundation Stage 20 PostgreSQL tests
+        run: npm exec -w @zpp/api vitest run -- --no-file-parallelism --maxWorkers=1 src/foundation-stage20-postgres.integration.test.ts
 
       - name: Install Chromium for Stage 16 through 19 workflow coverage
         run: npx playwright install --with-deps chromium
@@ -124,7 +127,7 @@ jobs:
           PLAYWRIGHT_PERSISTENCE_MODE: postgres
         run: npx playwright test tests/smoke/zz-stage19-readiness.spec.ts
 
-      - name: Rehearse exact Stage 18 to Stage 19 no-migration upgrade
+      - name: Rehearse exact Stage 18 through Stage 20 upgrade and no-migration composition closure
         env:
           PGPASSWORD: zpp
           BACKFILL_DATABASE_URL: postgresql://zpp:zpp@127.0.0.1:5432/zpp_backfill_test?schema=public
@@ -413,6 +416,7 @@ jobs:
           test "$(psql "$BACKFILL_PSQL_URL" --tuples-only --no-align --command='SELECT count(*) FROM "MemberTrainingRecord";')" = "$pre_stage19_training"
           test "$(psql "$BACKFILL_PSQL_URL" --tuples-only --no-align --command='SELECT count(*) FROM "DocumentAcknowledgement";')" = "$pre_stage19_documents"
           TEST_DATABASE_URL="$BACKFILL_DATABASE_URL" DATABASE_URL="$BACKFILL_DATABASE_URL" npm exec -w @zpp/api vitest run -- --no-file-parallelism --maxWorkers=1 src/foundation-stage19-postgres.integration.test.ts
+          TEST_DATABASE_URL="$BACKFILL_DATABASE_URL" DATABASE_URL="$BACKFILL_DATABASE_URL" npm exec -w @zpp/api vitest run -- --no-file-parallelism --maxWorkers=1 src/foundation-stage20-postgres.integration.test.ts
 
   quality:
     name: Typecheck, Unit, Build and Browser

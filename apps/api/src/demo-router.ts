@@ -112,7 +112,6 @@ import { createExportRouter } from "./modules/exports/export-router.js";
 import type { PrismaExportService } from "./modules/exports/prisma-export-service.js";
 import { createExerciseRouter } from "./modules/exercise/exercise-router.js";
 import type { PrismaExerciseService } from "./modules/exercise/prisma-exercise-service.js";
-import { hydrateReadOnlyProjection, mergeProjectionPage, syncProjectionRow } from "./modules/compatibility/read-only-projection.js";
 
 type Row = Record<string, any>;
 type AccountStatus = "Pending" | "Active" | "Suspended" | "Archived";
@@ -1981,6 +1980,33 @@ export function createDemoRouter(options: {
   rosteringNotificationHook?: (record: Record<string, unknown>, command: string) => void;
   trainingNotificationHook?: (record: Record<string, unknown>, command: string) => void;
 } = {}) {
+  const postgresRepositoryInjected = [
+    options.incidentRepository,
+    options.enquiryRepository,
+    options.incidentAssignmentRepository,
+    options.passengerRepository,
+    options.familyRepository,
+    options.matchingRepository,
+    options.releaseRepository,
+    options.requestRepository,
+    options.assignmentRepository,
+  ].some((candidate) => candidate?.kind === "postgres");
+  if (
+    postgresRepositoryInjected
+    || options.memberDirectoryRepository
+    || options.rosteringRepository
+    || options.trainingRepository
+    || options.documentRepository
+    || options.notificationService?.durable
+    || options.effectiveAccessAuthority
+    || options.operationalBriefingService
+    || options.importService
+    || options.exportService
+    || options.exerciseService
+    || options.disableLegacyReadiness
+  ) {
+    throw new Error("createDemoRouter is test-memory-only and cannot compose PostgreSQL production authorities");
+  }
   const router = Router();
   const memoryIncidentAssignments: MemoryIncidentAssignment[] = sessions.flatMap((incident) =>
     users
@@ -2091,39 +2117,6 @@ export function createDemoRouter(options: {
     now
   });
   const assignmentService = createAssignmentService(assignmentRepository, incidentAccessService);
-  if (enquiryRepository.kind === "postgres") enquiries.splice(0, enquiries.length);
-  if (passengerRepository.kind === "postgres") passengerRecords.splice(0, passengerRecords.length);
-  if (familyRepository.kind === "postgres") familyRecords.splice(0, familyRecords.length);
-  if (matchingRepository.kind === "postgres") matchingRecords.splice(0, matchingRecords.length);
-  if (releaseRepository.kind === "postgres") releases.splice(0, releases.length);
-  if (requestRepository.kind === "postgres") requests.splice(0, requests.length);
-  if (assignmentRepository.kind === "postgres") assignments.splice(0, assignments.length);
-  const syncIncident = (record: Record<string, unknown>) => {
-    const index = sessions.findIndex((item) => item.id === record.id);
-    if (index >= 0) sessions[index] = { ...record };
-    else sessions.unshift({ ...record });
-  };
-  const syncEnquiry = (record: Record<string, unknown>) => {
-    syncProjectionRow(enquiries, record);
-  };
-  const syncPassenger = (record: Record<string, unknown>) => {
-    syncProjectionRow(passengerRecords, record);
-  };
-  const syncFamily = (record: Record<string, unknown>) => {
-    syncProjectionRow(familyRecords, record);
-  };
-  const syncMatching = (record: Record<string, unknown>) => {
-    syncProjectionRow(matchingRecords, record);
-  };
-  const syncRelease = (record: Record<string, unknown>) => {
-    syncProjectionRow(releases, record);
-  };
-  const syncRequest = (record: Record<string, unknown>) => {
-    syncProjectionRow(requests, record);
-  };
-  const syncAssignment = (record: Record<string, unknown>) => {
-    syncProjectionRow(assignments, record);
-  };
   const memberDirectory = createMemberDirectoryRepository(users.map((user) => ({ id: user.id, email: user.email, displayName: user.displayName, roles: user.roles })));
   memberDirectoryForAdmin = memberDirectory;
   const foundationMemberDirectoryService = options.memberDirectoryRepository
@@ -2302,66 +2295,16 @@ export function createDemoRouter(options: {
   if (options.exerciseService) router.use(createExerciseRouter(options.exerciseService, requireIncidentPermission));
   router.use(createIncidentRouter(incidentService, {
     requireIncidentPermission,
-    effectiveIncidentIdsForPermission: effectiveAccessAuthority.effectiveIncidentIdsForPermission
-      ? (userId) => effectiveAccessAuthority.effectiveIncidentIdsForPermission!(userId, "session:read")
-      : undefined,
-    onList: incidentService.kind === "postgres"
-      ? (records, query) => {
-          if (query.offset === 0) sessions.splice(0, sessions.length);
-          records.forEach(syncIncident);
-        }
-      : undefined,
-    onChange: incidentService.kind === "postgres" ? syncIncident : undefined
   }));
   router.use(createIncidentAssignmentRouter(incidentAssignmentService, requireIncidentPermission));
-  router.use(createEnquiryRouter(enquiryService, {
-    requireIncidentPermission,
-    onList: enquiryService.kind === "postgres"
-      ? (records, incidentId, offset) => mergeProjectionPage(enquiries, incidentId, records, offset)
-      : undefined,
-    onChange: enquiryService.kind === "postgres" ? syncEnquiry : undefined
-  }));
-  router.use(createPassengerRouter(passengerService, {
-    requireIncidentPermission,
-    onList: passengerService.kind === "postgres"
-      ? (records, incidentId, offset) => mergeProjectionPage(passengerRecords, incidentId, records, offset)
-      : undefined,
-    onChange: passengerService.kind === "postgres" ? syncPassenger : undefined
-  }));
-  router.use(createFamilyRouter(familyService, {
-    requireIncidentPermission,
-    onList: familyService.kind === "postgres"
-      ? (records, incidentId, offset) => mergeProjectionPage(familyRecords, incidentId, records, offset)
-      : undefined,
-    onChange: familyService.kind === "postgres" ? syncFamily : undefined
-  }));
-  router.use(createMatchingRouter(matchingService, {
-    requireIncidentPermission,
-    onList: matchingService.kind === "postgres"
-      ? (records, incidentId, offset) => mergeProjectionPage(matchingRecords, incidentId, records, offset)
-      : undefined,
-    onChange: matchingService.kind === "postgres" ? syncMatching : undefined
-  }));
-  router.use(createReleaseRouter(releaseService, {
-    requireIncidentPermission,
-    onList: releaseService.kind === "postgres"
-      ? (records, incidentId, offset) => mergeProjectionPage(releases, incidentId, records, offset)
-      : undefined,
-    onChange: releaseService.kind === "postgres" ? syncRelease : undefined
-  }));
-  router.use(createRequestRouter(requestService, {
-    requireIncidentPermission,
-    onList: requestService.kind === "postgres"
-      ? (records, incidentId, offset) => mergeProjectionPage(requests, incidentId, records, offset)
-      : undefined,
-    onChange: requestService.kind === "postgres" ? syncRequest : undefined
-  }));
+  router.use(createEnquiryRouter(enquiryService, { requireIncidentPermission }));
+  router.use(createPassengerRouter(passengerService, { requireIncidentPermission }));
+  router.use(createFamilyRouter(familyService, { requireIncidentPermission }));
+  router.use(createMatchingRouter(matchingService, { requireIncidentPermission }));
+  router.use(createReleaseRouter(releaseService, { requireIncidentPermission }));
+  router.use(createRequestRouter(requestService, { requireIncidentPermission }));
   router.use(createAssignmentRouter(assignmentService, {
     requireIncidentPermission,
-    onList: assignmentService.kind === "postgres"
-      ? (records, incidentId, offset) => mergeProjectionPage(assignments, incidentId, records, offset)
-      : undefined,
-    onChange: assignmentService.kind === "postgres" ? syncAssignment : undefined,
     onCommitted: (record, command) => {
       if (!options.notificationService && ["assign", "claim", "reassign"].includes(command)) notifications!.notifyAssignmentAssigned(record);
       if (!options.notificationService && command === "cancel") notifications!.notifyAssignmentCancelled(record);
@@ -2407,49 +2350,12 @@ export function createDemoRouter(options: {
       }),
     }));
   }
-  const hydrateIncidentCompatibility = async (req: Request, incidentId: string, hydrateEnquiryCompatibility: boolean) => {
-    const accessActor = { id: req.user!.id, email: req.user!.email, roles: req.user!.roles };
-    const scopedPermissions = req.incidentPermissions ?? req.user!.permissions;
-    const canRead = (permission: Permission) => scopedPermissions.includes(permission);
-    if (incidentService.kind === "postgres") {
-      syncIncident(await incidentService.get(incidentId, {
-        ...accessActor,
-        displayName: req.user!.displayName,
-        requestId: req.requestId
-      }));
-    }
-    if (hydrateEnquiryCompatibility && enquiryService.kind === "postgres" && canRead("enquiry:read")) {
-      await hydrateReadOnlyProjection(enquiries, incidentId, (offset) => enquiryService.list(accessActor, incidentId, { limit: 200, offset }));
-    }
-    if (hydrateEnquiryCompatibility && passengerService.kind === "postgres" && canRead("passenger:read")) {
-      await hydrateReadOnlyProjection(passengerRecords, incidentId, (offset) => passengerService.list(accessActor, incidentId, { limit: 200, offset, sortBy: "updatedAt", sortDirection: "desc" }));
-    }
-    if (hydrateEnquiryCompatibility && familyService.kind === "postgres" && canRead("family:read")) {
-      await hydrateReadOnlyProjection(familyRecords, incidentId, (offset) => familyService.list(accessActor, incidentId, { limit: 200, offset, sortBy: "updatedAt", sortDirection: "desc" }));
-    }
-    if (hydrateEnquiryCompatibility && canRead("matching:read")) {
-      await hydrateReadOnlyProjection(matchingRecords, incidentId, (offset) => matchingService.listCompatibility(accessActor, incidentId, { limit: 200, offset, sortDirection: "desc" }));
-    }
-    if (hydrateEnquiryCompatibility && releaseService.kind === "postgres" && canRead("release:read")) {
-      await hydrateReadOnlyProjection(releases, incidentId, (offset) => releaseService.listCompatibility(accessActor, incidentId, { limit: 200, offset, sortDirection: "desc" }));
-    }
-    if (hydrateEnquiryCompatibility && requestService.kind === "postgres" && canRead("request:read")) {
-      await hydrateReadOnlyProjection(requests, incidentId, (offset) => requestService.listCompatibility({ ...accessActor, displayName: req.user!.displayName, permissions: scopedPermissions, requestId: req.requestId }, incidentId, { limit: 200, offset, sortBy: "updatedAt", sortDirection: "desc" }));
-    }
-    if (hydrateEnquiryCompatibility && assignmentService.kind === "postgres" && canRead("assignment:read")) {
-      await hydrateReadOnlyProjection(assignments, incidentId, (offset) => assignmentService.listCompatibility({ ...accessActor, displayName: req.user!.displayName, permissions: scopedPermissions, requestId: req.requestId }, incidentId, { limit: 200, offset, sortBy: "updatedAt", sortDirection: "desc" }));
-    }
-  };
-
   const incidentPermissionGate = (
     required: Permission | Permission[] | ((req: Request) => Permission | Permission[] | Promise<Permission | Permission[]>),
     resolveIncidentId: (req: Request) => string | Promise<string>,
-    hydrateEnquiryCompatibility = false,
+    _hydrateEnquiryCompatibility = false,
     requireWritable = false
-  ) => requireIncidentPermission(required, resolveIncidentId, {
-    requireWritable,
-    afterAuthorize: (req, context) => hydrateIncidentCompatibility(req, context.incidentId, hydrateEnquiryCompatibility)
-  });
+  ) => requireIncidentPermission(required, resolveIncidentId, { requireWritable });
   if (options.notificationService) router.use(createNotificationRouter(options.notificationService));
   else router.get("/notifications", requirePermission("session:read"), (req, res) => res.json(notifications!.list(req.user, req.query)));
   if (!options.notificationService) router.get("/notifications/counts", requirePermission("session:read"), (req, res) => res.json(notifications!.counts(req.user)));
@@ -2507,14 +2413,14 @@ export function createDemoRouter(options: {
     ? ["briefing:read"]
     : ["briefing:read", "briefing:read-history"];
 
-  const hydrateLegacyActiveEvent = activeEvent.kind !== "postgres";
+  const hydrateLegacyActiveEvent = true;
   router.get("/sessions/:sessionId/active-event", incidentPermissionGate("briefing:read", (req) => String(req.params.sessionId), hydrateLegacyActiveEvent), activeEventRoute((req) => activeEvent.getActiveEvent(String(req.params.sessionId), incidentDirectoryActor(req))));
-  router.get("/sessions/:sessionId/briefings", incidentPermissionGate("briefing:read-history", (req) => String(req.params.sessionId), hydrateLegacyActiveEvent), activeEventRoute((req) => activeEvent.listRevisions(String(req.params.sessionId), incidentDirectoryActor(req), req.query as Record<string, unknown>)));
+  router.get("/sessions/:sessionId/briefings", incidentPermissionGate("briefing:read-history", (req) => String(req.params.sessionId), hydrateLegacyActiveEvent), activeEventRoute((req) => activeEvent.listRevisions(String(req.params.sessionId), incidentDirectoryActor(req))));
   router.get("/sessions/:sessionId/briefings/current", incidentPermissionGate("briefing:read", (req) => String(req.params.sessionId), hydrateLegacyActiveEvent), activeEventRoute((req) => activeEvent.getCurrent(String(req.params.sessionId), incidentDirectoryActor(req))));
   router.get("/briefings/:briefingId", incidentPermissionGate(briefingReadPermissions, incidentForBriefing, hydrateLegacyActiveEvent), activeEventRoute((req) => activeEvent.getBriefing(String(req.params.briefingId), incidentDirectoryActor(req))));
   router.post("/sessions/:sessionId/briefings/draft", incidentPermissionGate("briefing:create-draft", (req) => String(req.params.sessionId), hydrateLegacyActiveEvent, true), activeEventRoute(async (req) => {
     const result = await activeEvent.createDraft(String(req.params.sessionId), incidentDirectoryActor(req));
-    if (activeEvent.kind !== "postgres" && result.created) {
+    if (result.created) {
       addAudit(req, "briefing_draft_created", `Briefing draft revision ${result.briefing.revision} created`, result.briefing.sessionId, {
         briefingId: result.briefing.id,
         revision: result.briefing.revision
@@ -2524,12 +2430,12 @@ export function createDemoRouter(options: {
   }));
   router.patch("/briefings/:briefingId", incidentPermissionGate("briefing:update-draft", incidentForBriefing, hydrateLegacyActiveEvent, true), activeEventRoute(async (req) => {
     const result = await activeEvent.updateDraft(String(req.params.briefingId), req.body ?? {}, incidentDirectoryActor(req));
-    if (activeEvent.kind !== "postgres") addAudit(req, "briefing_draft_updated", `Briefing draft revision ${result.briefing.revision} updated`, result.briefing.sessionId, {
+    addAudit(req, "briefing_draft_updated", `Briefing draft revision ${result.briefing.revision} updated`, result.briefing.sessionId, {
       briefingId: result.briefing.id,
       revision: result.briefing.revision,
       changedSections: result.changedSections
     }, "operationalBriefing", result.briefing.id);
-    if (activeEvent.kind !== "postgres") for (const change of result.assignmentRelationChanges ?? []) {
+    for (const change of result.assignmentRelationChanges ?? []) {
       const action = change.changeType === "linked" ? "briefing_priority_assignment_linked" : change.changeType === "changed" ? "briefing_priority_assignment_changed" : "briefing_priority_assignment_unlinked";
       const summary = change.changeType === "linked" ? "Assignment linked to briefing priority" : change.changeType === "changed" ? "Assignment link changed on briefing priority" : "Assignment unlinked from briefing priority";
       addAudit(req, action, summary, result.briefing.sessionId, {
@@ -2545,19 +2451,19 @@ export function createDemoRouter(options: {
   }));
   router.post("/briefings/:briefingId/publish", incidentPermissionGate("briefing:publish", incidentForBriefing, hydrateLegacyActiveEvent, true), activeEventRoute(async (req) => {
     const result = await activeEvent.publishDraft(String(req.params.briefingId), req.body?.expectedVersion, incidentDirectoryActor(req));
-    if (activeEvent.kind !== "postgres") addAudit(req, "briefing_published", `Briefing revision ${result.briefing.revision} published`, result.briefing.sessionId, {
+    addAudit(req, "briefing_published", `Briefing revision ${result.briefing.revision} published`, result.briefing.sessionId, {
       briefingId: result.briefing.id,
       revision: result.briefing.revision,
       supersededBriefingId: result.superseded?.id ?? null
     }, "operationalBriefing", result.briefing.id);
-    if (activeEvent.kind !== "postgres" && result.superseded) {
+    if (result.superseded) {
       addAudit(req, "briefing_superseded", `Briefing revision ${result.superseded.revision} superseded`, result.superseded.sessionId, {
         briefingId: result.superseded.id,
         revision: result.superseded.revision,
         replacedByBriefingId: result.briefing.id
       }, "operationalBriefing", result.superseded.id);
     }
-    if (activeEvent.kind !== "postgres") addTimeline(req, {
+    addTimeline(req, {
       sessionId: result.briefing.sessionId,
       eventType: "briefing",
       entityType: "operationalBriefing",
@@ -2566,7 +2472,7 @@ export function createDemoRouter(options: {
       body: result.briefing.title,
       metadata: { revision: result.briefing.revision }
     });
-    if (activeEvent.kind !== "postgres" && !options.notificationService) notifySafely(() => notifications!.notifyBriefingPublished(result.briefing));
+    if (!options.notificationService) notifySafely(() => notifications!.notifyBriefingPublished(result.briefing));
     return result.briefing;
   }));
 
