@@ -77,8 +77,9 @@ postgresDescribe("Foundation Stage 1 PostgreSQL vertical slice", () => {
       asAdmin(request(app).post("/api/sessions")).send({
         mode: index % 2 ? "EXERCISE" : "TRAINING",
         status: "Draft",
-        eventType: marker,
-        description: `Concurrent Session ${index}`
+        eventType: "Training session",
+        flightNumber: `${marker}-${index}`,
+        description: `${marker} Concurrent Session ${index}`
       })
     ));
 
@@ -97,7 +98,7 @@ postgresDescribe("Foundation Stage 1 PostgreSQL vertical slice", () => {
 
   it("enforces backend authorization for session mutations", async () => {
     const app = createApp({ incidentRepository: createPrismaIncidentRepository(prisma!) });
-    const payload = { mode: "TRAINING", status: "Draft", eventType: "Training" };
+    const payload = { mode: "TRAINING", status: "Draft", eventType: "Training session" };
     expect((await request(app).post("/api/sessions").send(payload)).status).toBe(401);
     expect((await request(app).post("/api/sessions").set("x-user-email", "viewer@lot.pl").send(payload)).status).toBe(403);
   });

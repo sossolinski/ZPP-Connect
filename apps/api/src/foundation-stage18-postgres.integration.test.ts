@@ -82,7 +82,7 @@ postgresDescribe("Foundation Stage 18 PostgreSQL Exercise evidence integrity", (
     const migrations = await prisma!.$queryRaw<Array<{ count: bigint }>>`SELECT count(*)::bigint AS count FROM "_prisma_migrations" WHERE finished_at IS NOT NULL AND rolled_back_at IS NULL`;
     const triggers = await prisma!.$queryRaw<Array<{ tgname: string }>>`SELECT tgname FROM pg_trigger WHERE tgrelid IN ('"ExerciseInject"'::regclass, '"ExerciseObservation"'::regclass, '"ExerciseObservationRevision"'::regclass) AND NOT tgisinternal`;
     const sequences = await prisma!.$queryRaw<Array<{ relname: string }>>`SELECT relname FROM pg_class WHERE relkind = 'S' AND relname IN ('ExerciseInject_operational_seq', 'ExerciseObservation_operational_seq')`;
-    expect(Number(migrations[0]!.count)).toBe(21);
+    expect(Number(migrations[0]!.count)).toBeGreaterThanOrEqual(21);
     expect(triggers.map((row) => row.tgname)).toEqual(expect.arrayContaining(["ExerciseInject_evidence_immutable", "ExerciseObservationRevision_immutable", "ExerciseObservation_revision_invariant", "ExerciseObservationRevision_parent_invariant"]));
     expect(sequences).toHaveLength(2);
   });

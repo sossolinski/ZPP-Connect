@@ -32,6 +32,7 @@ export function createIncidentRouter(
     onChange?: (record: IncidentRecord) => void;
     requireIncidentPermission?: IncidentPermissionGate;
     effectiveIncidentIdsForPermission?: (userId: string) => Promise<string[] | null>;
+    validateEventType?: (value: string) => Promise<void>;
   } = {}
 ) {
   const router = Router();
@@ -67,6 +68,7 @@ export function createIncidentRouter(
     requirePermission("session:create"),
     asyncHandler(async (req, res) => {
       const input = clean(sessionSchema.parse(req.body)) as IncidentCreateInput;
+      await compatibility.validateEventType?.(input.eventType);
       const record = await service.create(input, actor(req));
       compatibility.onChange?.(record);
       res.status(201).json(record);
@@ -79,6 +81,7 @@ export function createIncidentRouter(
     asyncHandler(async (req, res) => {
       const { id } = incidentIdParam.parse(req.params);
       const input = clean(sessionSchema.partial().parse(req.body)) as IncidentUpdateInput;
+      if (input.eventType !== undefined) await compatibility.validateEventType?.(input.eventType);
       const record = await service.update(id, input, actor(req));
       compatibility.onChange?.(record);
       res.json(record);

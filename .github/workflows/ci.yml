@@ -92,7 +92,7 @@ jobs:
           kill "$api_pid"
           wait "$api_pid" || true
 
-      - name: PostgreSQL Foundation Stage 1 through 20 integration tests (zero skipped)
+      - name: PostgreSQL Foundation Stage 1 through 21 integration tests (zero skipped)
         run: npm run test:postgres
 
       - name: Dedicated Foundation Stage 18 PostgreSQL tests
@@ -104,7 +104,10 @@ jobs:
       - name: Dedicated Foundation Stage 20 PostgreSQL tests
         run: npm exec -w @zpp/api vitest run -- --no-file-parallelism --maxWorkers=1 src/foundation-stage20-postgres.integration.test.ts
 
-      - name: Install Chromium for Stage 16 through 19 workflow coverage
+      - name: Dedicated Foundation Stage 21 PostgreSQL tests
+        run: npm exec -w @zpp/api vitest run -- --no-file-parallelism --maxWorkers=1 src/foundation-stage21-postgres.integration.test.ts
+
+      - name: Install Chromium for Stage 16 through 21 workflow coverage
         run: npx playwright install --with-deps chromium
 
       - name: Stage 16 PostgreSQL browser workflow
@@ -127,7 +130,12 @@ jobs:
           PLAYWRIGHT_PERSISTENCE_MODE: postgres
         run: npx playwright test tests/smoke/zz-stage19-readiness.spec.ts
 
-      - name: Rehearse exact Stage 18 through Stage 20 upgrade and no-migration composition closure
+      - name: Stage 21 PostgreSQL browser workflow
+        env:
+          PLAYWRIGHT_PERSISTENCE_MODE: postgres
+        run: npx playwright test tests/smoke/zz-stage21-admin-configuration.spec.ts
+
+      - name: Rehearse exact Stage 20 to Stage 21 dictionary authority migration
         env:
           PGPASSWORD: zpp
           BACKFILL_DATABASE_URL: postgresql://zpp:zpp@127.0.0.1:5432/zpp_backfill_test?schema=public
@@ -417,6 +425,37 @@ jobs:
           test "$(psql "$BACKFILL_PSQL_URL" --tuples-only --no-align --command='SELECT count(*) FROM "DocumentAcknowledgement";')" = "$pre_stage19_documents"
           TEST_DATABASE_URL="$BACKFILL_DATABASE_URL" DATABASE_URL="$BACKFILL_DATABASE_URL" npm exec -w @zpp/api vitest run -- --no-file-parallelism --maxWorkers=1 src/foundation-stage19-postgres.integration.test.ts
           TEST_DATABASE_URL="$BACKFILL_DATABASE_URL" DATABASE_URL="$BACKFILL_DATABASE_URL" npm exec -w @zpp/api vitest run -- --no-file-parallelism --maxWorkers=1 src/foundation-stage20-postgres.integration.test.ts
+          git show 8ffe714482642b9fa06e3da1831504a171c36cd5:apps/api/prisma/seed.ts > apps/api/prisma/stage20-rehearsal-seed.ts
+          git show 8ffe714482642b9fa06e3da1831504a171c36cd5:apps/api/prisma/schema.prisma > apps/api/prisma/stage20-rehearsal-schema.prisma
+          DATABASE_URL="$BACKFILL_DATABASE_URL" npx prisma generate --schema apps/api/prisma/stage20-rehearsal-schema.prisma
+          DATABASE_URL="$BACKFILL_DATABASE_URL" npm exec -w @zpp/api tsx -- prisma/stage20-rehearsal-seed.ts
+          rm apps/api/prisma/stage20-rehearsal-seed.ts apps/api/prisma/stage20-rehearsal-schema.prisma
+          pre_stage21_dictionary_count=$(psql "$BACKFILL_PSQL_URL" --tuples-only --no-align --command='SELECT count(*) FROM "Dictionary";')
+          pre_stage21_profile_count=$(psql "$BACKFILL_PSQL_URL" --tuples-only --no-align --command='SELECT count(*) FROM "Dictionary" WHERE "category" = '\''profile'\'';')
+          pre_stage21_dictionary_ids=$(psql "$BACKFILL_PSQL_URL" --tuples-only --no-align --command='SELECT md5(string_agg("id"::text, '\'','\'' ORDER BY "id")) FROM "Dictionary";')
+          cp -R apps/api/prisma/migrations/20260825180000_dictionary_configuration_integrity "$migration_workspace/migrations/"
+          DATABASE_URL="$BACKFILL_DATABASE_URL" npx prisma migrate deploy --schema "$migration_workspace/schema.prisma"
+          npm run prisma:generate -w @zpp/api
+          test "$(psql "$BACKFILL_PSQL_URL" --tuples-only --no-align --command='SELECT count(*) FROM "_prisma_migrations" WHERE finished_at IS NOT NULL AND rolled_back_at IS NULL;')" = "22"
+          test "$(psql "$BACKFILL_PSQL_URL" --tuples-only --no-align --command='SELECT count(*) FROM "Dictionary";')" = "$pre_stage21_dictionary_count"
+          test "$(psql "$BACKFILL_PSQL_URL" --tuples-only --no-align --command='SELECT count(*) FROM "Dictionary" WHERE "category" = '\''profile'\'';')" = "$pre_stage21_profile_count"
+          test "$(psql "$BACKFILL_PSQL_URL" --tuples-only --no-align --command='SELECT md5(string_agg("id"::text, '\'','\'' ORDER BY "id")) FROM "Dictionary";')" = "$pre_stage21_dictionary_ids"
+          TEST_DATABASE_URL="$BACKFILL_DATABASE_URL" DATABASE_URL="$BACKFILL_DATABASE_URL" npm exec -w @zpp/api vitest run -- --no-file-parallelism --maxWorkers=1 src/foundation-stage21-postgres.integration.test.ts
+          stage21_event_id=$(psql "$BACKFILL_PSQL_URL" --tuples-only --no-align --command='SELECT "id" FROM "Dictionary" WHERE "category" = '\''eventTypes'\'' ORDER BY "sortOrder", "id" LIMIT 1;')
+          stage21_request_id=$(psql "$BACKFILL_PSQL_URL" --tuples-only --no-align --command='SELECT "id" FROM "Dictionary" WHERE "category" = '\''requestCategories'\'' ORDER BY "sortOrder", "id" LIMIT 1;')
+          stage21_protected_id=$(psql "$BACKFILL_PSQL_URL" --tuples-only --no-align --command='SELECT "id" FROM "Dictionary" WHERE "category" = '\''sessionStatuses'\'' AND "key" = '\''draft'\'';')
+          psql "$BACKFILL_PSQL_URL" --set=ON_ERROR_STOP=1 --set=event_id="$stage21_event_id" --set=request_id="$stage21_request_id" --set=protected_id="$stage21_protected_id" <<'SQL'
+          UPDATE "Dictionary" SET "label" = 'CI Admin Event Type', "sortOrder" = 910001, "isActive" = false, "version" = "version" + 1, "sourceType" = 'ADMIN' WHERE "id" = :'event_id';
+          UPDATE "Dictionary" SET "label" = 'CI Admin Request Category', "sortOrder" = 910002, "isActive" = false, "version" = "version" + 1, "sourceType" = 'ADMIN' WHERE "id" = :'request_id';
+          UPDATE "Dictionary" SET "label" = 'CI Corrupt Protected Mirror', "isActive" = false WHERE "id" = :'protected_id';
+          SQL
+          DATABASE_URL="$BACKFILL_DATABASE_URL" npm run prisma:seed -w @zpp/api
+          test "$(psql "$BACKFILL_PSQL_URL" --tuples-only --no-align --command='SELECT count(*) FROM "Dictionary" WHERE "category" = '\''profile'\'';')" = "$pre_stage21_profile_count"
+          test "$(psql "$BACKFILL_PSQL_URL" --tuples-only --no-align --command='SELECT count(*) FROM "Dictionary" WHERE "id" = '\''$stage21_event_id'\'' AND "label" = '\''CI Admin Event Type'\'' AND "sortOrder" = 910001 AND "isActive" = false AND "sourceType" = '\''ADMIN'\'';')" = "1"
+          test "$(psql "$BACKFILL_PSQL_URL" --tuples-only --no-align --command='SELECT count(*) FROM "Dictionary" WHERE "id" = '\''$stage21_request_id'\'' AND "label" = '\''CI Admin Request Category'\'' AND "sortOrder" = 910002 AND "isActive" = false AND "sourceType" = '\''ADMIN'\'';')" = "1"
+          test "$(psql "$BACKFILL_PSQL_URL" --tuples-only --no-align --command='SELECT count(*) FROM "Dictionary" WHERE "id" = '\''$stage21_protected_id'\'' AND "label" = '\''Draft'\'' AND "isActive" = true AND "sourceType" = '\''SYSTEM_MIRROR'\'';')" = "1"
+          test "$(psql "$BACKFILL_PSQL_URL" --tuples-only --no-align --command='SELECT count(*) FROM (SELECT "profile", "category", "normalizedKey" FROM "Dictionary" GROUP BY 1, 2, 3 HAVING count(*) > 1) duplicates;')" = "0"
+          test "$(psql "$BACKFILL_PSQL_URL" --tuples-only --no-align --command='SELECT md5(string_agg("id"::text, '\'',\'' ORDER BY "id")) FROM "Dictionary";')" = "$pre_stage21_dictionary_ids"
 
   quality:
     name: Typecheck, Unit, Build and Browser

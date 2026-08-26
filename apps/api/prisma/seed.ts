@@ -1,6 +1,7 @@
 import { createHash, randomUUID } from "node:crypto";
 import { PrismaClient } from "@prisma/client";
-import { defaultOrganizations, defaultProfile, defaultRoles, dictionaries } from "@zpp/shared";
+import { defaultOrganizations, defaultRoles } from "@zpp/shared";
+import { seedDictionaries } from "./dictionary-seed.js";
 
 const prisma = new PrismaClient();
 
@@ -120,64 +121,6 @@ async function seedRolesAndUsers() {
   });
   await prisma.user.deleteMany({ where: { email: { in: obsoleteDemoUsers } } });
   await prisma.role.deleteMany({ where: { name: { in: obsoleteDemoRoles } } });
-}
-
-async function seedDictionaries() {
-  const profileRows: Array<[string, string, string]> = [
-    ["profile", "organizationName", defaultProfile.organizationName],
-    ["profile", "appSubtitle", defaultProfile.appSubtitle],
-    ["profile", "genericSubtitle", defaultProfile.genericSubtitle],
-    ["profile", "teamName", defaultProfile.teamName],
-    ["profile", "contactEmail", defaultProfile.contactEmail],
-    ["profile", "author", defaultProfile.author],
-    ["profile", "footerText", defaultProfile.footerText]
-  ];
-
-  for (let index = 0; index < profileRows.length; index += 1) {
-    const [category, key, label] = profileRows[index]!;
-    await prisma.dictionary.upsert({
-      where: {
-        profile_category_key: {
-          profile: defaultProfile.id,
-          category,
-          key
-        }
-      },
-      update: { label, sortOrder: index },
-      create: {
-        profile: defaultProfile.id,
-        category,
-        key,
-        label,
-        sortOrder: index
-      }
-    });
-  }
-
-  for (const [category, values] of Object.entries(dictionaries)) {
-    for (let index = 0; index < values.length; index += 1) {
-      const label = values[index]!;
-      const key = label.toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_|_$/g, "");
-      await prisma.dictionary.upsert({
-        where: {
-          profile_category_key: {
-            profile: defaultProfile.id,
-            category,
-            key
-          }
-        },
-        update: { label, sortOrder: index, isActive: true },
-        create: {
-          profile: defaultProfile.id,
-          category,
-          key,
-          label,
-          sortOrder: index,
-          isActive: true
-        }
-      });
-    }
-  }
 }
 
 async function seedMemberDirectory(input: {
@@ -1252,7 +1195,7 @@ async function seedOperationalBriefings() {
 async function main() {
   await seedOrganizations();
   await seedRolesAndUsers();
-  await seedDictionaries();
+  await seedDictionaries(prisma);
   await seedOperationalData();
   await seedOperationalBriefings();
   await seedNotifications();

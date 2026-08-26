@@ -62,6 +62,24 @@ export type DictionaryItem = {
   label: string;
   sortOrder: number;
   isActive: boolean;
+  version?: number;
+  description?: string | null;
+  sourceType?: string;
+  policy?: DictionaryPolicy;
+};
+
+export type DictionaryPolicy = {
+  category: string;
+  classification: "P" | "E" | "L" | "D" | "X";
+  authority: "code" | "postgres";
+  protected: boolean;
+  allowCreate: boolean;
+  allowLabelEdit: boolean;
+  allowDescriptionEdit: boolean;
+  allowReorder: boolean;
+  allowDeactivate: boolean;
+  allowReactivate: boolean;
+  reason: string;
 };
 
 export type DictionaryMap = Record<string, DictionaryItem[]>;

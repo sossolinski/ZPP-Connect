@@ -4,6 +4,8 @@ import { logger } from "../logger.js";
 import type { AssignmentRepository } from "../modules/assignments/assignment-repository.js";
 import { createPrismaAssignmentRepository } from "../modules/assignments/prisma-assignment-repository.js";
 import { createPrismaOperationalBriefingService, type PrismaOperationalBriefingService } from "../modules/briefings/prisma-operational-briefing-service.js";
+import type { DictionaryConfigurationService } from "../modules/configuration/configuration-types.js";
+import { createPrismaDictionaryService } from "../modules/configuration/prisma-dictionary-service.js";
 import type { FoundationDocumentRepository } from "../modules/documents/document-repository.js";
 import { createPrismaDocumentRepository } from "../modules/documents/prisma-document-repository.js";
 import type { EnquiryRepository } from "../modules/enquiries/enquiry-repository.js";
@@ -69,6 +71,7 @@ export type RouteOptions = {
   exportService?: PrismaExportService;
   exerciseService?: PrismaExerciseService;
   readinessService?: ReadinessProjectionService;
+  dictionaryService?: DictionaryConfigurationService;
   documentClock?: { now(): Date };
   documentNotificationHook?: (record: Record<string, unknown>) => void;
   assignmentNotificationHook?: (record: Record<string, unknown>, command: string) => void;
@@ -85,6 +88,7 @@ function requestsPostgres(options: RouteOptions) {
     options.trainingRepository, options.documentRepository, options.notificationRepository,
     options.operationalBriefingService, options.importService, options.exportService,
     options.exerciseService, options.readinessService,
+    options.dictionaryService,
   ].some((candidate) => candidate && "kind" in candidate && candidate.kind === "postgres");
 }
 
@@ -125,13 +129,14 @@ export function registerRoutes(app: Express, options: RouteOptions = {}) {
   const exportService = options.exportService ?? createPrismaExportService(prisma);
   const exerciseService = options.exerciseService ?? createPrismaExerciseService(prisma);
   const readinessService = options.readinessService ?? createPrismaReadinessProjectionService(prisma, options.trainingClock);
+  const dictionaryService = options.dictionaryService ?? createPrismaDictionaryService(prisma);
   const composition = createProductionComposition({
     db: prisma,
     incidentRepository, enquiryRepository, incidentAccessRepository, incidentAssignmentRepository,
     passengerRepository, familyRepository, matchingRepository, releaseRepository, requestRepository,
     assignmentRepository, memberDirectoryRepository, rosteringRepository, trainingRepository,
     documentRepository, notificationService, operationalBriefingService, importService, exportService,
-    exerciseService, readinessService,
+    exerciseService, readinessService, dictionaryService,
     trainingClock: options.trainingClock,
     documentClock: options.documentClock,
     documentNotificationHook: options.documentNotificationHook,

@@ -6,6 +6,8 @@ import { createAssignmentRouter } from "../modules/assignments/assignment-router
 import { createAssignmentService } from "../modules/assignments/assignment-service.js";
 import { createOperationalBriefingRouter } from "../modules/briefings/operational-briefing-router.js";
 import type { PrismaOperationalBriefingService } from "../modules/briefings/prisma-operational-briefing-service.js";
+import type { DictionaryConfigurationService } from "../modules/configuration/configuration-types.js";
+import { createDictionaryRouter } from "../modules/configuration/dictionary-router.js";
 import type { FoundationDocumentRepository } from "../modules/documents/document-repository.js";
 import { createDocumentRouter } from "../modules/documents/document-router.js";
 import { createDocumentService } from "../modules/documents/document-service.js";
@@ -58,7 +60,7 @@ import type { FoundationTrainingRepository } from "../modules/training/training-
 import { createTrainingRouter } from "../modules/training/training-router.js";
 import { createTrainingService } from "../modules/training/training-service.js";
 import { createProductionRouteRegistry } from "./production-route-registry.js";
-import { createDeferredProductionRouter, createProductionSharedRouter, createPublicProductionRouter } from "./production-shared-router.js";
+import { createProductionSharedRouter, createPublicProductionRouter } from "./production-shared-router.js";
 
 type NotificationService = ReturnType<typeof createPersistentNotificationService>;
 
@@ -84,6 +86,7 @@ export type ProductionCompositionOptions = {
   exportService: PrismaExportService;
   exerciseService: PrismaExerciseService;
   readinessService: ReadinessProjectionService;
+  dictionaryService: DictionaryConfigurationService;
   trainingClock?: { now(): Date };
   documentClock?: { now(): Date };
   documentNotificationHook?: (record: Record<string, unknown>) => void;
@@ -114,11 +117,12 @@ export function createProductionComposition(options: ProductionCompositionOption
   const incidentAccess = createIncidentAccessService(options.incidentAccessRepository);
   const effectiveAccess = new EffectiveAccessService(options.db);
   const requireIncidentPermission = createIncidentPermissionGate(effectiveAccess, incidentAccess);
+  mount("configuration", "A", "postgres", createDictionaryRouter(options.dictionaryService));
   mount("production-shared", "E", "postgres", createProductionSharedRouter(options.db, requireIncidentPermission));
-  mount("admin-dictionaries-deferred", "F", "deferred", createDeferredProductionRouter());
   mount("incidents", "A", "postgres", createIncidentRouter(createIncidentService(options.incidentRepository, incidentAccess), {
     requireIncidentPermission,
     effectiveIncidentIdsForPermission: (userId) => effectiveAccess.effectiveIncidentIdsForPermission(userId, "session:read"),
+    validateEventType: (value) => options.dictionaryService.assertActiveLabel("eventTypes", value),
   }));
   mount("incident-assignments", "A", "postgres", createIncidentAssignmentRouter(createIncidentAssignmentService(options.incidentAssignmentRepository, incidentAccess), requireIncidentPermission));
   mount("enquiries", "A", "postgres", createEnquiryRouter(createEnquiryService(options.enquiryRepository, incidentAccess), { requireIncidentPermission }));
@@ -126,7 +130,10 @@ export function createProductionComposition(options: ProductionCompositionOption
   mount("families", "A", "postgres", createFamilyRouter(createFamilyService(options.familyRepository, incidentAccess), { requireIncidentPermission }));
   mount("matching", "A", "postgres", createMatchingRouter(createMatchingService(options.matchingRepository, incidentAccess), { requireIncidentPermission }));
   mount("releases", "A", "postgres", createReleaseRouter(createReleaseService(options.releaseRepository, incidentAccess), { requireIncidentPermission }));
-  mount("requests", "A", "postgres", createRequestRouter(createRequestService(options.requestRepository, incidentAccess), { requireIncidentPermission }));
+  mount("requests", "A", "postgres", createRequestRouter(createRequestService(options.requestRepository, incidentAccess), {
+    requireIncidentPermission,
+    validateCategory: (value) => options.dictionaryService.assertActiveLabel("requestCategories", value),
+  }));
   mount("assignments", "A", "postgres", createAssignmentRouter(createAssignmentService(options.assignmentRepository, incidentAccess), {
     requireIncidentPermission,
     onCommitted: (record, command) => options.assignmentNotificationHook?.(record, command),

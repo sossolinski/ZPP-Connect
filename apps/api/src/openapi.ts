@@ -23,6 +23,50 @@ export const openApiDocument = {
         bearerFormat: "JWT",
       },
     },
+    schemas: {
+      DictionaryPolicy: {
+        type: "object",
+        required: ["category", "classification", "authority", "protected", "keyImmutable"],
+        properties: {
+          category: { type: "string" },
+          classification: { type: "string", enum: ["E", "P", "X"] },
+          authority: { type: "string", enum: ["postgres", "code"] },
+          protected: { type: "boolean" },
+          allowCreate: { type: "boolean" },
+          allowLabelEdit: { type: "boolean" },
+          allowDescriptionEdit: { type: "boolean" },
+          allowReorder: { type: "boolean" },
+          allowDeactivate: { type: "boolean" },
+          allowReactivate: { type: "boolean" },
+          keyImmutable: { type: "boolean" },
+          reason: { type: "string" },
+        },
+      },
+      DictionaryAdminRecord: {
+        type: "object",
+        required: ["id", "profile", "category", "key", "normalizedKey", "label", "sortOrder", "isActive", "version", "sourceType", "policy"],
+        properties: {
+          id: { type: "string", format: "uuid" },
+          profile: { type: "string" },
+          category: { type: "string" },
+          key: { type: "string", description: "Immutable stable identity after creation." },
+          normalizedKey: { type: "string", readOnly: true },
+          label: { type: "string" },
+          description: { type: "string", nullable: true },
+          sortOrder: { type: "integer" },
+          isActive: { type: "boolean" },
+          version: { type: "integer", minimum: 1 },
+          sourceType: { type: "string" },
+          policy: { $ref: "#/components/schemas/DictionaryPolicy" },
+        },
+      },
+      DictionaryVersionCommand: {
+        type: "object",
+        required: ["expectedVersion"],
+        properties: { expectedVersion: { type: "integer", minimum: 1 } },
+        additionalProperties: false,
+      },
+    },
   },
   paths: {
     "/auth/me": {
@@ -324,9 +368,59 @@ export const openApiDocument = {
     },
     "/audit-logs": { get: { summary: "Read append-only audit log" } },
     "/admin/users": { get: { summary: "List users" } },
+    "/dictionaries": {
+      get: {
+        summary: "Read the complete new-use dictionary projection from each category's declared authority",
+        responses: { "200": { description: "Active PostgreSQL values for extensible categories and canonical code values for protected categories" }, "401": { description: "Unauthenticated" }, "500": { description: "Durable configuration read failed; no editable fallback is returned" } },
+      },
+    },
+    "/admin/dictionary-policies": {
+      get: {
+        summary: "List dictionary governance and supported actions",
+        responses: { "200": { description: "Policy list" }, "401": { description: "Unauthenticated" }, "403": { description: "Missing admin:manage" } },
+      },
+    },
     "/admin/dictionaries": {
-      get: { summary: "List dictionaries" },
-      post: { summary: "Create dictionary item" },
+      get: {
+        summary: "Page and filter durable dictionary rows with governance metadata",
+        parameters: [
+          { name: "category", in: "query", schema: { type: "string" } },
+          { name: "active", in: "query", schema: { type: "boolean" } },
+          { name: "search", in: "query", schema: { type: "string", maxLength: 200 } },
+          { name: "limit", in: "query", schema: { type: "integer", minimum: 1, maximum: 200, default: 50 } },
+          { name: "offset", in: "query", schema: { type: "integer", minimum: 0, default: 0 } },
+        ],
+        responses: { "200": { description: "Paged dictionary rows" }, "400": { description: "Invalid filters" }, "401": { description: "Unauthenticated" }, "403": { description: "Missing admin:manage" }, "500": { description: "Durable read failed" } },
+      },
+      post: {
+        summary: "Create a value only in a policy-supported extensible category",
+        requestBody: { required: true, content: { "application/json": { schema: { type: "object", required: ["category", "key", "label"], properties: { category: { type: "string" }, key: { type: "string", maxLength: 80 }, label: { type: "string", maxLength: 200 }, description: { type: "string", nullable: true, maxLength: 1000 }, sortOrder: { type: "integer", minimum: -1000000, maximum: 1000000 } }, additionalProperties: false } } } },
+        responses: { "201": { description: "Created" }, "400": { description: "Invalid command" }, "401": { description: "Unauthenticated" }, "403": { description: "Missing admin:manage" }, "409": { description: "Protected category, duplicate semantic key, or concurrent conflict" } },
+      },
+    },
+    "/admin/dictionaries/{id}": {
+      patch: {
+        summary: "Update mutable presentation fields with expectedVersion optimistic concurrency",
+        parameters: [{ name: "id", in: "path", required: true, schema: { type: "string", format: "uuid" } }],
+        requestBody: { required: true, content: { "application/json": { schema: { type: "object", required: ["expectedVersion"], properties: { expectedVersion: { type: "integer", minimum: 1 }, label: { type: "string", maxLength: 200 }, description: { type: "string", nullable: true, maxLength: 1000 }, sortOrder: { type: "integer", minimum: -1000000, maximum: 1000000 } }, additionalProperties: false } } } },
+        responses: { "200": { description: "Updated" }, "400": { description: "Invalid command or immutable identity field" }, "401": { description: "Unauthenticated" }, "403": { description: "Missing admin:manage" }, "404": { description: "Dictionary value not found" }, "409": { description: "Protected category or stale expectedVersion" } },
+      },
+    },
+    "/admin/dictionaries/{id}/deactivate": {
+      post: {
+        summary: "Deactivate a policy-supported value for new use without rewriting history",
+        parameters: [{ name: "id", in: "path", required: true, schema: { type: "string", format: "uuid" } }],
+        requestBody: { required: true, content: { "application/json": { schema: { $ref: "#/components/schemas/DictionaryVersionCommand" } } } },
+        responses: { "200": { description: "Deactivated" }, "400": { description: "Invalid expectedVersion" }, "401": { description: "Unauthenticated" }, "403": { description: "Missing admin:manage" }, "404": { description: "Dictionary value not found" }, "409": { description: "Protected category or stale expectedVersion" } },
+      },
+    },
+    "/admin/dictionaries/{id}/reactivate": {
+      post: {
+        summary: "Reactivate a policy-supported value for new use",
+        parameters: [{ name: "id", in: "path", required: true, schema: { type: "string", format: "uuid" } }],
+        requestBody: { required: true, content: { "application/json": { schema: { $ref: "#/components/schemas/DictionaryVersionCommand" } } } },
+        responses: { "200": { description: "Reactivated" }, "400": { description: "Invalid expectedVersion" }, "401": { description: "Unauthenticated" }, "403": { description: "Missing admin:manage" }, "404": { description: "Dictionary value not found" }, "409": { description: "Protected category or stale expectedVersion" } },
+      },
     },
   },
 };

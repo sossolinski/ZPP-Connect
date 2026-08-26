@@ -129,28 +129,28 @@ model Organization {
 }
 
 model Role {
-  id               String                @id @default(uuid()) @db.Uuid
-  name             String                @unique
-  normalizedName   String                @unique @default("")
-  displayName      String
-  description      String?
-  permissions      Json
-  scopeTypes       String[]              @default(["GLOBAL"])
-  pool             String                @default("ALL")
-  protected        Boolean               @default(false)
-  custom           Boolean               @default(false)
-  operationalRole  Boolean               @default(false)
-  status           String                @default("Active")
-  version          Int                   @default(1)
-  createdById      String?               @db.Uuid
-  updatedById      String?               @db.Uuid
-  archivedAt       DateTime?
-  archivedById     String?               @db.Uuid
-  createdAt        DateTime              @default(now())
-  updatedAt        DateTime              @updatedAt
-  users            UserRole[]
-  groupAssignments GroupRoleAssignment[]
-  targetExerciseInjects ExerciseInject[] @relation("ExerciseInjectTargetRole")
+  id                    String                @id @default(uuid()) @db.Uuid
+  name                  String                @unique
+  normalizedName        String                @unique @default("")
+  displayName           String
+  description           String?
+  permissions           Json
+  scopeTypes            String[]              @default(["GLOBAL"])
+  pool                  String                @default("ALL")
+  protected             Boolean               @default(false)
+  custom                Boolean               @default(false)
+  operationalRole       Boolean               @default(false)
+  status                String                @default("Active")
+  version               Int                   @default(1)
+  createdById           String?               @db.Uuid
+  updatedById           String?               @db.Uuid
+  archivedAt            DateTime?
+  archivedById          String?               @db.Uuid
+  createdAt             DateTime              @default(now())
+  updatedAt             DateTime              @updatedAt
+  users                 UserRole[]
+  groupAssignments      GroupRoleAssignment[]
+  targetExerciseInjects ExerciseInject[]      @relation("ExerciseInjectTargetRole")
 }
 
 model UserRole {
@@ -1573,33 +1573,33 @@ model CaseTimelineEvent {
 }
 
 model ImportBatch {
-  id                      String               @id @default(uuid()) @db.Uuid
-  operationalId           String               @unique
-  sessionId               String?              @db.Uuid
-  importType              String
-  sourceFilename          String?
-  sourceMimeType          String?
-  sourceSizeBytes         BigInt?
-  sourceSha256            String?
-  status                  String               @default("Validated")
-  totalRecords            Int                  @default(0)
-  validRecords            Int                  @default(0)
-  invalidRecords          Int                  @default(0)
-  errors                  Json?
-  version                 Int                  @default(1)
-  validationOperationId   String?              @unique @db.Uuid
-  validationFingerprint   String?
-  validatedAt             DateTime?
-  validatedById           String?              @db.Uuid
-  confirmedAt             DateTime?
-  confirmedById           String?              @db.Uuid
-  createdById             String?              @db.Uuid
-  createdAt               DateTime             @default(now())
-  updatedAt               DateTime             @updatedAt
-  session                 Session?             @relation(fields: [sessionId], references: [id], onDelete: SetNull)
-  validatedRows           ImportValidatedRow[]
-  passengerRecords        PassengerRecord[]
-  familyRecords           FamilyRecord[]
+  id                    String               @id @default(uuid()) @db.Uuid
+  operationalId         String               @unique
+  sessionId             String?              @db.Uuid
+  importType            String
+  sourceFilename        String?
+  sourceMimeType        String?
+  sourceSizeBytes       BigInt?
+  sourceSha256          String?
+  status                String               @default("Validated")
+  totalRecords          Int                  @default(0)
+  validRecords          Int                  @default(0)
+  invalidRecords        Int                  @default(0)
+  errors                Json?
+  version               Int                  @default(1)
+  validationOperationId String?              @unique @db.Uuid
+  validationFingerprint String?
+  validatedAt           DateTime?
+  validatedById         String?              @db.Uuid
+  confirmedAt           DateTime?
+  confirmedById         String?              @db.Uuid
+  createdById           String?              @db.Uuid
+  createdAt             DateTime             @default(now())
+  updatedAt             DateTime             @updatedAt
+  session               Session?             @relation(fields: [sessionId], references: [id], onDelete: SetNull)
+  validatedRows         ImportValidatedRow[]
+  passengerRecords      PassengerRecord[]
+  familyRecords         FamilyRecord[]
 
   @@index([sessionId, createdAt])
   @@index([sessionId, importType, status, createdAt])
@@ -1755,19 +1755,23 @@ model ExerciseObservationRevision {
 }
 
 model Dictionary {
-  id          String   @id @default(uuid()) @db.Uuid
-  profile     String   @default("lot-zpp")
-  category    String
-  key         String
-  label       String
-  description String?
-  sortOrder   Int      @default(0)
-  isActive    Boolean  @default(true)
-  metadata    Json?
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  id            String   @id @default(uuid()) @db.Uuid
+  profile       String   @default("lot-zpp")
+  category      String
+  key           String
+  normalizedKey String
+  label         String
+  description   String?
+  sortOrder     Int      @default(0)
+  isActive      Boolean  @default(true)
+  version       Int      @default(1)
+  sourceType    String   @default("LEGACY_BOOTSTRAP")
+  metadata      Json?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
 
   @@unique([profile, category, key])
+  @@unique([profile, category, normalizedKey])
   @@index([profile, category, isActive])
 }
 
