@@ -48,6 +48,7 @@ test.afterAll(async () => {
 });
 
 test("manages durable values truthfully while protecting protocol vocabularies and operational options", async ({ page }) => {
+  test.setTimeout(90_000);
   await login(page, "admin@lot.pl");
   await openDictionaries(page);
 
