@@ -451,11 +451,11 @@ jobs:
           SQL
           DATABASE_URL="$BACKFILL_DATABASE_URL" npm run prisma:seed -w @zpp/api
           test "$(psql "$BACKFILL_PSQL_URL" --tuples-only --no-align --command='SELECT count(*) FROM "Dictionary" WHERE "category" = '\''profile'\'';')" = "$pre_stage21_profile_count"
-          test "$(psql "$BACKFILL_PSQL_URL" --tuples-only --no-align --command='SELECT count(*) FROM "Dictionary" WHERE "id" = '\''$stage21_event_id'\'' AND "label" = '\''CI Admin Event Type'\'' AND "sortOrder" = 910001 AND "isActive" = false AND "sourceType" = '\''ADMIN'\'';')" = "1"
-          test "$(psql "$BACKFILL_PSQL_URL" --tuples-only --no-align --command='SELECT count(*) FROM "Dictionary" WHERE "id" = '\''$stage21_request_id'\'' AND "label" = '\''CI Admin Request Category'\'' AND "sortOrder" = 910002 AND "isActive" = false AND "sourceType" = '\''ADMIN'\'';')" = "1"
-          test "$(psql "$BACKFILL_PSQL_URL" --tuples-only --no-align --command='SELECT count(*) FROM "Dictionary" WHERE "id" = '\''$stage21_protected_id'\'' AND "label" = '\''Draft'\'' AND "isActive" = true AND "sourceType" = '\''SYSTEM_MIRROR'\'';')" = "1"
+          test "$(psql "$BACKFILL_PSQL_URL" --tuples-only --no-align --command="SELECT count(*) FROM \"Dictionary\" WHERE \"id\" = '$stage21_event_id' AND \"label\" = 'CI Admin Event Type' AND \"sortOrder\" = 910001 AND \"isActive\" = false AND \"sourceType\" = 'ADMIN';")" = "1"
+          test "$(psql "$BACKFILL_PSQL_URL" --tuples-only --no-align --command="SELECT count(*) FROM \"Dictionary\" WHERE \"id\" = '$stage21_request_id' AND \"label\" = 'CI Admin Request Category' AND \"sortOrder\" = 910002 AND \"isActive\" = false AND \"sourceType\" = 'ADMIN';")" = "1"
+          test "$(psql "$BACKFILL_PSQL_URL" --tuples-only --no-align --command="SELECT count(*) FROM \"Dictionary\" WHERE \"id\" = '$stage21_protected_id' AND \"label\" = 'Draft' AND \"isActive\" = true AND \"sourceType\" = 'SYSTEM_MIRROR';")" = "1"
           test "$(psql "$BACKFILL_PSQL_URL" --tuples-only --no-align --command='SELECT count(*) FROM (SELECT "profile", "category", "normalizedKey" FROM "Dictionary" GROUP BY 1, 2, 3 HAVING count(*) > 1) duplicates;')" = "0"
-          test "$(psql "$BACKFILL_PSQL_URL" --tuples-only --no-align --command='SELECT md5(string_agg("id"::text, '\'',\'' ORDER BY "id")) FROM "Dictionary";')" = "$pre_stage21_dictionary_ids"
+          test "$(psql "$BACKFILL_PSQL_URL" --tuples-only --no-align --command="SELECT md5(string_agg(\"id\"::text, ',' ORDER BY \"id\")) FROM \"Dictionary\";")" = "$pre_stage21_dictionary_ids"
 
   quality:
     name: Typecheck, Unit, Build and Browser
