@@ -395,5 +395,10 @@ export const api = {
   updateAdminRole: (id: string, body: AnyRecord) => request<AnyRecord>(`/admin/roles/${id}`, { method: "PATCH", body: JSON.stringify(body) }),
   archiveAdminRole: (id: string, body?: AnyRecord) => request<AnyRecord>(`/admin/roles/${id}/archive`, { method: "POST", body: JSON.stringify(body ?? {}) }),
   adminCapabilities: () => request<ApiList<AnyRecord>>("/admin/capabilities"),
-  adminDictionaries: () => request<ApiList<AnyRecord>>("/admin/dictionaries")
+  adminDictionaries: (query?: AnyRecord) => request<ApiList<AnyRecord>>(`/admin/dictionaries${queryString(query)}`),
+  adminDictionaryPolicies: () => request<ApiList<AnyRecord>>("/admin/dictionary-policies"),
+  createAdminDictionary: (body: AnyRecord) => request<AnyRecord>("/admin/dictionaries", { method: "POST", body: JSON.stringify(body) }),
+  updateAdminDictionary: (id: string, body: AnyRecord) => request<AnyRecord>(`/admin/dictionaries/${id}`, { method: "PATCH", body: JSON.stringify(body) }),
+  setAdminDictionaryActive: (id: string, active: boolean, expectedVersion: number) =>
+    request<AnyRecord>(`/admin/dictionaries/${id}/${active ? "reactivate" : "deactivate"}`, { method: "POST", body: JSON.stringify({ expectedVersion }) })
 };

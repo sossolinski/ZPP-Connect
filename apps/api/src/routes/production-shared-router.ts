@@ -1,10 +1,9 @@
 import type { PrismaClient } from "@prisma/client";
-import { defaultProfile, dictionaries, workflowStates } from "@zpp/shared";
-import { Router, type Request, type Response } from "express";
+import { defaultProfile, workflowStates } from "@zpp/shared";
+import { Router, type Request } from "express";
 import swaggerUi from "swagger-ui-express";
 import { asyncHandler, HttpError } from "../errors.js";
 import { openApiDocument } from "../openapi.js";
-import { requirePermission } from "../rbac.js";
 import { redactForUser } from "../redaction.js";
 import { listQuery, timelineSchema } from "../validation.js";
 import type { IncidentPermissionGate } from "../modules/incident-access/incident-permission-gate.js";
@@ -134,22 +133,6 @@ async function incidentId(req: Request, db: PrismaClient, source: "query" | "bod
   return String(supplied ?? await activeIncidentId(db));
 }
 
-function dictionaryRows() {
-  const grouped: Record<string, Array<Record<string, unknown>>> = {};
-  for (const [category, values] of Object.entries(dictionaries)) {
-    grouped[category] = values.map((label, sortOrder) => ({
-      id: `${category}-${String(label).toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_|_$/g, "")}`,
-      profile: defaultProfile.id,
-      category,
-      key: String(label).toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_|_$/g, ""),
-      label,
-      sortOrder,
-      isActive: true,
-    }));
-  }
-  return grouped;
-}
-
 export function createPublicProductionRouter() {
   const router = Router();
   router.get("/health", (_req, res) => res.json({ ok: true, service: "zpp-connect-api", persistence: "postgres" }));
@@ -160,7 +143,6 @@ export function createPublicProductionRouter() {
 export function createProductionSharedRouter(db: PrismaClient, requireIncidentPermission: IncidentPermissionGate) {
   const router = Router();
   router.get("/config/profile", (_req, res) => res.json(defaultProfile));
-  router.get("/dictionaries", (_req, res) => res.json(dictionaryRows()));
 
   router.get(
     "/dashboard",
@@ -290,15 +272,5 @@ export function createProductionSharedRouter(db: PrismaClient, requireIncidentPe
     }),
   );
 
-  return router;
-}
-
-export function createDeferredProductionRouter() {
-  const router = Router();
-  const deferred = (_req: Request, res: Response) => res.status(501).json({
-    error: "Admin dictionary management remains an explicitly deferred Foundation domain.",
-  });
-  router.get("/admin/dictionaries", requirePermission("admin:manage"), deferred);
-  router.post("/admin/dictionaries", requirePermission("admin:manage"), deferred);
   return router;
 }

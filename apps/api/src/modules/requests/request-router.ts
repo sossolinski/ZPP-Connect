@@ -1,7 +1,7 @@
 import { dictionaries } from "@zpp/shared";
 import { Router, type Request, type RequestHandler } from "express";
 import { z } from "zod";
-import { asyncHandler } from "../../errors.js";
+import { asyncHandler, HttpError } from "../../errors.js";
 import { requirePermission } from "../../rbac.js";
 import type { IncidentPermissionGate } from "../incident-access/incident-permission-gate.js";
 import type { RequestService } from "./request-service.js";
@@ -42,7 +42,7 @@ const queue = scope.extend({
   status: status.optional(),
   priority: priority.optional(),
   ownerUserId: id.optional(),
-  category: z.enum(dictionaries.requestCategories).optional(),
+  category: z.string().trim().min(1).max(200).optional(),
   due: z.enum(["overdue", "due", "none"]).optional(),
   sortBy: z
     .enum([
@@ -62,7 +62,7 @@ const queue = scope.extend({
 const create = z
   .object({
     sessionId: id,
-    category: z.enum(dictionaries.requestCategories),
+    category: z.string().trim().min(1).max(200),
     priority: priority.default("Normal"),
     requester: nullableText(300),
     details: z.string().trim().min(1).max(5_000),
@@ -130,9 +130,19 @@ export function createRequestRouter(
     ) => void;
     onChange?: (record: RequestCompatibilityRecord) => void;
     requireIncidentPermission?: IncidentPermissionGate;
+    validateCategory?: (value: string) => Promise<void>;
   } = {},
 ) {
   const router = Router();
+  const validateCategory = async (value: string) => {
+    if (compatibility.validateCategory) {
+      await compatibility.validateCategory(value);
+      return;
+    }
+    if (!(dictionaries.requestCategories as readonly string[]).includes(value)) {
+      throw new HttpError(400, `'${value}' is not an active requestCategories value.`);
+    }
+  };
   const authorize = (permission: Parameters<typeof requirePermission>[0], source: "query" | "body", writable = false): RequestHandler => compatibility.requireIncidentPermission
     ? compatibility.requireIncidentPermission(permission, (req) => String(source === "query" ? req.query.sessionId ?? "" : req.body?.sessionId ?? ""), { requireWritable: writable })
     : requirePermission(permission);
@@ -195,6 +205,7 @@ export function createRequestRouter(
     authorize("request:create", "body", true),
     asyncHandler(async (req, res) => {
       const { sessionId, ...input } = create.parse(req.body);
+      await validateCategory(input.category);
       const record = await service.create(actor(req), sessionId, input);
       compatibility.onChange?.(toRequestCompatibility(record));
       res.status(201).json(record);

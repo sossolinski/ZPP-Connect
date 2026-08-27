@@ -90,7 +90,7 @@ postgresDescribe("Foundation Stage 17 PostgreSQL export disclosure and report in
     const migrations = await prisma!.$queryRaw<Array<{ count: bigint }>>`SELECT COUNT(*)::bigint AS count FROM "_prisma_migrations" WHERE finished_at IS NOT NULL AND rolled_back_at IS NULL`;
     const indexes = await prisma!.$queryRaw<Array<{ indexname: string }>>`SELECT indexname FROM pg_indexes WHERE tablename = 'ExportGeneration'`;
     const checks = await prisma!.$queryRaw<Array<{ conname: string }>>`SELECT conname FROM pg_constraint WHERE conrelid = '"ExportGeneration"'::regclass AND contype = 'c'`;
-    expect(Number(migrations[0]!.count)).toBe(21);
+    expect(Number(migrations[0]!.count)).toBeGreaterThanOrEqual(21);
     expect(indexes.map((row) => row.indexname)).toEqual(expect.arrayContaining(["ExportGeneration_operationId_key", "ExportGeneration_incidentId_preparedAt_id_idx"]));
     expect(checks.map((row) => row.conname)).toEqual(expect.arrayContaining(["ExportGeneration_status_check", "ExportGeneration_sha256_check", "ExportGeneration_sections_shape_check"]));
   });

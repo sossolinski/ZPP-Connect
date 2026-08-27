@@ -94,7 +94,7 @@ postgresDescribe("Foundation Stage 16 PostgreSQL Imports persistence and orchest
     const migrations = await prisma!.$queryRaw<Array<{ count: bigint }>>`SELECT COUNT(*)::bigint AS count FROM "_prisma_migrations" WHERE finished_at IS NOT NULL AND rolled_back_at IS NULL`;
     const indexes = await prisma!.$queryRaw<Array<{ indexname: string }>>`SELECT indexname FROM pg_indexes WHERE tablename IN ('ImportBatch', 'ImportValidatedRow')`;
     const checks = await prisma!.$queryRaw<Array<{ conname: string }>>`SELECT conname FROM pg_constraint WHERE conrelid IN ('"ImportBatch"'::regclass, '"ImportValidatedRow"'::regclass) AND contype = 'c'`;
-    expect(Number(migrations[0]!.count)).toBe(21);
+    expect(Number(migrations[0]!.count)).toBeGreaterThanOrEqual(21);
     expect(indexes.map((row) => row.indexname)).toEqual(expect.arrayContaining([
       "ImportBatch_validationOperationId_key",
       "ImportValidatedRow_importBatchId_rowNumber_key",

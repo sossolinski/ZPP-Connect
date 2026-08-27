@@ -199,7 +199,7 @@ postgresDescribe("Foundation Stage 2.5 PostgreSQL incident access closure", () =
     const created = await request(api).post("/api/sessions").set(as("coordinator@lot.pl")).send({
       mode: "TRAINING",
       status: "Draft",
-      eventType: marker,
+      eventType: "Training session",
       flightNumber: `${marker}-CREATOR`
     });
     expect(created.status).toBe(201);

@@ -261,6 +261,11 @@ export function AdminPage({ initialTab = "users" }: AdminPageProps) {
   const [capabilities, setCapabilities] = useState<AnyRecord[]>([]);
   const [organizations, setOrganizations] = useState<AppOrganization[]>([]);
   const [dictionaries, setDictionaries] = useState<AnyRecord[]>([]);
+  const [dictionaryPolicies, setDictionaryPolicies] = useState<AnyRecord[]>([]);
+  const [dictionaryTotal, setDictionaryTotal] = useState(0);
+  const [dictionaryFilters, setDictionaryFilters] = useState({ category: "", active: "", search: "", limit: 50, offset: 0 });
+  const [dictionaryDraft, setDictionaryDraft] = useState<AnyRecord | null>(null);
+  const [dictionaryError, setDictionaryError] = useState("");
   const [invitations, setInvitations] = useState<AnyRecord[]>([]);
   const [userTotal, setUserTotal] = useState(0);
   const [userFilters, setUserFilters] = useState({ search: "", status: "", role: "", linked: "", authenticationPolicy: "", invitationStatus: "", limit: 50, offset: 0 });
@@ -329,6 +334,14 @@ export function AdminPage({ initialTab = "users" }: AdminPageProps) {
     return response.data;
   }
 
+  async function loadDictionaries(nextFilters = dictionaryFilters) {
+    const query = { ...nextFilters, category: nextFilters.category || undefined, active: nextFilters.active || undefined, search: nextFilters.search || undefined };
+    const response = await api.adminDictionaries(query);
+    setDictionaries(response.data);
+    setDictionaryTotal(response.total ?? response.data.length);
+    return response.data;
+  }
+
   async function refreshSelectedUser(userId = selectedUserId) {
     if (!userId) return;
     const [userDetail, accessDetail, history] = await Promise.all([
@@ -348,12 +361,18 @@ export function AdminPage({ initialTab = "users" }: AdminPageProps) {
     setLoading(true);
     setError("");
     try {
-      const [userList, invitationList, roleList, organizationList, dictionaryList, groupList, memberList, capabilityList] = await Promise.all([
+      const [userList, invitationList, roleList, organizationList, dictionaryList, dictionaryPolicyList, groupList, memberList, capabilityList] = await Promise.all([
         api.adminUsers(userFilters),
         api.adminInvitations(invitationFilters),
         api.adminRoles(),
         api.adminOrganizations(),
-        api.adminDictionaries(),
+        api.adminDictionaries({
+          ...dictionaryFilters,
+          category: dictionaryFilters.category || undefined,
+          active: dictionaryFilters.active || undefined,
+          search: dictionaryFilters.search || undefined,
+        }),
+        api.adminDictionaryPolicies(),
         api.groups({ limit: 200 }),
         api.memberProfiles({ limit: 200 }),
         api.adminCapabilities()
@@ -365,6 +384,8 @@ export function AdminPage({ initialTab = "users" }: AdminPageProps) {
       setRoles(roleList.data);
       setOrganizations(organizationList.data);
       setDictionaries(dictionaryList.data);
+      setDictionaryTotal(dictionaryList.total ?? dictionaryList.data.length);
+      setDictionaryPolicies(dictionaryPolicyList.data);
       setGroups(groupList.data);
       setMemberProfiles(memberList.data);
       setCapabilities(capabilityList.data);
@@ -984,6 +1005,105 @@ export function AdminPage({ initialTab = "users" }: AdminPageProps) {
       setNotice("Organization saved.");
     } catch (err) {
       setError((err as Error).message);
+    } finally {
+      setSavingAction("");
+    }
+  }
+
+  function newDictionaryValue() {
+    const category = String(dictionaryPolicies.find((policy) => policy.allowCreate)?.category ?? "requestCategories");
+    setDictionaryDraft({ mode: "create", category, key: "", label: "", description: "", sortOrder: 0 });
+    setDictionaryError("");
+    setNotice("");
+  }
+
+  function editDictionaryValue(row: AnyRecord) {
+    setDictionaryDraft({
+      mode: "update",
+      id: row.id,
+      category: row.category,
+      key: row.key,
+      label: row.label,
+      description: row.description ?? "",
+      sortOrder: row.sortOrder ?? 0,
+      expectedVersion: row.version,
+    });
+    setDictionaryError("");
+    setNotice("");
+  }
+
+  async function saveDictionaryValue(event?: FormEvent) {
+    event?.preventDefault();
+    if (!dictionaryDraft) return;
+    setSavingAction("save-dictionary");
+    setDictionaryError("");
+    setNotice("");
+    try {
+      if (dictionaryDraft.mode === "create") {
+        await api.createAdminDictionary({
+          category: dictionaryDraft.category,
+          key: String(dictionaryDraft.key ?? "").trim(),
+          label: String(dictionaryDraft.label ?? "").trim(),
+          description: String(dictionaryDraft.description ?? "").trim() || null,
+          sortOrder: Number(dictionaryDraft.sortOrder ?? 0),
+        });
+      } else {
+        await api.updateAdminDictionary(String(dictionaryDraft.id), {
+          expectedVersion: Number(dictionaryDraft.expectedVersion),
+          label: String(dictionaryDraft.label ?? "").trim(),
+          description: String(dictionaryDraft.description ?? "").trim() || null,
+          sortOrder: Number(dictionaryDraft.sortOrder ?? 0),
+        });
+      }
+      await loadDictionaries();
+      setDictionaryDraft(null);
+      setNotice("Dictionary value saved from durable configuration.");
+    } catch (err) {
+      setDictionaryError((err as Error).message);
+    } finally {
+      setSavingAction("");
+    }
+  }
+
+  async function setDictionaryActive(row: AnyRecord, active: boolean) {
+    setSavingAction(`dictionary-active-${row.id}`);
+    setDictionaryError("");
+    setNotice("");
+    try {
+      await api.setAdminDictionaryActive(String(row.id), active, Number(row.version));
+      await loadDictionaries();
+      setNotice(active ? "Dictionary value reactivated." : "Dictionary value deactivated.");
+    } catch (err) {
+      setDictionaryError((err as Error).message);
+    } finally {
+      setSavingAction("");
+    }
+  }
+
+  async function applyDictionaryFilters(event?: FormEvent) {
+    event?.preventDefault();
+    const next = { ...dictionaryFilters, offset: 0 };
+    setDictionaryFilters(next);
+    setSavingAction("filter-dictionaries");
+    setDictionaryError("");
+    try {
+      await loadDictionaries(next);
+    } catch (err) {
+      setDictionaryError((err as Error).message);
+    } finally {
+      setSavingAction("");
+    }
+  }
+
+  async function changeDictionaryPage(delta: number) {
+    const next = { ...dictionaryFilters, offset: Math.max(0, dictionaryFilters.offset + delta * dictionaryFilters.limit) };
+    setDictionaryFilters(next);
+    setSavingAction("page-dictionaries");
+    setDictionaryError("");
+    try {
+      await loadDictionaries(next);
+    } catch (err) {
+      setDictionaryError((err as Error).message);
     } finally {
       setSavingAction("");
     }
@@ -1968,20 +2088,99 @@ export function AdminPage({ initialTab = "users" }: AdminPageProps) {
       ) : null}
 
       {activeTab === "dictionaries" ? (
-        <Card>
-          <CardHeader title="Dictionaries" description="Reference values used by operational workflows." />
-          <div className="p-4">
-            <Table
-              columns={[
-                { key: "category", label: "Category", className: "w-[180px]" },
-                { key: "key", label: "Key", className: "w-[220px]" },
-                { key: "label", label: "Label", className: "w-[260px]" },
-                { key: "isActive", label: "Active", className: "w-[112px]", render: (row) => <StatusBadge value={row.isActive ? "Active" : "Inactive"} /> }
-              ]}
-              rows={dictionaries}
+        <div className="grid gap-4" data-testid="admin-dictionaries">
+          <Card>
+            <CardHeader
+              title="Dictionaries"
+              description="Durable operational configuration with protected protocol vocabularies shown read-only."
+              action={<Button type="button" variant="primary" icon={Plus} onClick={newDictionaryValue}>Add configurable value</Button>}
             />
-          </div>
-        </Card>
+            <form className="grid gap-3 border-b border-border p-4 md:grid-cols-[1fr_220px_180px_auto]" onSubmit={(event) => void applyDictionaryFilters(event)}>
+              <Input
+                aria-label="Search dictionaries"
+                placeholder="Search category, key or label"
+                value={dictionaryFilters.search}
+                onChange={(event) => setDictionaryFilters((current) => ({ ...current, search: event.target.value }))}
+              />
+              <Select aria-label="Dictionary category" value={dictionaryFilters.category} onChange={(event) => setDictionaryFilters((current) => ({ ...current, category: event.target.value }))}>
+                <option value="">All categories</option>
+                {dictionaryPolicies.map((policy) => <option key={policy.category} value={policy.category}>{policy.category}</option>)}
+              </Select>
+              <Select aria-label="Dictionary active state" value={dictionaryFilters.active} onChange={(event) => setDictionaryFilters((current) => ({ ...current, active: event.target.value }))}>
+                <option value="">Active and inactive</option>
+                <option value="true">Active</option>
+                <option value="false">Inactive</option>
+              </Select>
+              <Button type="submit" variant="secondary" icon={Search} disabled={savingAction === "filter-dictionaries"}>Apply</Button>
+            </form>
+            <div className="grid gap-3 p-4">
+              {dictionaryError ? <AlertBox tone="danger">{dictionaryError}</AlertBox> : null}
+              <Table
+                columns={[
+                  { key: "category", label: "Category", className: "w-[170px]" },
+                  { key: "key", label: "Stable key", className: "w-[190px]" },
+                  { key: "label", label: "Label", className: "w-[220px]" },
+                  { key: "governance", label: "Governance", className: "w-[170px]", render: (row) => (
+                    <div className="grid gap-1">
+                      <Badge tone={row.policy?.protected ? "neutral" : "success"}>{row.policy?.protected ? "Protected" : "Editable"}</Badge>
+                      <span className="text-xs font-semibold text-muted-foreground">{row.policy?.classification} · {row.policy?.authority}</span>
+                    </div>
+                  ) },
+                  { key: "isActive", label: "State", className: "w-[100px]", render: (row) => <StatusBadge value={row.isActive ? "Active" : "Inactive"} /> },
+                  { key: "actions", label: "Actions", className: "w-[220px]", render: (row) => row.policy?.protected ? (
+                    <span className="text-xs font-semibold text-muted-foreground" title={row.policy?.reason}>Read-only system value</span>
+                  ) : (
+                    <div className="flex flex-wrap gap-2">
+                      <Button type="button" variant="secondary" onClick={() => editDictionaryValue(row)}>Edit</Button>
+                      {row.isActive && row.policy?.allowDeactivate ? <Button type="button" variant="danger" icon={Ban} disabled={savingAction === `dictionary-active-${row.id}`} onClick={() => void setDictionaryActive(row, false)}>Deactivate</Button> : null}
+                      {!row.isActive && row.policy?.allowReactivate ? <Button type="button" variant="secondary" icon={RotateCcw} disabled={savingAction === `dictionary-active-${row.id}`} onClick={() => void setDictionaryActive(row, true)}>Reactivate</Button> : null}
+                    </div>
+                  ) }
+                ]}
+                rows={dictionaries}
+              />
+              <div className="flex flex-wrap items-center justify-between gap-3 text-sm font-semibold text-muted-foreground">
+                <span>{dictionaryTotal ? `${dictionaryFilters.offset + 1}–${Math.min(dictionaryFilters.offset + dictionaryFilters.limit, dictionaryTotal)} of ${dictionaryTotal}` : "No dictionary values"}</span>
+                <div className="flex gap-2">
+                  <Button type="button" variant="secondary" disabled={dictionaryFilters.offset === 0 || savingAction === "page-dictionaries"} onClick={() => void changeDictionaryPage(-1)}>Previous</Button>
+                  <Button type="button" variant="secondary" disabled={dictionaryFilters.offset + dictionaryFilters.limit >= dictionaryTotal || savingAction === "page-dictionaries"} onClick={() => void changeDictionaryPage(1)}>Next</Button>
+                </div>
+              </div>
+            </div>
+          </Card>
+
+          {dictionaryDraft ? (
+            <Card>
+              <CardHeader title={dictionaryDraft.mode === "create" ? "Add configurable value" : "Edit configurable value"} description="The stable key and category cannot change after creation." />
+              <form data-testid="dictionary-editor" className="grid gap-4 p-4 md:grid-cols-2" onSubmit={(event) => void saveDictionaryValue(event)}>
+                {dictionaryError ? <div className="md:col-span-2"><AlertBox tone="danger">{dictionaryError}</AlertBox></div> : null}
+                <Field label="Category" required>
+                  <Select disabled={dictionaryDraft.mode !== "create"} value={dictionaryDraft.category} onChange={(event) => setDictionaryDraft((current) => current ? { ...current, category: event.target.value } : current)}>
+                    {dictionaryPolicies.filter((policy) => policy.allowCreate).map((policy) => <option key={policy.category} value={policy.category}>{policy.category}</option>)}
+                  </Select>
+                </Field>
+                <Field label="Stable key" required>
+                  <Input data-testid="dictionary-key" disabled={dictionaryDraft.mode !== "create"} value={dictionaryDraft.key} onChange={(event) => setDictionaryDraft((current) => current ? { ...current, key: event.target.value } : current)} />
+                </Field>
+                <Field label="Label" required>
+                  <Input data-testid="dictionary-label" value={dictionaryDraft.label} onChange={(event) => setDictionaryDraft((current) => current ? { ...current, label: event.target.value } : current)} />
+                </Field>
+                <Field label="Sort order">
+                  <Input type="number" value={dictionaryDraft.sortOrder} onChange={(event) => setDictionaryDraft((current) => current ? { ...current, sortOrder: event.target.value } : current)} />
+                </Field>
+                <div className="md:col-span-2">
+                  <Field label="Description">
+                    <Textarea value={dictionaryDraft.description} onChange={(event) => setDictionaryDraft((current) => current ? { ...current, description: event.target.value } : current)} />
+                  </Field>
+                </div>
+                <div className="flex gap-2 md:col-span-2">
+                  <Button type="submit" variant="primary" icon={Save} disabled={savingAction === "save-dictionary"}>Save dictionary value</Button>
+                  <Button type="button" variant="secondary" onClick={() => { setDictionaryDraft(null); setDictionaryError(""); }}>Cancel</Button>
+                </div>
+              </form>
+            </Card>
+          ) : null}
+        </div>
       ) : null}
 
       {lifecycleDialog && selectedUser ? (

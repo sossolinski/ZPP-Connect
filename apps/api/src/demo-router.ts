@@ -112,6 +112,7 @@ import { createExportRouter } from "./modules/exports/export-router.js";
 import type { PrismaExportService } from "./modules/exports/prisma-export-service.js";
 import { createExerciseRouter } from "./modules/exercise/exercise-router.js";
 import type { PrismaExerciseService } from "./modules/exercise/prisma-exercise-service.js";
+import { dictionaryPolicies, dictionaryPolicy, profileDictionaryPolicy } from "./modules/configuration/dictionary-policy.js";
 
 type Row = Record<string, any>;
 type AccountStatus = "Pending" | "Active" | "Suspended" | "Archived";
@@ -4209,8 +4210,19 @@ export function createDemoRouter(options: {
     res.json(roleResponse(role));
   });
   router.get("/admin/capabilities", requirePermission("admin:manage"), (_req, res) => res.json({ data: capabilityRows() }));
-  router.get("/admin/dictionaries", requirePermission("admin:manage"), (_req, res) => res.json({ data: Object.values(dictionaryRows()).flat() }));
-  router.post("/admin/dictionaries", requirePermission("admin:manage"), (req, res) => res.status(201).json({ id: `dict-demo-${Date.now()}`, ...req.body }));
+  router.get("/admin/dictionary-policies", requirePermission("admin:manage"), (_req, res) => res.json({ data: [...Object.values(dictionaryPolicies), profileDictionaryPolicy] }));
+  router.get("/admin/dictionaries", requirePermission("admin:manage"), (_req, res) => {
+    const data = Object.values(dictionaryRows()).flat().map((row) => ({ ...row, version: 1, sourceType: "SYSTEM_MIRROR", policy: dictionaryPolicy(String(row.category)) }));
+    res.json({ total: data.length, limit: data.length, offset: 0, data });
+  });
+  router.post("/admin/dictionaries", requirePermission("admin:manage"), (req, res) => {
+    const policy = dictionaryPolicy(String(req.body?.category ?? ""));
+    if (!policy.allowCreate) {
+      res.status(409).json({ error: `Dictionary category '${policy.category}' is protected.` });
+      return;
+    }
+    res.status(201).json({ id: `dict-memory-test-${Date.now()}`, version: 1, sourceType: "ADMIN", policy, ...req.body });
+  });
 
   return router;
 }

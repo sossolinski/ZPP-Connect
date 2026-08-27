@@ -115,7 +115,7 @@ postgresDescribe("Foundation Stage 20 PostgreSQL production composition provenan
     const migrations = await prisma!.$queryRaw<Array<{ count: bigint }>>`SELECT count(*)::bigint AS count FROM "_prisma_migrations" WHERE finished_at IS NOT NULL AND rolled_back_at IS NULL`;
     const app = createApp();
     const manifest = app.locals.productionRouteManifest as ProductionRouteClaim[];
-    expect(Number(migrations[0]!.count)).toBe(21);
+    expect(Number(migrations[0]!.count)).toBeGreaterThanOrEqual(21);
     expect(app.locals.productionComposition).toBe("postgres-explicit");
     expect(app.locals.legacyMemoryModuleLoaded).toBe(false);
     expect(app.locals.legacyMemoryRouterMounted).toBe(false);

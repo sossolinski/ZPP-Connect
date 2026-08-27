@@ -27,7 +27,7 @@ describe("Stage 20 production route ownership", () => {
     expect(new Set(manifest.map(key)).size).toBe(manifest.length);
     expect(manifest.every((claim) => claim.memoryBacked === false)).toBe(true);
     expect(manifest.map((claim) => claim.owner)).not.toContain("demo-router");
-    expect(manifest.some((claim) => claim.authority === "deferred" && claim.path === "/admin/dictionaries")).toBe(true);
+    expect(manifest.some((claim) => claim.authority === "postgres" && claim.owner === "configuration" && claim.path === "/admin/dictionaries")).toBe(true);
   });
 
   it("assigns representative migrated routes to their durable domain owners", () => {
@@ -43,6 +43,8 @@ describe("Stage 20 production route ownership", () => {
     expect(owner("GET", "/readiness/summary")).toBe("readiness");
     expect(owner("GET", "/dashboard")).toBe("production-shared");
     expect(owner("GET", "/timeline")).toBe("production-shared");
+    expect(owner("GET", "/dictionaries")).toBe("configuration");
+    expect(owner("POST", "/admin/dictionaries")).toBe("configuration");
   });
 
   it("keeps the generic demo composition available only for intentional memory tests", () => {
