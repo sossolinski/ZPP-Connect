@@ -15,7 +15,7 @@ import {
   type UserInvitationContract
 } from "@zpp/shared";
 import { effectiveAccessForUser } from "./access-control.js";
-import { createApp } from "./app.js";
+import { createApp } from "./test-support/listening-test-app.js";
 
 const productTimestampFormatter = new Intl.DateTimeFormat("en-GB", {
   day: "2-digit",

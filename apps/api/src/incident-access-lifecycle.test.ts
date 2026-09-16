@@ -1,6 +1,6 @@
 import request from "supertest";
 import { beforeEach, describe, expect, it } from "vitest";
-import { createApp } from "./app.js";
+import { createApp } from "./test-support/listening-test-app.js";
 import { createMemoryIncidentAccessRepository, type MemoryIncidentAssignment } from "./modules/incident-access/memory-incident-access-repository.js";
 import { createMemoryIncidentAssignmentRepository } from "./modules/incident-assignments/memory-incident-assignment-repository.js";
 import { createMemoryIncidentRepository } from "./modules/incidents/memory-incident-repository.js";
