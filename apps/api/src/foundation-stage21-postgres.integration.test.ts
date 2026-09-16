@@ -4,7 +4,7 @@ import { dictionaries } from "@zpp/shared";
 import request from "supertest";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { seedDictionaries } from "../prisma/dictionary-seed.js";
-import { createApp } from "./app.js";
+import { createApp } from "./test-support/listening-test-app.js";
 import { dictionaryPolicies } from "./modules/configuration/dictionary-policy.js";
 import { createPrismaDictionaryService } from "./modules/configuration/prisma-dictionary-service.js";
 import type { DictionaryConfigurationService, DictionaryFailurePoint } from "./modules/configuration/configuration-types.js";

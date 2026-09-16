@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import { PrismaClient } from "@prisma/client";
 import request from "supertest";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { createApp } from "./app.js";
+import { createApp, createSharedApp } from "./test-support/listening-test-app.js";
 import { createPrismaAssignmentRepository } from "./modules/assignments/prisma-assignment-repository.js";
 import { createPrismaIncidentAccessRepository } from "./modules/incident-access/prisma-incident-access-repository.js";
 
@@ -11,7 +11,8 @@ const postgresDescribe = databaseUrl ? describe : describe.skip;
 const prisma = databaseUrl ? new PrismaClient({ datasources: { db: { url: databaseUrl } } }) : null;
 const as = (email: string) => ({ "x-user-email": email });
 function application(assignmentNotificationHook?: (record: Record<string, unknown>, command: string) => void) {
-  return createApp({
+  const factory = assignmentNotificationHook ? createApp : createSharedApp;
+  return factory({
     assignmentRepository: createPrismaAssignmentRepository(prisma!),
     incidentAccessRepository: createPrismaIncidentAccessRepository(prisma!),
     assignmentNotificationHook,

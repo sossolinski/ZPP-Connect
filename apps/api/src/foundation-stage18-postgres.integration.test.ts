@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import { Prisma, PrismaClient } from "@prisma/client";
 import request from "supertest";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { createApp } from "./app.js";
+import { createApp, createSharedApp } from "./test-support/listening-test-app.js";
 import { createPrismaExerciseService } from "./modules/exercise/prisma-exercise-service.js";
 
 const databaseUrl = process.env.TEST_DATABASE_URL;
@@ -18,7 +18,10 @@ postgresDescribe("Foundation Stage 18 PostgreSQL Exercise evidence integrity", (
   const groupIds: string[] = [];
   let coordinator: { id: string; email: string; displayName: string };
 
-  const application = (service = createPrismaExerciseService(prisma!)) => createApp({ exerciseService: service });
+  const application = (service?: ReturnType<typeof createPrismaExerciseService>) => {
+    const options = { exerciseService: service ?? createPrismaExerciseService(prisma!) };
+    return service ? createApp(options) : createSharedApp(options);
+  };
   const actor = () => ({ ...coordinator, requestId: randomUUID() });
 
   async function incident(suffix: string, options: { status?: string; mode?: string; assigned?: string[] } = {}) {

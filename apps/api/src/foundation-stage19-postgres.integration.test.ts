@@ -2,7 +2,7 @@ import { createHash, randomUUID } from "node:crypto";
 import { PrismaClient } from "@prisma/client";
 import request from "supertest";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { createApp } from "./app.js";
+import { createApp, createSharedApp } from "./test-support/listening-test-app.js";
 import { createPrismaReadinessProjectionService } from "./modules/readiness/prisma-readiness-service.js";
 
 const databaseUrl = process.env.TEST_DATABASE_URL;
@@ -33,7 +33,10 @@ postgresDescribe("Foundation Stage 19 PostgreSQL Readiness projection integrity"
   let rosterId: string;
   let baseMemberCount = 0;
 
-  const application = (service = createPrismaReadinessProjectionService(prisma!, { now: () => new Date(at) })) => createApp({ readinessService: service, trainingClock: { now: () => new Date(at) } });
+  const application = (service?: ReturnType<typeof createPrismaReadinessProjectionService>) => {
+    const options = { readinessService: service ?? createPrismaReadinessProjectionService(prisma!, { now: () => new Date(at) }), trainingClock: { now: () => new Date(at) } };
+    return service ? createApp(options) : createSharedApp(options);
+  };
 
   async function userWithRole(suffix: string, permissions: string[], scopeType: "GLOBAL" | "GROUP" = "GLOBAL") {
     const email = `${marker.toLowerCase()}-${suffix}@example.test`;

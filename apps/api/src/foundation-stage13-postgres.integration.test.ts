@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import { PrismaClient } from "@prisma/client";
 import request from "supertest";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { createApp } from "./app.js";
+import { createSharedApp } from "./test-support/listening-test-app.js";
 import { enqueueNotification } from "./modules/notifications/notification-outbox.js";
 import { createNotificationDispatcher } from "./modules/notifications/notification-dispatcher.js";
 import { createNotificationProjector } from "./modules/notifications/notification-projector.js";
@@ -46,7 +46,7 @@ postgresDescribe("Foundation Stage 13 PostgreSQL Notifications delivery integrit
   }
 
   function application() {
-    return createApp({ notificationRepository: repository, trainingClock: clock, documentClock: clock });
+    return createSharedApp({ notificationRepository: repository, trainingClock: clock, documentClock: clock });
   }
 
   async function createOutbox(values: Record<string, unknown> = {}) {

@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import { PrismaClient } from "@prisma/client";
 import request from "supertest";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { createApp } from "./app.js";
+import { createApp, createSharedApp } from "./test-support/listening-test-app.js";
 import { createPrismaIncidentAccessRepository } from "./modules/incident-access/prisma-incident-access-repository.js";
 import { createPrismaMemberDirectoryRepository } from "./modules/member-directory/prisma-member-directory-repository.js";
 import { createPrismaTrainingRepository } from "./modules/training/prisma-training-repository.js";
@@ -33,7 +33,8 @@ postgresDescribe("Foundation Stage 11 PostgreSQL Training", () => {
 
   function application(notificationHook?: (record: Record<string, unknown>, command: string) => void) {
     const training = createPrismaTrainingRepository(prisma!, clock);
-    return createApp({
+    const factory = notificationHook ? createApp : createSharedApp;
+    return factory({
       incidentAccessRepository: createPrismaIncidentAccessRepository(prisma!),
       memberDirectoryRepository: createPrismaMemberDirectoryRepository(prisma!, (memberId) => training.memberTrainingStatus(memberId, clock.now())),
       trainingRepository: training,

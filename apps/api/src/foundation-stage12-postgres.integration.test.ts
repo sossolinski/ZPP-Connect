@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import { PrismaClient } from "@prisma/client";
 import request from "supertest";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { createApp } from "./app.js";
+import { createApp, createSharedApp } from "./test-support/listening-test-app.js";
 import { createPrismaDocumentRepository } from "./modules/documents/prisma-document-repository.js";
 import { createPrismaIncidentAccessRepository } from "./modules/incident-access/prisma-incident-access-repository.js";
 
@@ -21,7 +21,8 @@ postgresDescribe("Foundation Stage 12 PostgreSQL Documents", () => {
   let groupId: string;
 
   function application(publishHook?: (record: Record<string, unknown>) => void) {
-    return createApp({
+    const factory = publishHook ? createApp : createSharedApp;
+    return factory({
       incidentAccessRepository: createPrismaIncidentAccessRepository(prisma!),
       documentRepository: createPrismaDocumentRepository(prisma!, clock),
       documentClock: clock,

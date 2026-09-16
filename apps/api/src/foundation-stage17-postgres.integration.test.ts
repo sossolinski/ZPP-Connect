@@ -2,7 +2,7 @@ import { createHash, randomUUID } from "node:crypto";
 import { PrismaClient } from "@prisma/client";
 import request from "supertest";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { createApp } from "./app.js";
+import { createApp, createSharedApp } from "./test-support/listening-test-app.js";
 import { parseWorkbook } from "./exporters.js";
 import { exportColumnSchemas } from "./modules/exports/prisma-export-service.js";
 import { createPrismaExportService } from "./modules/exports/prisma-export-service.js";
@@ -20,8 +20,9 @@ postgresDescribe("Foundation Stage 17 PostgreSQL export disclosure and report in
   const groupIds: string[] = [];
   let coordinator: { id: string; email: string; displayName: string };
 
-  function app(service = createPrismaExportService(prisma!)) {
-    return createApp({ exportService: service });
+  function app(service?: ReturnType<typeof createPrismaExportService>) {
+    const options = { exportService: service ?? createPrismaExportService(prisma!) };
+    return service ? createApp(options) : createSharedApp(options);
   }
 
   function responseBytes(response: { body: unknown; text?: string }) {
