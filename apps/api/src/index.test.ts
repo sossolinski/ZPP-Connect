@@ -17,6 +17,15 @@ import {
 import { effectiveAccessForUser } from "./access-control.js";
 import { createApp } from "./app.js";
 
+const productTimestampFormatter = new Intl.DateTimeFormat("en-GB", {
+  day: "2-digit",
+  month: "short",
+  year: "numeric",
+  hour: "2-digit",
+  minute: "2-digit",
+  hour12: false
+});
+
 const demoIds = {
   admin: "00000000-0000-4000-8000-000000000001",
   coordinator: "00000000-0000-4000-8000-000000000002",
@@ -428,9 +437,21 @@ describe("ZPP Connect API", () => {
     expect(response.status).toBe(200);
     expect(response.body.data.length).toBeGreaterThan(0);
     for (const item of response.body.data) {
-      expect(item.createdAt).toMatch(/\d{2} \w{3} \d{4}, \d{2}:\d{2}/);
+      expect(item.createdAt).toBe(productTimestampFormatter.format(new Date(item.createdAtIso)));
       expect(item.createdAt).not.toMatch(/\b(Just now|Today|Yesterday|\d+\s*(min|hr)s?\s+ago)\b/i);
       expect(`${item.title} ${item.message} ${item.createdAt}`).not.toMatch(/demo|sample|in-memory|reset on restart|database not connected/i);
+    }
+  });
+
+  it("formats product timestamps for every en-GB short month", () => {
+    const timestamps = Array.from({ length: 12 }, (_, month) =>
+      productTimestampFormatter.format(new Date(Date.UTC(2026, month, 15, 12, 34)))
+    );
+
+    expect(timestamps).toHaveLength(12);
+    expect(new Set(timestamps).size).toBe(12);
+    for (const timestamp of timestamps) {
+      expect(timestamp).toMatch(/^\d{2} [\p{L}.]+ \d{4}, \d{2}:\d{2}$/u);
     }
   });
 
