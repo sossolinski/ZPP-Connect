@@ -358,4 +358,35 @@ pg("Foundation Stage 22 retained AAR evidence", () => {
     expect((await request(app()).get("/api/after-action-pdf-artifacts/" + pdf.artifactId).set(headers(adminOnlyEmail))).status).toBe(404);
     expect((await request(app()).get("/api/after-action-pdf-artifacts/" + pdf.artifactId + "/download").set(headers(adminOnlyEmail))).status).toBe(404);
   });
+  it("rejects a corrupt logical source before rendering or retaining a PDF", async () => {
+    const { r } = await approved();
+    await db!.$transaction(async tx => {
+      await tx.$executeRawUnsafe('ALTER TABLE "AfterActionReportVersion" DISABLE TRIGGER "Aar_version_guard"');
+      await tx.afterActionReportVersion.update({ where: { id: r.reportVersionId }, data: { title: "Privileged corruption" } });
+      await tx.$executeRawUnsafe('ALTER TABLE "AfterActionReportVersion" ENABLE TRIGGER "Aar_version_guard"');
+    });
+    await expect(service().generatePdf(r.reportVersionId!, command(r.version), actor())).rejects.toMatchObject({ status: 500, message: "AAR source integrity verification failed" });
+    expect(await db!.afterActionPdfArtifact.count({ where: { reportVersionId: r.reportVersionId } })).toBe(0);
+  });
+  it("renders actor display snapshots and never selects bytes for artifact metadata", async () => {
+    const { r } = await approved();
+    const original = await db!.user.findUniqueOrThrow({ where: { id: coordinator.id } });
+    try {
+      await db!.user.update({ where: { id: coordinator.id }, data: { displayName: "Later actor display" } });
+      const pdf = await service().generatePdf(r.reportVersionId!, command(r.version), actor());
+      const v = await db!.afterActionReportVersion.findUniqueOrThrow({ where: { id: r.reportVersionId }, include: versionInclude });
+      expect((v.contextSnapshot as { owner: string }).owner).toBe(original.displayName);
+      expect(contentDigest(v)).toBe(v.contentSha256);
+      const queries: string[] = [];
+      const observed = new PrismaClient({ datasources: { db: { url: databaseUrl! } }, log: [{ emit: "event", level: "query" }] });
+      observed.$on("query", event => queries.push(event.query));
+      try {
+        const reader = createPrismaAfterActionReportService(observed);
+        await reader.artifact(pdf.artifactId!, actor());
+        await reader.artifacts(r.reportVersionId!, {}, actor());
+        expect(queries.some(q => q.includes('"AfterActionPdfArtifact"."content"'))).toBe(false);
+        expect(queries.some(q => q.includes('"AfterActionPdfArtifact"."contentSha256"'))).toBe(true);
+      } finally { await observed.$disconnect(); }
+    } finally { await db!.user.update({ where: { id: coordinator.id }, data: { displayName: original.displayName } }); }
+  });
 });
