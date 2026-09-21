@@ -234,7 +234,32 @@ postgresDescribe("Foundation Stage 12 PostgreSQL Documents", () => {
       request(application()).post(`/api/document-versions/${second.version.id}/acknowledge`).set(as(actors.own!.email)).send({ operationId: randomUUID() }),
       request(application()).post(`/api/document-versions/${second.version.id}/withdraw`).set(as(actors.manager!.email)).send({ expectedVersion: second.version.version, operationId: randomUUID(), reason: "Race test" }),
     ]);
-    expect([ackRace.status, withdrawRace.status].filter((status) => status < 300)).toHaveLength(1);
+    // ACK does not change the version token. ACK -> withdraw is a valid serial
+    // history; withdraw -> ACK must reject the new acknowledgement.
+    expect(withdrawRace.status).toBe(200);
+    expect([201, 409]).toContain(ackRace.status);
+    const retained = await prisma!.documentAcknowledgement.findMany({ where: { documentVersionId: second.version.id } });
+    expect(retained).toHaveLength(ackRace.status === 201 ? 1 : 0);
+    if (ackRace.status === 201) {
+      expect(retained[0]!.id).toBe(ackRace.body.id);
+      expect(retained[0]!.acknowledgedAt.getTime()).toBeLessThanOrEqual(new Date(withdrawRace.body.withdrawnAt).getTime());
+    }
+    expect((await request(application()).post(`/api/document-versions/${second.version.id}/acknowledge`).set(as(actors.own!.email)).send({ operationId: randomUUID() })).status).toBe(409);
+  });
+
+  it("retains acknowledgement before withdrawal and rejects acknowledgement after withdrawal", async () => {
+    const before = await publishedDocument();
+    await requirement(before.version.id);
+    const ack = await request(application()).post(`/api/document-versions/${before.version.id}/acknowledge`).set(as(actors.own!.email)).send({ operationId: randomUUID() });
+    expect(ack.status).toBe(201);
+    expect((await request(application()).post(`/api/document-versions/${before.version.id}/withdraw`).set(as(actors.manager!.email)).send({ expectedVersion: before.version.version, operationId: randomUUID(), reason: "Withdraw after acknowledgement" })).status).toBe(200);
+    expect(await prisma!.documentAcknowledgement.findUnique({ where: { id: ack.body.id } })).toMatchObject({ documentVersionId: before.version.id });
+
+    const after = await publishedDocument();
+    await requirement(after.version.id);
+    expect((await request(application()).post(`/api/document-versions/${after.version.id}/withdraw`).set(as(actors.manager!.email)).send({ expectedVersion: after.version.version, operationId: randomUUID(), reason: "Withdraw before acknowledgement" })).status).toBe(200);
+    expect((await request(application()).post(`/api/document-versions/${after.version.id}/acknowledge`).set(as(actors.own!.email)).send({ operationId: randomUUID() })).status).toBe(409);
+    expect(await prisma!.documentAcknowledgement.count({ where: { documentVersionId: after.version.id } })).toBe(0);
   });
 
   it("serializes publish against draft edit and draft withdrawal", async () => {
