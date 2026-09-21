@@ -1,8 +1,8 @@
 # Foundation Stage 22 — AAR / Post-Incident Reporting + PDF Integrity Plan
 
-Status: **PLANNING COMPLETE — BASELINE GATE REQUIRES CLOSURE BEFORE IMPLEMENTATION**
+Status: **IMPLEMENTED — LOCAL GATES PASSED; EXACT-HEAD REMOTE CI PENDING**
 
-This document is the approved planning candidate for Foundation Stage 22. It records the verified repository state, relevant architectural decisions from Stages 12–21, the proposed Stage 22 contract, and the implementation gate. It does not introduce Stage 22 runtime behavior.
+This document records the approved Foundation Stage 22 contract. Implementation and final local validation are documented in the [Stage 22 report](foundation-stage-22-aar-pdf-integrity-report.md). The baseline was closed in the [baseline closure](foundation-stage-22-baseline-closure.md). Sections A/B and Q below preserve the original planning-time evidence and decision, not the current blocker. Remote exact-head CI remains pending because push/merge was excluded from this task.
 
 ## A. Repository and workspace state
 
@@ -405,26 +405,26 @@ Use the existing PDFKit runtime dependency. Prefer testing a pure renderer view 
 
 ## M. Definition of Done
 
-- [ ] 1. Create an AAR for exactly one authorized Closed Session.
-- [ ] 2. Associate it with the canonical Session and optional same-Session Exercise Observation snapshots.
-- [ ] 3. Edit a Draft with optimistic concurrency.
-- [ ] 4. Add ordered findings.
-- [ ] 5. Add ordered lessons identified.
-- [ ] 6. Add ordered corrective actions/recommendations.
-- [ ] 7. Enforce the documented lifecycle and illegal-transition failures.
-- [ ] 8. Approve an Under review version with complete actor/time/content-digest provenance.
-- [ ] 9. Make an Approved version and all content rows immutable in service and database.
-- [ ] 10. Reject attempted mutation of Approved content with a controlled response.
-- [ ] 11. Create a later Draft revision without changing historic versions.
-- [ ] 12. Generate a PDF from one exact Approved version only.
-- [ ] 13. Persist exact PDF bytes and artifact metadata.
-- [ ] 14. Persist and expose the exact SHA-256 and byte size safely.
-- [ ] 15. Download the retained PDF with safe headers.
-- [ ] 16. Recompute and verify integrity before serving; reject corruption.
-- [ ] 17. Keep all report versions and artifacts readable under historical authorization.
-- [ ] 18. Enforce effective incident RBAC and anti-enumeration at router and service boundaries.
-- [ ] 19. Persist complete structural audit/history without copying report bodies or bytes.
-- [ ] 20. Pass all existing and Stage 22 gates with zero skipped PostgreSQL tests and no Foundation regression.
+- [x] 1. Create an AAR for exactly one authorized Closed Session.
+- [x] 2. Associate it with the canonical Session and optional same-Session Exercise Observation snapshots.
+- [x] 3. Edit a Draft with optimistic concurrency.
+- [x] 4. Add ordered findings.
+- [x] 5. Add ordered lessons identified.
+- [x] 6. Add ordered corrective actions/recommendations.
+- [x] 7. Enforce the documented lifecycle and illegal-transition failures.
+- [x] 8. Approve an Under review version with complete actor/time/content-digest provenance.
+- [x] 9. Make an Approved version and all content rows immutable in service and database.
+- [x] 10. Reject attempted mutation of Approved content with a controlled response.
+- [x] 11. Create a later Draft revision without changing historic versions.
+- [x] 12. Generate a PDF from one exact Approved version only.
+- [x] 13. Persist exact PDF bytes and artifact metadata.
+- [x] 14. Persist and expose the exact SHA-256 and byte size safely.
+- [x] 15. Download the retained PDF with safe headers.
+- [x] 16. Recompute and verify integrity before serving; reject corruption.
+- [x] 17. Keep all report versions and artifacts readable under historical authorization.
+- [x] 18. Enforce effective incident RBAC and anti-enumeration at router and service boundaries.
+- [x] 19. Persist complete structural audit/history without copying report bodies or bytes.
+- [ ] 20. Pass all existing and Stage 22 gates with zero skipped PostgreSQL tests and no Foundation regression. **Local gates PASS (112 unit, 295 PostgreSQL, 73 + 5 browser); formal exact-head remote CI remains pending.**
 
 ## N. Risks and compatibility concerns
 
@@ -451,23 +451,25 @@ Use the existing PDFKit runtime dependency. Prefer testing a pure renderer view 
 
 ## P. Implementation checklist
 
-- [ ] Close the two deterministic baseline gate failures and obtain one clean full PostgreSQL run.
-- [ ] Confirm this plan as the Stage 22 scope; do not silently expand attachments/action tracking/signatures.
-- [ ] Add shared permissions and role seed reconciliation.
-- [ ] Add Prisma models, relations, migration, checks, triggers, and sequence.
-- [ ] Generate Prisma client and rehearse Stage 21 → 22.
-- [ ] Implement strict types/validation and canonical content hashing.
-- [ ] Implement incident-aware service/router with operation replay and audit.
-- [ ] Register one PostgreSQL production owner and extend route ownership tests.
-- [ ] Implement dedicated PDF renderer and retained artifact pipeline.
-- [ ] Implement integrity-checked metadata/download routes and headers.
-- [ ] Update OpenAPI.
-- [ ] Add frontend route/API/page using existing components.
-- [ ] Add focused PostgreSQL, RBAC, immutability, concurrency, rollback, PDF, and browser tests.
-- [ ] Run fresh migration/seed, full ordered PostgreSQL, unit, lint, typecheck, build, browser, production startup, audit, and `git diff --check`.
+- [x] Close the two deterministic baseline gate failures and obtain one clean full PostgreSQL run.
+- [x] Confirm this plan as the Stage 22 scope; do not silently expand attachments/action tracking/signatures.
+- [x] Add shared permissions and role seed reconciliation.
+- [x] Add Prisma models, relations, migration, checks, triggers, and sequence.
+- [x] Generate Prisma client and rehearse Stage 21 → 22.
+- [x] Implement strict types/validation and canonical content hashing.
+- [x] Implement incident-aware service/router with operation replay and audit.
+- [x] Register one PostgreSQL production owner and extend route ownership tests.
+- [x] Implement dedicated PDF renderer and retained artifact pipeline.
+- [x] Implement integrity-checked metadata/download routes and headers.
+- [x] Update OpenAPI.
+- [x] Add frontend route/API/page using existing components.
+- [x] Add focused PostgreSQL, RBAC, immutability, concurrency, rollback, PDF, and browser tests.
+- [x] Run fresh migration/seed, full ordered PostgreSQL, unit, lint, typecheck, build, browser, production startup, audit, and `git diff --check`.
 - [ ] Record exact-SHA CI evidence before declaring READY.
 
-## Q. Readiness decision and exact next step
+## Q. Original planning-time readiness decision (superseded)
+
+The following decision is retained as historical evidence. The baseline closure and implementation are complete; the current next step is authorized exact-head remote CI, as recorded in the implementation report.
 
 The Stage 22 architecture is sufficiently defined to implement without further product-model discovery. Implementation should **not** begin on the current baseline yet because the canonical unit and production dependency audit gates are deterministically red, and the full ordered PostgreSQL gate has not completed once without a transport flake in this validation session.
 
