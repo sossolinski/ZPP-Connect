@@ -1,6 +1,8 @@
 import type { PrismaClient } from "@prisma/client";
 import { Router } from "express";
 import { authenticate } from "../auth.js";
+import { createAfterActionReportRouter } from "../modules/after-action-reports/after-action-report-router.js";
+import { createPrismaAfterActionReportService, type PrismaAfterActionReportService } from "../modules/after-action-reports/prisma-after-action-report-service.js";
 import type { AssignmentRepository } from "../modules/assignments/assignment-repository.js";
 import { createAssignmentRouter } from "../modules/assignments/assignment-router.js";
 import { createAssignmentService } from "../modules/assignments/assignment-service.js";
@@ -65,6 +67,7 @@ import { createProductionSharedRouter, createPublicProductionRouter } from "./pr
 type NotificationService = ReturnType<typeof createPersistentNotificationService>;
 
 export type ProductionCompositionOptions = {
+  afterActionReportService?: PrismaAfterActionReportService;
   db: PrismaClient;
   incidentRepository: IncidentRepository;
   enquiryRepository: EnquiryRepository;
@@ -155,6 +158,7 @@ export function createProductionComposition(options: ProductionCompositionOption
   mount("exports-reports", "A", "postgres", createExportRouter(options.exportService, requireIncidentPermission));
   mount("exercise", "A", "postgres", createExerciseRouter(options.exerciseService, requireIncidentPermission));
   mount("readiness", "A", "postgres", createReadinessRouter(options.readinessService));
+  mount("after-action-reports", "A", "postgres", createAfterActionReportRouter(options.afterActionReportService ?? createPrismaAfterActionReportService(options.db), requireIncidentPermission));
 
   return { router, manifest: registry.manifest() };
 }

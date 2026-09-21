@@ -1,4 +1,5 @@
 import crypto from "node:crypto";
+import type { PrismaAfterActionReportService } from "./modules/after-action-reports/prisma-after-action-report-service.js";
 import compression from "compression";
 import cors from "cors";
 import express from "express";
@@ -32,6 +33,7 @@ import type { ReadinessProjectionService } from "./modules/readiness/prisma-read
 import type { DictionaryConfigurationService } from "./modules/configuration/configuration-types.js";
 
 export function createApp(options: {
+  afterActionReportService?: PrismaAfterActionReportService;
   incidentRepository?: IncidentRepository;
   enquiryRepository?: EnquiryRepository;
   incidentAccessRepository?: IncidentAccessRepository;
@@ -84,13 +86,14 @@ export function createApp(options: {
     cors({
       origin: config.appOrigin.split(",").map((origin) => origin.trim()),
       credentials: true,
-      exposedHeaders: ["Content-Disposition", "X-Export-Generation-Id"]
+      exposedHeaders: ["Content-Disposition", "X-Export-Generation-Id", "X-AAR-Artifact-Id", "X-Content-SHA256", "X-Source-Content-SHA256"]
     })
   );
   app.use(express.json({ limit: "2mb" }));
   app.use(express.urlencoded({ extended: true }));
 
   registerRoutes(app, {
+    afterActionReportService: options.afterActionReportService,
     incidentRepository: options.incidentRepository,
     enquiryRepository: options.enquiryRepository,
     incidentAccessRepository: options.incidentAccessRepository,
