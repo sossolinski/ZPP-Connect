@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { Download } from "lucide-react";
+import { Link } from "react-router-dom";
 import { api } from "../lib/api";
 import { useApp } from "../lib/app-context";
 import { AlertBox, Button, Card } from "../components/ui";
@@ -12,8 +13,7 @@ const exports = [
   { type: "matching-log", label: "Matching log" },
   { type: "requests-log", label: "Requests log" },
   { type: "audit-log", label: "Audit log" },
-  { type: "pdf-session-summary", label: "PDF session summary" },
-  { type: "aar-draft", label: "Exercise/AAR draft" }
+  { type: "pdf-session-summary", label: "PDF session summary" }
 ];
 
 export function ReportsPage() {
@@ -39,8 +39,13 @@ export function ReportsPage() {
           </AlertBox>
           {error ? <AlertBox tone="danger">{error}</AlertBox> : null}
           <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+            {can("aar:read") && <div className="rounded-md border border-border bg-card p-4 text-foreground">
+              <p className="text-sm font-black">After Action Reports</p>
+              <p className="my-2 text-xs text-muted-foreground">Review findings, approve immutable revisions and download retained PDFs.</p>
+              <Link className="focus-ring font-bold underline" to="/reports/after-action">Open After Action Reports</Link>
+            </div>}
             {exports.map((item) => {
-              const unavailableFormat = item.type === "pdf-session-summary" || item.type === "aar-draft";
+              const unavailableFormat = item.type === "pdf-session-summary";
               return (
                 <div key={item.type} className="rounded-md border border-border bg-card p-4 text-foreground">
                   <p className="text-sm font-black text-foreground">{item.label}</p>
