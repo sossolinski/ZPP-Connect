@@ -129,3 +129,15 @@ test("hides AAR workflow and rejects direct API access for denied role", async (
   const denied = await page.request.get(apiUrl + "/after-action-reports?sessionId=" + s.id, { headers: { "x-user-email": "viewer@lot.pl" } });
   expect(denied.status()).toBe(403);
 });
+
+test("does not turn a failed report read into a false empty state", async ({ page }) => {
+  const s = await incident("READ-FAILURE");
+  await page.route("**/api/after-action-reports?**", route => route.fulfill({ status: 500, contentType: "application/json", body: JSON.stringify({ error: "Report read unavailable" }) }));
+  await open(page, s);
+  await expect(page.getByText("Report read unavailable")).toBeVisible();
+  await expect(page.getByText("No report is available for this Session.")).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "Create report", exact: true })).toHaveCount(0);
+  await page.unroute("**/api/after-action-reports?**");
+  await confirm(page, "Reload report");
+  await expect(page.getByText("No report is available for this Session.")).toBeVisible();
+});

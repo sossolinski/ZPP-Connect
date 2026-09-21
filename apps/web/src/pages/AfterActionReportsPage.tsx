@@ -27,6 +27,7 @@ export function AfterActionReportsPage() {
   const [locked, setLocked] = useState(false);
   useEffect(() => {
     let active = true;
+    setChoices(undefined);
     void api.sessions({ status, search, offset, limit: 20 }).then(result => { if (active) { setChoices(result); setError(""); } }).catch(e => { if (active) setError(e.message); });
     return () => { active = false; };
   }, [status, search, offset]);
@@ -52,6 +53,7 @@ function AfterActionWorkspace({ sessionId, onDirtyChange }: { sessionId: string;
   const [reason, setReason] = useState("");
   const [dirty, setDirty] = useState(false);
   const [loading, setLoading] = useState(true);
+  const [loaded, setLoaded] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [history, setHistory] = useState<AarPage<AarVersion>>();
@@ -73,6 +75,7 @@ function AfterActionWorkspace({ sessionId, onDirtyChange }: { sessionId: string;
     const list = await api.aarList(sessionId);
     setCanCreate(list.capabilities.create); setCanSource(list.capabilities.sourceObservations);
     if (list.data[0]) { const r = await api.aarReport(list.data[0].id); await loadVersion(r.latest.id); }
+    setLoaded(true);
     setError("");
   }
   useEffect(() => {
@@ -88,6 +91,7 @@ function AfterActionWorkspace({ sessionId, onDirtyChange }: { sessionId: string;
           if (!active) return;
           setVersion(v); setForm(formFor(v)); setHistory(h); setArtifacts(a);
         }
+        if (active) setLoaded(true);
       } catch (e) { if (active) failure(e); }
       finally { if (active) setLoading(false); }
     })();
@@ -139,7 +143,7 @@ function AfterActionWorkspace({ sessionId, onDirtyChange }: { sessionId: string;
   return <div className="grid gap-5" data-testid="aar-workspace">
     {error && <AlertBox tone="danger">{error}</AlertBox>}
     <div className="flex flex-wrap gap-3"><Button disabled={busy} onClick={() => ask("reload", "Reload report")}>Reload report</Button>{dirty && <span>Unsaved changes</span>}</div>
-    {!version && <Card><CardHeader title="After Action Reports" description="One report per Session. Authoring is available only after the Session is Closed." /><div className="grid gap-4 p-4">
+    {!version && loaded && <Card><CardHeader title="After Action Reports" description="One report per Session. Authoring is available only after the Session is Closed." /><div className="grid gap-4 p-4">
       <p>No report is available for this Session.</p>
       {canCreate && <><Field label="Report title"><Input value={title} maxLength={500} onChange={e => { setTitle(e.target.value); setCreateOperationId(crypto.randomUUID()); }} /></Field><Button variant="create" disabled={busy || !title.trim()} onClick={() => void create()}>Create report</Button></>}
     </div></Card>}
