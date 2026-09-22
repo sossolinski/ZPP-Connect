@@ -59,7 +59,7 @@ test("downloads a Passenger CSV through authenticated POST with server filename 
   await expect.poll(() => generationId).toMatch(/^[0-9a-f-]{36}$/);
 });
 
-test("downloads a session-package CSV and keeps PDF/AAR unavailable", async ({ page }) => {
+test("downloads a session-package CSV and separates retained AAR from unsupported legacy exports", async ({ page }) => {
   const session = await createSession(page, "PACKAGE");
   await openReports(page, session);
   const requestPromise = page.waitForRequest((request) => request.url().endsWith("/api/exports/session-package"));
@@ -70,7 +70,13 @@ test("downloads a session-package CSV and keeps PDF/AAR unavailable", async ({ p
   expect(requestRecord.postDataJSON()).toMatchObject({ sessionId: session.id, operationId: expect.stringMatching(/^[0-9a-f-]{36}$/) });
   expect(download.suggestedFilename()).toMatch(/^zpp-.*-session-package\.csv$/);
   await expect(page.getByText("PDF session summary", { exact: true }).locator("..").getByRole("button", { name: "Unavailable" })).toBeDisabled();
-  await expect(page.getByText("Exercise/AAR draft", { exact: true }).locator("..").getByRole("button", { name: "Unavailable" })).toBeDisabled();
+  await expect(page.getByText("Exercise/AAR draft", { exact: true })).toHaveCount(0);
+  const aar = page.getByRole("link", { name: "Open After Action Reports" });
+  await expect(aar).toHaveAttribute("href", "/reports/after-action");
+  const legacy = await page.request.post(`${apiUrl}/exports/aar-draft`, { headers, data: { sessionId: session.id } });
+  expect(legacy.status()).toBe(501);
+  await aar.click();
+  await expect(page.getByLabel("Report Session", { exact: true })).toBeVisible();
 });
 
 test("surfaces controlled POST errors and blocks the export module for a denied actor", async ({ page }) => {

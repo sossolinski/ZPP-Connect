@@ -248,6 +248,20 @@ and the preserved old stash are left alone.
 
 ## I. Limitations and deferred scope
 
+### Remote closure follow-up — 2026-09-22
+
+Authorized PR [#19](https://github.com/sossolinski/ZPP-Connect/pull/19) exposed a stale
+Stage 17 PostgreSQL browser assertion in the first remote gates on `e66680a`: it still
+expected the removed disabled “Exercise/AAR draft” card. The general memory smoke gate
+does not include that PostgreSQL-only file. The correction preserves the Session CSV
+download and unavailable PDF-summary checks, asserts the new AAR link/navigation, and
+explicitly verifies the old `/exports/aar-draft` API still returns 501. No product behavior,
+test skipping, retry policy or migration changed. Local validation deployed all 23
+migrations and seeded a new disposable database, then passed **8/8** combined Stage 17
+and Stage 22 browser tests. Updated exact-head remote checks are still required.
+
+### Retained product limitations
+
 - PDFKit built-in Helvetica lacks full Unicode coverage. Unsupported code points are
   visibly escaped as `[U+XXXX]`, including some Polish characters; original Unicode
   remains in stored/canonically hashed content. Full typographic Unicode support needs
