@@ -1,8 +1,8 @@
 # Foundation Stage 22 — AAR / Post-Incident Reporting + PDF Integrity Plan
 
-Status: **IMPLEMENTED — LOCAL GATES PASSED; EXACT-HEAD REMOTE CI PENDING**
+Status: **IMPLEMENTED — READY FOR MERGE**
 
-This document records the approved Foundation Stage 22 contract. Implementation and final local validation are documented in the [Stage 22 report](foundation-stage-22-aar-pdf-integrity-report.md). The baseline was closed in the [baseline closure](foundation-stage-22-baseline-closure.md). Sections A/B and Q below preserve the original planning-time evidence and decision, not the current blocker. Remote exact-head CI remains pending because push/merge was excluded from this task.
+This document records the approved Foundation Stage 22 contract. Implementation and validation are documented in the [Stage 22 report](foundation-stage-22-aar-pdf-integrity-report.md). The baseline was closed in the [baseline closure](foundation-stage-22-baseline-closure.md). Sections A/B and Q below preserve the original planning-time evidence and decision, not the current state. Exact implementation head `9968a23` passed both push and PR workflows on 2026-09-22; the documentation-only closure commit remains subject to the same pre-merge checks.
 
 ## A. Repository and workspace state
 
@@ -424,7 +424,7 @@ Use the existing PDFKit runtime dependency. Prefer testing a pure renderer view 
 - [x] 17. Keep all report versions and artifacts readable under historical authorization.
 - [x] 18. Enforce effective incident RBAC and anti-enumeration at router and service boundaries.
 - [x] 19. Persist complete structural audit/history without copying report bodies or bytes.
-- [ ] 20. Pass all existing and Stage 22 gates with zero skipped PostgreSQL tests and no Foundation regression. **Local gates PASS (112 unit, 295 PostgreSQL, 73 + 5 browser); formal exact-head remote CI remains pending.**
+- [x] 20. Pass all existing and Stage 22 gates with zero skipped PostgreSQL tests and no Foundation regression. **Exact implementation-head push and PR workflows PASS: 112 unit, 296 PostgreSQL, 73 general browser and 17 PostgreSQL browser cases.**
 
 ## N. Risks and compatibility concerns
 
@@ -465,7 +465,7 @@ Use the existing PDFKit runtime dependency. Prefer testing a pure renderer view 
 - [x] Add frontend route/API/page using existing components.
 - [x] Add focused PostgreSQL, RBAC, immutability, concurrency, rollback, PDF, and browser tests.
 - [x] Run fresh migration/seed, full ordered PostgreSQL, unit, lint, typecheck, build, browser, production startup, audit, and `git diff --check`.
-- [ ] Record exact-SHA CI evidence before declaring READY.
+- [x] Record exact-SHA CI evidence before declaring READY: implementation head `9968a23`, [push run 35771831219](https://github.com/sossolinski/ZPP-Connect/actions/runs/35771831219) and [PR run 35771838188](https://github.com/sossolinski/ZPP-Connect/actions/runs/35771838188).
 
 ## Q. Original planning-time readiness decision (superseded)
 

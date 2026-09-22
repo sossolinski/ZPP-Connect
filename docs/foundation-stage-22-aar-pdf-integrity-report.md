@@ -1,11 +1,12 @@
 # Foundation Stage 22 — AAR / Post-Incident Reporting and PDF Integrity
 
-Status: **IMPLEMENTED — LOCAL GATES PASSED; EXACT-HEAD REMOTE CI PENDING**
+Status: **READY FOR MERGE — IMPLEMENTATION HEAD REMOTE CI PASSED**
 
-Validated on 2026-09-21 on branch `agent/foundation-stage-22-aar-pdf-integrity`.
-All final executable-code gates below ran on `03a5282c8c9e425c62a306b31f5f623da4ece9d8`.
-The subsequent closure commit changes documentation only. Nothing was pushed or merged.
-The plan's exact-SHA CI requirement remains open; this report does not claim formal READY.
+Validated locally on 2026-09-21 and remotely on 2026-09-22 on branch
+`agent/foundation-stage-22-aar-pdf-integrity`. The final executable implementation head is
+`9968a2337384a40f1582a25ac990699d156d39e7`. Both the push and pull-request workflows
+passed every job on that exact SHA. This closure update changes documentation only and
+is subject to the same PR checks before merge.
 
 ## A. Objective and implemented scope
 
@@ -205,7 +206,7 @@ coordinator roles were allowed. Migration count became 23 and all seven AAR tabl
 remained empty. MD5 here is a local before/after comparison, not artifact security.
 The same rehearsal is registered after the existing predecessor rehearsal in CI.
 
-The final gate ran in the requested deterministic order on code SHA `03a5282`:
+The original local gate ran in the requested deterministic order on code SHA `03a5282`:
 
 | Gate | Result |
 |---|---|
@@ -220,7 +221,7 @@ The final gate ran in the requested deterministic order on code SHA `03a5282`:
 | `git diff --check` | PASS |
 | Brand-new database, entire migration chain | **23/23 deployed from zero** |
 | Canonical seed | PASS |
-| Full ordered PostgreSQL Stage 1–22 suite | **295/295 passed, 23 files, zero skipped**, 46.33 seconds |
+| Full ordered PostgreSQL Stage 1–22 suite | **295/295 passed, 23 files, zero skipped**, 46.33 seconds; **296/296** after the CI regression test was added |
 | PostgreSQL Stage 22 Playwright | **5/5 passed**, 8.6 seconds |
 | Production PostgreSQL/Entra startup, after all tests | PASS |
 
@@ -271,7 +272,19 @@ It does not retry the transaction or expand Exercise functionality. A determinis
 regression covers both reported constraints against a real committed row and checks
 one entity/one Audit. It fails against the previous implementation. The complete
 Stage 18 suite passes **16/16** with the correction; the new regression increases
-the full PostgreSQL gate to 296 cases. Updated exact-head remote checks are still required.
+the full PostgreSQL gate to 296 cases.
+
+Exact implementation-head remote evidence is complete:
+
+| Workflow | Foundation PostgreSQL | Quality | Production audit |
+|---|---:|---:|---:|
+| [push run 35771831219](https://github.com/sossolinski/ZPP-Connect/actions/runs/35771831219) | PASS, 7m00s | PASS, 6m24s | PASS, 19s |
+| [PR run 35771838188](https://github.com/sossolinski/ZPP-Connect/actions/runs/35771838188) | PASS, 5m40s | PASS, 6m05s | PASS, 17s |
+
+The remote gates include 296/296 PostgreSQL cases, the dedicated Stage 18 suite at
+16/16, 112/112 unit cases, 73/73 general browser cases, all six PostgreSQL browser
+workflows (17 cases including Stage 22 at 5/5), both migration rehearsals, production
+PostgreSQL/Entra startup and a production dependency audit with zero vulnerabilities.
 
 ### Retained product limitations
 
@@ -286,7 +299,7 @@ the full PostgreSQL gate to 296 cases. Updated exact-head remote checks are stil
 - Arbitrary attachments, rich text, DOCX, enterprise corrective-action execution,
   notifications and unrelated Reports redesign remain out of scope.
 - Local environment: macOS arm64, Node 24.13.0, npm 11.6.2, PostgreSQL 16.14. Remote CI
-  uses Node 22; its exact-head result is not available without the prohibited push.
+  passed on Node 22 and PostgreSQL 16.15.
 - The full development dependency graph reports 8 findings (3 moderate, 5 high), while
   the required production-only audit is clean. Existing Prisma config deprecation and
   Vite main-chunk warning (816.53 kB) remain; neither is concealed as a clean warning log.
@@ -316,12 +329,12 @@ the full PostgreSQL gate to 296 cases. Updated exact-head remote checks are stil
 | 17. Historical authorization/readability | PASS: archive/revision/history and paging tests |
 | 18. RBAC and anti-enumeration | PASS: router/service checks, custom scopes, deny and race tests |
 | 19. Structural audit/history | PASS: transactional Audit, replay and no-free-body assertions |
-| 20. All existing/new gates, no skipped PostgreSQL cases | LOCAL PASS: 112 unit, 295 PostgreSQL, 73 + 5 browser; exact-head remote CI PENDING |
+| 20. All existing/new gates, no skipped PostgreSQL cases | PASS: exact implementation-head CI includes 112 unit, 296 PostgreSQL and 73 + 17 PostgreSQL-browser cases in both workflows |
 
-All 20 functional/local DoD items have supporting evidence. Full formal closure is
-**not yet claimed** because section P of the plan separately requires exact-SHA CI.
-The next authorized handoff is push/review/CI of the final branch; this task explicitly
-does not perform that push or merge.
+All 20 DoD items have local and remote supporting evidence. The implementation is READY
+for merge. The documentation-only closure commit must pass the same PR checks; its GitHub
+result is the authoritative final-head gate and does not require another self-referential
+documentation update.
 
 ## K. Incremental commits and next stage
 
