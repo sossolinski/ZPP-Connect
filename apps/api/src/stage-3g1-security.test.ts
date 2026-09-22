@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import request from "supertest";
 import { describe, expect, it } from "vitest";
-import { createApp } from "./app.js";
+import { createApp } from "./test-support/listening-test-app.js";
 
 type App = ReturnType<typeof createApp>;
 

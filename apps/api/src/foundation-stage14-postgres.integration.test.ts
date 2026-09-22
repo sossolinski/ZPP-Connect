@@ -3,7 +3,7 @@ import { PrismaClient } from "@prisma/client";
 import { createLocalJWKSet, exportJWK, generateKeyPair, SignJWT } from "jose";
 import request from "supertest";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { createApp } from "./app.js";
+import { createSharedApp } from "./test-support/listening-test-app.js";
 import { validateEntraJwt } from "./auth.js";
 import { resolveConfig, validateRuntimeConfig } from "./config.js";
 import { EffectiveAccessService } from "./modules/identity/effective-access-service.js";
@@ -29,7 +29,7 @@ postgresDescribe("Foundation Stage 14 PostgreSQL Admin and identity access integ
   let systemAdminRoleId: string;
 
   function application() {
-    return createApp();
+    return createSharedApp();
   }
 
   async function createUser(suffix: string, values: Record<string, unknown> = {}) {
@@ -82,7 +82,7 @@ postgresDescribe("Foundation Stage 14 PostgreSQL Admin and identity access integ
     return { group, assignment };
   }
 
-  async function publishBriefing(app: ReturnType<typeof createApp>, email: string, incidentId: string) {
+  async function publishBriefing(app: ReturnType<typeof createSharedApp>, email: string, incidentId: string) {
     const draft = await request(app).post(`/api/sessions/${incidentId}/briefings/draft`).set(as(email)).send({});
     expect(draft.status, JSON.stringify(draft.body)).toBe(200);
     const updated = await request(app).patch(`/api/briefings/${draft.body.briefing.id}`).set(as(email)).send({

@@ -26,6 +26,10 @@ export function notFound(_req: Request, _res: Response, next: NextFunction) {
 }
 
 export function errorHandler(error: unknown, req: Request, res: Response, _next: NextFunction) {
+  if (error && typeof error === "object" && "type" in error && error.type === "entity.too.large") {
+    res.status(413).json({ error: "Request exceeds the configured byte limit" });
+    return;
+  }
   if (error instanceof ZodError) {
     res.status(400).json({
       error: "Validation failed",

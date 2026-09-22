@@ -155,6 +155,13 @@ export const permissions = {
   "export:create": "Export data",
   "exercise:manage": "Manage exercise injects and observations",
   "reports:read": "Read reports",
+  "aar:read": "Read After Action Reports",
+  "aar:create": "Create After Action Reports and revisions",
+  "aar:update-draft": "Edit After Action Report drafts",
+  "aar:review": "Submit and return After Action Reports",
+  "aar:approve": "Approve After Action Reports",
+  "aar:archive": "Archive After Action Reports",
+  "aar:pdf:generate": "Generate retained After Action Report PDFs",
   "admin:manage": "Manage organizations, users, roles, dictionaries and profile"
 } as const;
 
@@ -320,6 +327,7 @@ export const defaultRoles: Array<{
       "import:create",
       "export:create",
       "exercise:manage",
+      "aar:read", "aar:create", "aar:update-draft", "aar:review", "aar:approve", "aar:archive", "aar:pdf:generate",
       "reports:read"
     ],
     scopeTypes: ["GLOBAL"],
@@ -402,6 +410,7 @@ export const defaultRoles: Array<{
       "import:create",
       "export:create",
       "exercise:manage",
+      "aar:read", "aar:create", "aar:update-draft", "aar:review", "aar:approve", "aar:archive", "aar:pdf:generate",
       "reports:read"
     ],
     scopeTypes: ["GLOBAL"],

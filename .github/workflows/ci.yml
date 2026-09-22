@@ -92,7 +92,7 @@ jobs:
           kill "$api_pid"
           wait "$api_pid" || true
 
-      - name: PostgreSQL Foundation Stage 1 through 21 integration tests (zero skipped)
+      - name: PostgreSQL Foundation Stage 1 through 22 integration tests (zero skipped)
         run: npm run test:postgres
 
       - name: Dedicated Foundation Stage 18 PostgreSQL tests
@@ -134,6 +134,11 @@ jobs:
         env:
           PLAYWRIGHT_PERSISTENCE_MODE: postgres
         run: npx playwright test tests/smoke/zz-stage21-admin-configuration.spec.ts
+
+      - name: Stage 22 PostgreSQL AAR workflow and retained PDF download
+        env:
+          PLAYWRIGHT_PERSISTENCE_MODE: postgres
+        run: npx playwright test tests/smoke/zz-stage22-aar.spec.ts
 
       - name: Rehearse exact Stage 20 to Stage 21 dictionary authority migration
         env:
@@ -457,6 +462,8 @@ jobs:
           test "$(psql "$BACKFILL_PSQL_URL" --tuples-only --no-align --command='SELECT count(*) FROM (SELECT "profile", "category", "normalizedKey" FROM "Dictionary" GROUP BY 1, 2, 3 HAVING count(*) > 1) duplicates;')" = "0"
           test "$(psql "$BACKFILL_PSQL_URL" --tuples-only --no-align --command="SELECT md5(string_agg(\"id\"::text, ',' ORDER BY \"id\")) FROM \"Dictionary\";")" = "$pre_stage21_dictionary_ids"
 
+          STAGE22_REHEARSAL_DATABASE_URL="$BACKFILL_DATABASE_URL" npm exec -w @zpp/api tsx -- scripts/verify-stage22-upgrade.ts
+
   quality:
     name: Typecheck, Unit, Build and Browser
     runs-on: ubuntu-latest
@@ -489,7 +496,11 @@ jobs:
         run: npm run typecheck
 
       - name: API tests
-        run: npm test
+        # Poppler is test-only; PDFs are generated with the existing PDFKit runtime.
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y poppler-utils
+          npm test
 
       - name: Build
         run: npm run build

@@ -1,4 +1,5 @@
 import type { ApiList, AnyRecord, AppOrganization, AppProfile, DictionaryMap, SessionRecord, UserContext } from "./types";
+import type { AarReport, AarVersion, AarArtifact, AarResult, AarPage, AarSource } from "./aar-types";
 
 export const API_URL = import.meta.env.VITE_API_URL ?? "http://localhost:4000/api";
 export const API_PAGE_LIMIT = 200;
@@ -350,6 +351,23 @@ export const api = {
     link.click();
     URL.revokeObjectURL(objectUrl);
     return { fileName, generationId };
+  },
+  aarList: (sessionId: string) => request<AarPage<AarReport> & { capabilities: { create: boolean; sourceObservations: boolean } }>(`/after-action-reports${queryString({ sessionId })}`),
+  aarReport: (id: string) => request<AarReport>(`/after-action-reports/${id}`),
+  aarVersion: (id: string) => request<AarVersion>(`/after-action-report-versions/${id}`),
+  aarCreate: (body: AnyRecord) => request<AarResult>("/after-action-reports", { method: "POST", body: JSON.stringify(body) }),
+  aarEdit: (id: string, body: AnyRecord) => request<AarResult>(`/after-action-report-versions/${id}`, { method: "PATCH", body: JSON.stringify(body) }),
+  aarCommand: (id: string, action: string, body: AnyRecord, report = false) => request<AarResult>(`/${report ? "after-action-reports" : "after-action-report-versions"}/${id}/${action}`, { method: "POST", body: JSON.stringify(body) }),
+  aarHistory: (id: string, offset = 0) => request<AarPage<AarVersion>>(`/after-action-reports/${id}/versions${queryString({ limit: 20, offset })}`),
+  aarArtifacts: (id: string, offset = 0) => request<AarPage<AarArtifact>>(`/after-action-report-versions/${id}/pdf-artifacts${queryString({ limit: 20, offset })}`),
+  aarSources: (sessionId: string, offset = 0) => request<AarPage<AarSource>>(`/sessions/${sessionId}/aar-source-observations${queryString({ limit: 20, offset })}`),
+  aarDownload: async (id: string) => {
+    const response = await fetch(`${API_URL}/after-action-pdf-artifacts/${id}/download`, { headers: authHeaders() });
+    if (!response.ok) { const e = await response.json().catch(() => null); throw new ApiRequestError(e?.error ?? "Download failed", response.status); }
+    const blob = await response.blob();
+    const url = URL.createObjectURL(blob), link = document.createElement("a");
+    link.href = url; link.download = response.headers.get("content-disposition")?.match(/filename="([^"]+)"/)?.[1] ?? "aar.pdf";
+    link.click(); URL.revokeObjectURL(url);
   },
   adminUsers: (query?: AnyRecord) => request<ApiList<AnyRecord>>(`/admin/users${queryString(query)}`),
   adminUser: (id: string) => request<AnyRecord>(`/admin/users/${id}`),

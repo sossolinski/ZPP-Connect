@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import { PrismaClient } from "@prisma/client";
 import request from "supertest";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { createApp } from "./app.js";
+import { createSharedApp } from "./test-support/listening-test-app.js";
 import { createPrismaIncidentAccessRepository } from "./modules/incident-access/prisma-incident-access-repository.js";
 import { createPrismaMemberDirectoryRepository } from "./modules/member-directory/prisma-member-directory-repository.js";
 
@@ -12,7 +12,7 @@ const prisma = databaseUrl ? new PrismaClient({ datasources: { db: { url: databa
 const as = (email: string) => ({ "x-user-email": email });
 
 function application() {
-  return createApp({
+  return createSharedApp({
     memberDirectoryRepository: createPrismaMemberDirectoryRepository(prisma!),
     incidentAccessRepository: createPrismaIncidentAccessRepository(prisma!),
   });

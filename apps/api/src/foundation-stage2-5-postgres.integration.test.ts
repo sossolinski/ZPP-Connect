@@ -1,7 +1,7 @@
 import { PrismaClient } from "@prisma/client";
 import request from "supertest";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { createApp } from "./app.js";
+import { createSharedApp } from "./test-support/listening-test-app.js";
 import { createPrismaIncidentRepository } from "./modules/incidents/prisma-incident-repository.js";
 
 const databaseUrl = process.env.TEST_DATABASE_URL;
@@ -24,7 +24,7 @@ postgresDescribe("Foundation Stage 2.5 PostgreSQL incident access closure", () =
   let tecId: string;
   let viewerId: string;
 
-  const app = () => createApp({ incidentRepository: createPrismaIncidentRepository(prisma!) });
+  const app = () => createSharedApp({ incidentRepository: createPrismaIncidentRepository(prisma!) });
 
   beforeAll(async () => {
     await prisma!.$connect();

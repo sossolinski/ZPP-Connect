@@ -4,7 +4,7 @@ import { dictionaries } from "@zpp/shared";
 import request from "supertest";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { seedDictionaries } from "../prisma/dictionary-seed.js";
-import { createApp } from "./app.js";
+import { createApp } from "./test-support/listening-test-app.js";
 import { dictionaryPolicies } from "./modules/configuration/dictionary-policy.js";
 import { createPrismaDictionaryService } from "./modules/configuration/prisma-dictionary-service.js";
 import type { DictionaryConfigurationService, DictionaryFailurePoint } from "./modules/configuration/configuration-types.js";
@@ -95,7 +95,7 @@ postgresDescribe("Foundation Stage 21 PostgreSQL dictionary and configuration in
   it("applies migration 22, exposes an exhaustive typed policy, and keeps production ownership durable", async () => {
     const migrations = await prisma!.$queryRaw<Array<{ count: bigint }>>`SELECT count(*)::bigint AS count FROM "_prisma_migrations" WHERE finished_at IS NOT NULL AND rolled_back_at IS NULL`;
     const columns = await prisma!.$queryRaw<Array<{ column_name: string }>>`SELECT column_name FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'Dictionary'`;
-    expect(Number(migrations[0]!.count)).toBe(22);
+    expect(Number(migrations[0]!.count)).toBeGreaterThanOrEqual(22);
     expect(columns.map((row) => row.column_name)).toEqual(expect.arrayContaining(["normalizedKey", "version", "sourceType"]));
     expect(await prisma!.dictionary.count({ where: { category: { in: ["eventTypes", "requestCategories"] }, sourceType: "BOOTSTRAP" } })).toBe(
       dictionaries.eventTypes.length + dictionaries.requestCategories.length,

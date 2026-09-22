@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import { Prisma, PrismaClient } from "@prisma/client";
 import request from "supertest";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { createApp } from "./app.js";
+import { createApp } from "./test-support/listening-test-app.js";
 import { createPrismaOperationalBriefingService } from "./modules/briefings/prisma-operational-briefing-service.js";
 import { EffectiveAccessService } from "./modules/identity/effective-access-service.js";
 import { createNotificationDispatcher } from "./modules/notifications/notification-dispatcher.js";

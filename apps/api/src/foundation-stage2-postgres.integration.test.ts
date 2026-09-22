@@ -1,7 +1,7 @@
 import { PrismaClient } from "@prisma/client";
 import request from "supertest";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { createApp } from "./app.js";
+import { createSharedApp } from "./test-support/listening-test-app.js";
 import { createPrismaEnquiryRepository } from "./modules/enquiries/prisma-enquiry-repository.js";
 import { createPrismaIncidentAccessRepository } from "./modules/incident-access/prisma-incident-access-repository.js";
 import { createPrismaIncidentRepository } from "./modules/incidents/prisma-incident-repository.js";
@@ -18,7 +18,7 @@ function as(email: string) {
 }
 
 function application() {
-  return createApp({
+  return createSharedApp({
     incidentRepository: createPrismaIncidentRepository(prisma!),
     enquiryRepository: createPrismaEnquiryRepository(prisma!),
     incidentAccessRepository: createPrismaIncidentAccessRepository(prisma!)

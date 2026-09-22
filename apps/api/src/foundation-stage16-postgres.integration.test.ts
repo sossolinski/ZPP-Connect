@@ -4,7 +4,7 @@ import path from "node:path";
 import { PrismaClient } from "@prisma/client";
 import request from "supertest";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { createApp } from "./app.js";
+import { createApp, createSharedApp } from "./test-support/listening-test-app.js";
 import { config } from "./config.js";
 import { parseWorkbook } from "./exporters.js";
 import { createPrismaImportService } from "./modules/imports/prisma-import-service.js";
@@ -51,8 +51,9 @@ postgresDescribe("Foundation Stage 16 PostgreSQL Imports persistence and orchest
     ].join("\n");
   }
 
-  function app(service = createPrismaImportService(prisma!)) {
-    return createApp({ importService: service });
+  function app(service?: ReturnType<typeof createPrismaImportService>) {
+    const options = { importService: service ?? createPrismaImportService(prisma!) };
+    return service ? createApp(options) : createSharedApp(options);
   }
 
   function validate(api: ReturnType<typeof createApp>, incidentId: string, type: "manifest" | "family", csv: string, operationId = randomUUID(), email = coordinator.email, filename = `${type}.csv`) {

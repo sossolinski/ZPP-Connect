@@ -1,3 +1,4 @@
+import { aarOpenApiPaths, aarOpenApiSchemas } from "./modules/after-action-reports/aar-openapi.js";
 export const openApiDocument = {
   openapi: "3.0.3",
   info: {
@@ -24,6 +25,7 @@ export const openApiDocument = {
       },
     },
     schemas: {
+      ...aarOpenApiSchemas,
       DictionaryPolicy: {
         type: "object",
         required: ["category", "classification", "authority", "protected", "keyImmutable"],
@@ -69,6 +71,7 @@ export const openApiDocument = {
     },
   },
   paths: {
+    ...aarOpenApiPaths,
     "/auth/me": {
       get: {
         summary: "Return authenticated user, roles and permissions",

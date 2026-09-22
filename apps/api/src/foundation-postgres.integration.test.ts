@@ -1,7 +1,7 @@
 import { PrismaClient } from "@prisma/client";
 import request from "supertest";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { createApp } from "./app.js";
+import { createApp } from "./test-support/listening-test-app.js";
 import { createPrismaIncidentRepository } from "./modules/incidents/prisma-incident-repository.js";
 
 const databaseUrl = process.env.TEST_DATABASE_URL;

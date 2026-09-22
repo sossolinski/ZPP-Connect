@@ -1,0 +1,10 @@
+export type AarCapabilities = { edit: boolean; submit: boolean; returnToDraft: boolean; approve: boolean; createRevision: boolean; archive: boolean; generatePdf: boolean };
+export type AarFinding = { id?: string; area: string; summary: string; detail?: string | null; sourceObservationOperationalId?: string | null; sourceObservationVersion?: number | null };
+export type AarLesson = { statement: string };
+export type AarAction = { recommendation: string; owner?: string | null; targetDate?: string | null };
+export type AarReport = { id: string; operationalId: string; sessionId: string; status: string; version: number; owner: { id: string; displayName: string }; session: { status: string; mode: string }; capabilities: AarCapabilities; latest: AarVersion };
+export type AarVersion = { id: string; reportId: string; revision: number; status: string; title: string; eventDate: string; executiveSummary: string; version: number; findings: AarFinding[]; lessons: AarLesson[]; correctiveActions: AarAction[]; contentSha256: string | null; approvedAt: string | null; report: AarReport; capabilities: AarCapabilities };
+export type AarArtifact = { id: string; generatedAt: string; generatedBy: { displayName: string }; contentSizeBytes: number; rendererVersion: string; contentSha256: string; sourceContentSha256: string; fileName: string };
+export type AarResult = { reportId: string; reportVersionId?: string; artifactId?: string; version: number; status: string; replayed: boolean };
+export type AarPage<T> = { data: T[]; total: number; limit: number; offset: number };
+export type AarSource = { id: string; operationalId: string; version: number; area: string; observation: string; recommendation: string | null };

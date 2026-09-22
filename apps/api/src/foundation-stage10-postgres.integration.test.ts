@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import { PrismaClient } from "@prisma/client";
 import request from "supertest";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { createApp } from "./app.js";
+import { createApp, createSharedApp } from "./test-support/listening-test-app.js";
 import { createPrismaIncidentAccessRepository } from "./modules/incident-access/prisma-incident-access-repository.js";
 import { createPrismaMemberDirectoryRepository } from "./modules/member-directory/prisma-member-directory-repository.js";
 import { createPrismaRosteringRepository } from "./modules/rostering/prisma-rostering-repository.js";
@@ -31,7 +31,8 @@ postgresDescribe("Foundation Stage 10 PostgreSQL Rostering and Availability", ()
   let groupB: string;
 
   function application(hook?: (record: Record<string, unknown>, command: string) => void) {
-    return createApp({
+    const factory = hook ? createApp : createSharedApp;
+    return factory({
       incidentAccessRepository: createPrismaIncidentAccessRepository(prisma!),
       memberDirectoryRepository: createPrismaMemberDirectoryRepository(prisma!),
       rosteringRepository: createPrismaRosteringRepository(prisma!),

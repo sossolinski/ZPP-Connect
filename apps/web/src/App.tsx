@@ -28,6 +28,7 @@ import { ReleasePage } from "./pages/ReleasePage";
 import { TimelinePage } from "./pages/TimelinePage";
 import { FilesPage } from "./pages/FilesPage";
 import { ReportsPage } from "./pages/ReportsPage";
+import { AfterActionReportsPage } from "./pages/AfterActionReportsPage";
 import { ExercisePage } from "./pages/ExercisePage";
 import { AuditPage } from "./pages/AuditPage";
 import { AdminPage } from "./pages/AdminPage";
@@ -53,7 +54,7 @@ const routePermissions: Record<PortalRouteKey, string[]> = {
   documents: ["document:read-own", "document:read-all"],
   readiness: ["readiness:read-own", "readiness:read-group", "readiness:read-all", "readiness:read-summary"],
   "files-import": ["import:create"],
-  reports: ["reports:read"],
+  reports: ["reports:read", "aar:read"],
   "users-access": ["admin:manage"],
   "roles-permissions": ["admin:manage"],
   exercise: ["exercise:manage"],
@@ -368,6 +369,10 @@ export function App() {
             <SessionDependentPage><FilesPage /></SessionDependentPage>
           </WorkflowPage>
         )}
+      />
+      <Route
+        path="/reports/after-action"
+        element={protect("reports", <WorkflowPage eyebrow="Reports" title="After Action Reports" description="Review closed events, record lessons and retain approved evidence."><AfterActionReportsPage /></WorkflowPage>)}
       />
       <Route
         path="/reports"

@@ -1,3 +1,144 @@
+model AfterActionReport {
+  id            String                     @id @default(uuid()) @db.Uuid
+  operationalId String                     @unique
+  sessionId     String                     @unique @db.Uuid
+  ownerId       String                     @db.Uuid
+  status        String                     @default("Active")
+  version       Int                        @default(1)
+  createdAt     DateTime                   @default(now())
+  updatedAt     DateTime                   @updatedAt
+  createdById   String                     @db.Uuid
+  updatedById   String                     @db.Uuid
+  archivedAt    DateTime?
+  archivedById  String?                    @db.Uuid
+  archiveReason String?
+  session       Session                    @relation(fields: [sessionId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  owner         User                       @relation("AarOwner", fields: [ownerId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  createdBy     User                       @relation("AarCreator", fields: [createdById], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  updatedBy     User                       @relation("AarUpdater", fields: [updatedById], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  archivedBy    User?                      @relation("AarArchiver", fields: [archivedById], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  versions      AfterActionReportVersion[]
+  operations    AfterActionOperation[]
+
+  @@index([status, createdAt, id])
+}
+
+model AfterActionReportVersion {
+  id                String                        @id @default(uuid()) @db.Uuid
+  reportId          String                        @db.Uuid
+  revision          Int
+  basedOnVersionId  String?                       @db.Uuid
+  status            String                        @default("Draft")
+  title             String
+  eventDate         DateTime
+  executiveSummary  String                        @default("")
+  schemaVersion     String                        @default("aar-v1")
+  contentSha256     String?
+  contextSnapshot   Json                          @default("{}")
+  version           Int                           @default(1)
+  createdAt         DateTime                      @default(now())
+  createdById       String                        @db.Uuid
+  updatedAt         DateTime                      @updatedAt
+  updatedById       String                        @db.Uuid
+  submittedAt       DateTime?
+  submittedById     String?                       @db.Uuid
+  approvedAt        DateTime?
+  approvedById      String?                       @db.Uuid
+  report            AfterActionReport             @relation(fields: [reportId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  basedOnVersion    AfterActionReportVersion?     @relation("AarRevision", fields: [basedOnVersionId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  laterVersions     AfterActionReportVersion[]    @relation("AarRevision")
+  createdBy         User                          @relation("AarAuthor", fields: [createdById], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  updatedBy         User                          @relation("AarVersionUpdater", fields: [updatedById], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  submittedBy       User?                         @relation("AarSubmitter", fields: [submittedById], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  approvedBy        User?                         @relation("AarApprover", fields: [approvedById], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  findings          AfterActionFinding[]
+  lessons           AfterActionLesson[]
+  correctiveActions AfterActionCorrectiveAction[]
+  artifacts         AfterActionPdfArtifact[]
+  operations        AfterActionOperation[]
+
+  @@unique([reportId, revision])
+}
+
+model AfterActionFinding {
+  sourceObservation              ExerciseObservationRevision? @relation(fields: [sourceObservationId, sourceObservationVersion], references: [observationId, version], onDelete: Restrict, onUpdate: Restrict)
+  id                             String                       @id @default(uuid()) @db.Uuid
+  reportVersionId                String                       @db.Uuid
+  sortOrder                      Int
+  area                           String
+  summary                        String
+  detail                         String?
+  sourceObservationId            String?                      @db.Uuid
+  sourceObservationVersion       Int?
+  sourceObservationOperationalId String?
+  reportVersion                  AfterActionReportVersion     @relation(fields: [reportVersionId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+
+  @@unique([reportVersionId, sortOrder])
+}
+
+model AfterActionLesson {
+  id              String                   @id @default(uuid()) @db.Uuid
+  reportVersionId String                   @db.Uuid
+  sortOrder       Int
+  statement       String
+  reportVersion   AfterActionReportVersion @relation(fields: [reportVersionId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+
+  @@unique([reportVersionId, sortOrder])
+}
+
+model AfterActionCorrectiveAction {
+  id              String                   @id @default(uuid()) @db.Uuid
+  reportVersionId String                   @db.Uuid
+  sortOrder       Int
+  recommendation  String
+  owner           String?
+  targetDate      DateTime?
+  reportVersion   AfterActionReportVersion @relation(fields: [reportVersionId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+
+  @@unique([reportVersionId, sortOrder])
+}
+
+model AfterActionOperation {
+  operationId        String                    @id @db.Uuid
+  command            String
+  commandFingerprint String
+  reportId           String?                   @db.Uuid
+  reportVersionId    String?                   @db.Uuid
+  artifactId         String?                   @db.Uuid
+  resultVersion      Int
+  result             Json
+  requestId          String
+  createdAt          DateTime                  @default(now())
+  report             AfterActionReport?        @relation(fields: [reportId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  reportVersion      AfterActionReportVersion? @relation(fields: [reportVersionId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  artifact           AfterActionPdfArtifact?   @relation(fields: [artifactId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+}
+
+model AfterActionPdfArtifact {
+  id                  String                   @id @default(uuid()) @db.Uuid
+  operationId         String                   @unique @db.Uuid
+  commandFingerprint  String
+  reportVersionId     String                   @db.Uuid
+  sourceContentSha256 String
+  rendererVersion     String                   @default("aar-pdf-v1")
+  fileName            String
+  mimeType            String                   @default("application/pdf")
+  contentSizeBytes    BigInt
+  contentSha256       String
+  storageProvider     String                   @default("postgres")
+  storageKey          String                   @unique
+  content             Bytes
+  generatedAt         DateTime                 @default(now())
+  generatedById       String                   @db.Uuid
+  requestId           String
+  status              String                   @default("Ready")
+  reportVersion       AfterActionReportVersion @relation(fields: [reportVersionId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  generatedBy         User                     @relation(fields: [generatedById], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  operations          AfterActionOperation[]
+
+  @@index([reportVersionId, generatedAt, id])
+}
+
 generator client {
   provider = "prisma-client-js"
 }
@@ -8,6 +149,15 @@ datasource db {
 }
 
 model User {
+  ownedAfterActionReports         AfterActionReport[]                   @relation("AarOwner")
+  createdAfterActionReports       AfterActionReport[]                   @relation("AarCreator")
+  updatedAfterActionReports       AfterActionReport[]                   @relation("AarUpdater")
+  archivedAfterActionReports      AfterActionReport[]                   @relation("AarArchiver")
+  authoredAfterActionVersions     AfterActionReportVersion[]            @relation("AarAuthor")
+  updatedAfterActionVersions      AfterActionReportVersion[]            @relation("AarVersionUpdater")
+  submittedAfterActionVersions    AfterActionReportVersion[]            @relation("AarSubmitter")
+  approvedAfterActionVersions     AfterActionReportVersion[]            @relation("AarApprover")
+  generatedAfterActionPdfs        AfterActionPdfArtifact[]
   id                              String                                @id @default(uuid()) @db.Uuid
   email                           String                                @unique
   normalizedEmail                 String                                @unique @default("")
@@ -185,6 +335,7 @@ model RoleAssignmentHistory {
 }
 
 model Session {
+  afterActionReport     AfterActionReport?
   id                    String                             @id @default(uuid()) @db.Uuid
   operationalId         String                             @unique
   mode                  String
@@ -1732,8 +1883,9 @@ model ExerciseObservation {
 }
 
 model ExerciseObservationRevision {
-  id             String              @id @default(uuid()) @db.Uuid
-  observationId  String              @db.Uuid
+  aarFindings    AfterActionFinding[]
+  id             String               @id @default(uuid()) @db.Uuid
+  observationId  String               @db.Uuid
   version        Int
   area           String
   severity       String
@@ -1743,11 +1895,11 @@ model ExerciseObservationRevision {
   includeInAar   Boolean
   status         String
   changedFields  String[]
-  changedAt      DateTime            @default(now())
-  changedById    String?             @db.Uuid
-  source         String              @default("Mutation")
-  sourceRecord   ExerciseObservation @relation(fields: [observationId], references: [id], onDelete: Cascade)
-  changedBy      User?               @relation("ExerciseObservationRevisionChangedBy", fields: [changedById], references: [id], onDelete: SetNull)
+  changedAt      DateTime             @default(now())
+  changedById    String?              @db.Uuid
+  source         String               @default("Mutation")
+  sourceRecord   ExerciseObservation  @relation(fields: [observationId], references: [id], onDelete: Cascade)
+  changedBy      User?                @relation("ExerciseObservationRevisionChangedBy", fields: [changedById], references: [id], onDelete: SetNull)
 
   @@unique([observationId, version])
   @@index([observationId, version])
