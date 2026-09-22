@@ -1,8 +1,8 @@
 # Foundation Stage 22 — AAR / Post-Incident Reporting + PDF Integrity Plan
 
-Status: **IMPLEMENTED — READY FOR MERGE**
+Status: **IMPLEMENTED — READY FOR MERGE AFTER FINAL REVIEW-FIX CI**
 
-This document records the approved Foundation Stage 22 contract. Implementation and validation are documented in the [Stage 22 report](foundation-stage-22-aar-pdf-integrity-report.md). The baseline was closed in the [baseline closure](foundation-stage-22-baseline-closure.md). Sections A/B and Q below preserve the original planning-time evidence and decision, not the current state. Exact implementation head `9968a23` passed both push and PR workflows on 2026-09-22; the documentation-only closure commit remains subject to the same pre-merge checks.
+This document records the approved Foundation Stage 22 contract. Implementation and validation are documented in the [Stage 22 report](foundation-stage-22-aar-pdf-integrity-report.md). The baseline was closed in the [baseline closure](foundation-stage-22-baseline-closure.md). Sections A/B and Q below preserve the original planning-time evidence and decision, not the current state. Exact implementation head `9968a23` passed both push and PR workflows on 2026-09-22; the bounded final review fixes and closure update remain subject to the same pre-merge checks.
 
 ## A. Repository and workspace state
 

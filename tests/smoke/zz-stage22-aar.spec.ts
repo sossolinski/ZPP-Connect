@@ -74,13 +74,19 @@ test("authors, approves, downloads exact PDF and revises a Closed Session AAR", 
   await expect(page.getByLabel("Report Session", { exact: true })).toHaveValue(s.id);
 });
 
-test("preserves unsaved input on stale, validation and server errors", async ({ page }) => {
+test("preserves unsaved input on navigation, stale, validation and server errors", async ({ page }) => {
   const s = await incident("STALE");
   await open(page, s);
   await page.getByLabel("Report title").fill("Stale report");
   await page.getByRole("button", { name: "Create report", exact: true }).click();
   await expect(page.getByRole("button", { name: "Add lesson" })).toBeVisible();
   await page.getByLabel("Executive Summary").fill("Do not lose this text");
+  await page.getByRole("button", { name: "Account menu" }).click();
+  await page.getByRole("menuitem", { name: "Account / Settings" }).click();
+  await expect(page.getByRole("dialog")).toContainText("Leave unsaved report?");
+  await page.getByRole("dialog").getByRole("button", { name: "Cancel" }).click();
+  await expect(page).toHaveURL(/\/reports\/after-action$/);
+  await expect(page.getByLabel("Executive Summary")).toHaveValue("Do not lose this text");
   for (const status of [409, 400, 500]) {
     await page.route("**/api/after-action-report-versions/*", async route => {
       if (route.request().method() === "PATCH") return route.fulfill({ status, contentType: "application/json", body: JSON.stringify({ error: status === 409 ? "Report has changed" : "Controlled save failure" }) });

@@ -16,7 +16,7 @@ export function pdfPlainText(value: string) {
 }
 export function renderAarPdf(view: AarPdfView, byteLimit = aarPdfLimit): Promise<Buffer> {
   return new Promise((resolve, reject) => {
-    const doc = new PDFDocument({ size: "A4", margin: 48, bufferPages: true, info: { Title: view.version.title, Creator: "ZPP Connect aar-pdf-v1", CreationDate: view.generatedAt } });
+    const doc = new PDFDocument({ size: "A4", margins: { top: 48, right: 48, bottom: 72, left: 48 }, bufferPages: true, info: { Title: view.version.title, Creator: "ZPP Connect aar-pdf-v1", CreationDate: view.generatedAt } });
     const chunks: Buffer[] = [];
     let size = 0;
     doc.on("data", (chunk: Buffer) => {

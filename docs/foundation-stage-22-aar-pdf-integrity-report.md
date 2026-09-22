@@ -1,12 +1,12 @@
 # Foundation Stage 22 — AAR / Post-Incident Reporting and PDF Integrity
 
-Status: **READY FOR MERGE — IMPLEMENTATION HEAD REMOTE CI PASSED**
+Status: **READY FOR MERGE AFTER FINAL REVIEW-FIX CI**
 
 Validated locally on 2026-09-21 and remotely on 2026-09-22 on branch
-`agent/foundation-stage-22-aar-pdf-integrity`. The final executable implementation head is
+`agent/foundation-stage-22-aar-pdf-integrity`. The pre-review executable implementation head is
 `9968a2337384a40f1582a25ac990699d156d39e7`. Both the push and pull-request workflows
-passed every job on that exact SHA. This closure update changes documentation only and
-is subject to the same PR checks before merge.
+passed every job on that exact SHA. The final review-fix commit described below is
+subject to the same PR checks before merge.
 
 ## A. Objective and implemented scope
 
@@ -286,6 +286,15 @@ The remote gates include 296/296 PostgreSQL cases, the dedicated Stage 18 suite 
 workflows (17 cases including Stage 22 at 5/5), both migration rehearsals, production
 PostgreSQL/Entra startup and a production dependency audit with zero vulnerabilities.
 
+Final review found two P2 presentation-safety gaps on the original PR head. Client-side
+`NavLink` navigation could bypass the browser-unload warning and discard a dirty AAR;
+the A4 body region also extended into the fixed page-footer band. The review correction
+uses React Router's navigation blocker with an explicit discard confirmation, reserves
+a 72-point PDF bottom margin while retaining the footer at y=790, and adds browser and
+bounding-box regressions. Local lint, renderer **6/6**, Stage 22 PostgreSQL browser
+**5/5**, and the complete general browser gate passed after the correction. These are
+bounded Stage 22 fixes, not new Exercise or reporting scope.
+
 ### Retained product limitations
 
 - PDFKit built-in Helvetica lacks full Unicode coverage. Unsupported code points are
@@ -332,8 +341,8 @@ PostgreSQL/Entra startup and a production dependency audit with zero vulnerabili
 | 20. All existing/new gates, no skipped PostgreSQL cases | PASS: exact implementation-head CI includes 112 unit, 296 PostgreSQL and 73 + 17 PostgreSQL-browser cases in both workflows |
 
 All 20 DoD items have local and remote supporting evidence. The implementation is READY
-for merge. The documentation-only closure commit must pass the same PR checks; its GitHub
-result is the authoritative final-head gate and does not require another self-referential
+for merge once the final review-fix commit passes the same PR checks. Its GitHub result
+is the authoritative final-head gate and does not require another self-referential
 documentation update.
 
 ## K. Incremental commits and next stage

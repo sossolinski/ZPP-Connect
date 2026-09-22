@@ -42,6 +42,13 @@ describe("AAR canonical content and PDF renderer", () => {
     expect(text).toContain("<b>plain</b>"); expect(text).toContain("[U+0141]");
     expect(text.split("\f").length).toBeGreaterThan(2); expect(text).toContain("Action evidence");
   });
+  it("keeps body text above the reserved footer region on every page", async () => {
+    const pdf = await renderAarPdf({ ...view(), version: { ...v, executiveSummary: "BODYMARKER\n".repeat(500) } });
+    const bbox = execFileSync("pdftotext", ["-bbox", "-", "-"], { input: pdf, encoding: "utf8" });
+    const bodyBottoms = Array.from(bbox.matchAll(/<word [^>]*yMax="([0-9.]+)"[^>]*>BODYMARKER<\/word>/g), match => Number(match[1]));
+    expect(bodyBottoms.length).toBeGreaterThan(100);
+    expect(Math.max(...bodyBottoms)).toBeLessThan(780);
+  });
   it("enforces the byte boundary without emitting a partial artifact", async () => {
     await expect(renderAarPdf(view(), 128)).rejects.toMatchObject({ status: 413 });
   });

@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { useBlocker } from "react-router-dom";
 import { api, ApiRequestError } from "../lib/api";
 import { useApp } from "../lib/app-context";
 import type { ApiList, SessionRecord } from "../lib/types";
@@ -62,6 +63,7 @@ function AfterActionWorkspace({ sessionId, onDirtyChange }: { sessionId: string;
   const [selectedSources, setSelectedSources] = useState<string[]>([]);
   const [decision, setDecision] = useState<{ action: string; label: string; operationId: string }>();
   const [createOperationId, setCreateOperationId] = useState(() => crypto.randomUUID());
+  const navigationBlocker = useBlocker(dirty);
   useEffect(() => { onDirtyChange(dirty || busy); }, [dirty, busy, onDirtyChange]);
   function failure(e: unknown) {
     setError((e instanceof Error ? e.message : "Unable to complete request") + (e instanceof ApiRequestError && e.status === 409 ? " Your input is preserved. Reload and review the latest version before saving again." : ""));
@@ -211,5 +213,6 @@ function AfterActionWorkspace({ sessionId, onDirtyChange }: { sessionId: string;
       </div></Card>
     </>}
     {decision && <ConfirmDialog title={decision.label} description={decision.action === "reload" ? "Reload the current revision? Unsaved input will be discarded." : decision.action === "approve" ? "Approval permanently locks this version and every section. Later changes require a new revision." : "Confirm this explicit report action."} confirmLabel={decision.label} busy={busy} error={error} onCancel={() => setDecision(undefined)} onConfirm={confirm} />}
+    {navigationBlocker.state === "blocked" && <ConfirmDialog title="Leave unsaved report?" description="Unsaved report changes will be discarded if you leave this page." confirmLabel="Discard and leave" confirmVariant="danger" onCancel={() => navigationBlocker.reset()} onConfirm={() => navigationBlocker.proceed()} />}
   </div>;
 }
