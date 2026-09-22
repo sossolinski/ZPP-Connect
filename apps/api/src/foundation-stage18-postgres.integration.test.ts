@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { Prisma, PrismaClient } from "@prisma/client";
 import request from "supertest";
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { createApp, createSharedApp } from "./test-support/listening-test-app.js";
 import { createPrismaExerciseService } from "./modules/exercise/prisma-exercise-service.js";
 
@@ -122,6 +122,35 @@ postgresDescribe("Foundation Stage 18 PostgreSQL Exercise evidence integrity", (
     expect(duplicate.map((response) => response.status).sort()).toEqual([201, 409]);
     expect(JSON.stringify(duplicate.find((response) => response.status === 409)!.body)).not.toMatch(/P2002|constraint|Prisma|SQL/i);
     expect(await prisma!.exerciseInject.count({ where: { sessionId: session.id } })).toBe(2);
+  });
+
+  it("replays a concurrent Inject operation regardless of which unique constraint PostgreSQL reports", async () => {
+    const session = await incident("REPLAY-CONSTRAINT");
+    const operationId = randomUUID();
+    const created = await createInject(session.id, 1, { operationId });
+    expect(created.status).toBe(201);
+    const service = createPrismaExerciseService(prisma!);
+    const input = { ...injectBody(session.id, 1, operationId), scenarioTime: null };
+    for (const target of [["createOperationId"], ["sessionId", "injectNumber"]]) {
+      // Model the initial lookup before the competing transaction commits, then
+      // the losing INSERT. The replay lookup reads the actual committed row.
+      const lookup = vi.spyOn(prisma!.exerciseInject, "findUnique").mockResolvedValueOnce(null);
+      const transaction = vi.spyOn(prisma!, "$transaction").mockRejectedValueOnce(
+        new Prisma.PrismaClientKnownRequestError("Unique constraint failed", { code: "P2002", clientVersion: Prisma.prismaVersion.client, meta: { target } })
+      );
+      try {
+        const replay = await service.createInject(input, actor());
+        expect(replay.replayed).toBe(true);
+        expect(replay.record.id).toBe(created.body.id);
+        expect(transaction).toHaveBeenCalledTimes(1);
+        expect(lookup).toHaveBeenCalledTimes(2);
+      } finally {
+        transaction.mockRestore();
+        lookup.mockRestore();
+      }
+    }
+    expect(await prisma!.exerciseInject.count({ where: { createOperationId: operationId } })).toBe(1);
+    expect(await prisma!.auditLog.count({ where: { entityId: created.body.id, action: "exercise_inject_created" } })).toBe(1);
   });
 
   it("validates Exercise mode, canonical roles, dictionaries, controlled fields and operational text bounds", async () => {

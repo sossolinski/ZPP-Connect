@@ -239,7 +239,9 @@ export function createPrismaExerciseService(client: PrismaClient, hooks: Exercis
         });
         return { record: serializeInject(record), replayed: false };
       } catch (error) {
-        if (uniqueConflict(error, "createOperationId")) {
+        // An identical concurrent insert violates both unique keys. PostgreSQL
+        // may report either one, so resolve the operation before a number conflict.
+        if (uniqueConflict(error, "createOperationId") || uniqueConflict(error, "sessionId") || uniqueConflict(error, "injectNumber")) {
           const raced = await injectReplay(input.operationId, fingerprint, actor.id);
           if (raced) return raced;
         }

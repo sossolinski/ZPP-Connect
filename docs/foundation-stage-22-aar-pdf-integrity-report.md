@@ -258,7 +258,20 @@ download and unavailable PDF-summary checks, asserts the new AAR link/navigation
 explicitly verifies the old `/exports/aar-draft` API still returns 501. No product behavior,
 test skipping, retry policy or migration changed. Local validation deployed all 23
 migrations and seeded a new disposable database, then passed **8/8** combined Stage 17
-and Stage 22 browser tests. Updated exact-head remote checks are still required.
+and Stage 22 browser tests, followed by **17/17** PostgreSQL browser scenarios across
+Stages 16–22.
+
+The subsequent push gate on `c9d6bd9` passed all 295 PostgreSQL cases but exposed a
+pre-existing Stage 18 race in the additional dedicated run: identical concurrent
+Inject creation returned 201/409 instead of 201/200. Both the operation ID and
+Session/Inject-number unique constraints apply to the losing insert; PostgreSQL can
+report either constraint. The minimal correction resolves an existing matching
+operation on either unique violation before reporting a genuine number conflict.
+It does not retry the transaction or expand Exercise functionality. A deterministic
+regression covers both reported constraints against a real committed row and checks
+one entity/one Audit. It fails against the previous implementation. The complete
+Stage 18 suite passes **16/16** with the correction; the new regression increases
+the full PostgreSQL gate to 296 cases. Updated exact-head remote checks are still required.
 
 ### Retained product limitations
 
