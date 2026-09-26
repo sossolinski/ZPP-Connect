@@ -189,15 +189,24 @@ pg("Foundation Stage 22 retained AAR evidence", () => {
   });
   it("detects privileged byte corruption and never serves the corrupt PDF", async () => {
     const { r } = await approved(), pdf = await service().generatePdf(r.reportVersionId!, command(r.version), actor());
+    const original = await db!.afterActionPdfArtifact.findUniqueOrThrow({ where: { id: pdf.artifactId } });
     // Deliberate privileged corruption confined to a test-created disposable DB.
     await db!.$transaction(async tx => {
       await tx.$executeRawUnsafe('ALTER TABLE "AfterActionPdfArtifact" DISABLE TRIGGER "Aar_artifact_guard"');
       await tx.$executeRaw`UPDATE "AfterActionPdfArtifact" SET "content" = set_byte("content", 0, 0) WHERE "id"=${pdf.artifactId}::uuid`;
       await tx.$executeRawUnsafe('ALTER TABLE "AfterActionPdfArtifact" ENABLE TRIGGER "Aar_artifact_guard"');
     });
-    const response = await request(app()).get("/api/after-action-pdf-artifacts/" + pdf.artifactId + "/download").set(headers());
-    expect(response.status).toBe(500); expect(response.body.error).toBe("AAR PDF integrity verification failed");
-    expect(response.headers["content-type"]).toContain("application/json");
+    try {
+      const response = await request(app()).get("/api/after-action-pdf-artifacts/" + pdf.artifactId + "/download").set(headers());
+      expect(response.status).toBe(500); expect(response.body.error).toBe("AAR PDF integrity verification failed");
+      expect(response.headers["content-type"]).toContain("application/json");
+    } finally {
+      await db!.$transaction(async tx => {
+        await tx.$executeRawUnsafe('ALTER TABLE "AfterActionPdfArtifact" DISABLE TRIGGER "Aar_artifact_guard"');
+        await tx.afterActionPdfArtifact.update({ where: { id: pdf.artifactId }, data: { content: original.content } });
+        await tx.$executeRawUnsafe('ALTER TABLE "AfterActionPdfArtifact" ENABLE TRIGGER "Aar_artifact_guard"');
+      });
+    }
   });
   it("rejects oversized rendering and rolls back artifact/audit seams", async () => {
     const { r } = await approved(), operationId = randomUUID();
@@ -341,7 +350,12 @@ pg("Foundation Stage 22 retained AAR evidence", () => {
         } });
         await tx.afterActionLesson.create({ data: { reportVersionId: v.id, sortOrder: 1, statement: "Scale evidence" } });
         await tx.afterActionReportVersion.update({ where: { id: v.id }, data: { executiveSummary: "Scale summary", status: "Under review", submittedAt: new Date(), submittedById: coordinator.id } });
-        await tx.afterActionReportVersion.update({ where: { id: v.id }, data: { status: "Approved", approvedAt: new Date(), approvedById: coordinator.id, contentSha256: "a".repeat(64) } });
+        const underReview = await tx.afterActionReportVersion.findUniqueOrThrow({ where: { id: v.id }, include: versionInclude });
+        const approvedAt = new Date();
+        await tx.afterActionReportVersion.update({ where: { id: v.id }, data: {
+          status: "Approved", approvedAt, approvedById: coordinator.id,
+          contentSha256: contentDigest({ ...underReview, approvedAt, approvedById: coordinator.id }),
+        } });
       }
     }, { timeout: 60000 });
     const first = await service().history(r.reportId, { limit: 200 }, actor());
@@ -360,13 +374,22 @@ pg("Foundation Stage 22 retained AAR evidence", () => {
   });
   it("rejects a corrupt logical source before rendering or retaining a PDF", async () => {
     const { r } = await approved();
+    const original = await db!.afterActionReportVersion.findUniqueOrThrow({ where: { id: r.reportVersionId } });
     await db!.$transaction(async tx => {
       await tx.$executeRawUnsafe('ALTER TABLE "AfterActionReportVersion" DISABLE TRIGGER "Aar_version_guard"');
       await tx.afterActionReportVersion.update({ where: { id: r.reportVersionId }, data: { title: "Privileged corruption" } });
       await tx.$executeRawUnsafe('ALTER TABLE "AfterActionReportVersion" ENABLE TRIGGER "Aar_version_guard"');
     });
-    await expect(service().generatePdf(r.reportVersionId!, command(r.version), actor())).rejects.toMatchObject({ status: 500, message: "AAR source integrity verification failed" });
-    expect(await db!.afterActionPdfArtifact.count({ where: { reportVersionId: r.reportVersionId } })).toBe(0);
+    try {
+      await expect(service().generatePdf(r.reportVersionId!, command(r.version), actor())).rejects.toMatchObject({ status: 500, message: "AAR source integrity verification failed" });
+      expect(await db!.afterActionPdfArtifact.count({ where: { reportVersionId: r.reportVersionId } })).toBe(0);
+    } finally {
+      await db!.$transaction(async tx => {
+        await tx.$executeRawUnsafe('ALTER TABLE "AfterActionReportVersion" DISABLE TRIGGER "Aar_version_guard"');
+        await tx.afterActionReportVersion.update({ where: { id: r.reportVersionId }, data: { title: original.title } });
+        await tx.$executeRawUnsafe('ALTER TABLE "AfterActionReportVersion" ENABLE TRIGGER "Aar_version_guard"');
+      });
+    }
   });
   it("renders actor display snapshots and never selects bytes for artifact metadata", async () => {
     const { r } = await approved();
