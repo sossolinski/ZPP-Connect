@@ -5,7 +5,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import {
   assertDumpCompatibility, assertRestoreCompatibility, backupManifestSchema, databaseUrlForName,
   fileSha256, parsePostgresConnection, parsePostgresToolVersion, positiveIntegerEnv,
-  requiredEnv, resolveDirectChild, selectExpiredBackups,
+  redactOperationalError, requiredEnv, resolveDirectChild, selectExpiredBackups,
 } from "./resilience-tooling.js";
 
 const temporaryDirectories: string[] = [];
@@ -76,6 +76,14 @@ describe("Stage 23 resilience tooling", () => {
     expect(resolveDirectChild("/tmp/backups", "valid.backup.dump")).toBe("/tmp/backups/valid.backup.dump");
     expect(() => resolveDirectChild("/tmp/backups", "../outside")).toThrow(/unsafe|direct child/);
     expect(() => resolveDirectChild("/tmp/backups", "/tmp/outside")).toThrow(/unsafe|direct child/);
+  });
+
+  it("redacts connection credentials from operational errors", () => {
+    const url = "postgresql://operator:s3cret@db.example/zpp";
+    const redacted = redactOperationalError(`failed for ${url}; token=s3cret`, { DATABASE_URL: url, PGPASSWORD: "s3cret" });
+    expect(redacted).not.toContain("s3cret");
+    expect(redacted).not.toContain(url);
+    expect(redacted).toContain("[REDACTED]");
   });
 
   it("selects only expired pairs while preserving the configured newest minimum", () => {

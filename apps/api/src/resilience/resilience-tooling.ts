@@ -227,6 +227,7 @@ export async function createBackup(options: { databaseUrl: string; backupDir: st
   const manifestTemporaryPath = resolveDirectChild(backupDir, `.${manifestFileName}.partial`);
   const dumpVersion = await toolVersion("pg_dump");
   const db = new PrismaClient({ datasources: { db: { url: options.databaseUrl } } });
+  let archivePublished = false;
   try {
     const snapshot = await db.$transaction(async (tx) => {
       const server = await serverVersion(tx);
@@ -261,10 +262,15 @@ export async function createBackup(options: { databaseUrl: string; backupDir: st
     backupManifestSchema.parse(manifest);
     await writeFile(manifestTemporaryPath, JSON.stringify(manifest, null, 2) + "\n", { encoding: "utf8", mode: 0o600, flag: "wx" });
     await rename(archiveTemporaryPath, archivePath);
+    archivePublished = true;
     await rename(manifestTemporaryPath, manifestPath);
     return { manifest, manifestPath, archivePath };
   } catch (error) {
-    await Promise.allSettled([rm(archiveTemporaryPath, { force: true }), rm(manifestTemporaryPath, { force: true })]);
+    await Promise.allSettled([
+      rm(archiveTemporaryPath, { force: true }),
+      rm(manifestTemporaryPath, { force: true }),
+      ...(archivePublished ? [rm(archivePath, { force: true })] : []),
+    ]);
     throw error;
   } finally {
     await db.$disconnect();
@@ -394,13 +400,22 @@ export function structuredEvent(event: string, status: "success" | "failure", de
   return JSON.stringify({ timestamp: new Date().toISOString(), component: "stage23-resilience", event, status, ...detail });
 }
 
+export function redactOperationalError(message: string, env: NodeJS.ProcessEnv = process.env) {
+  let redacted = message.replace(/(postgres(?:ql)?:\/\/[^:\s/]+:)[^@\s]+@/gi, "$1[REDACTED]@");
+  for (const name of ["DATABASE_URL", "RESTORE_DATABASE_URL", "STAGE23_ADMIN_DATABASE_URL", "PGPASSWORD"]) {
+    const secret = env[name];
+    if (secret) redacted = redacted.split(secret).join("[REDACTED]");
+  }
+  return redacted;
+}
+
 export async function runCli(event: string, work: () => Promise<Record<string, unknown>>) {
   const started = Date.now();
   try {
     const detail = await work();
     process.stdout.write(structuredEvent(event, "success", { durationMs: Date.now() - started, ...detail }) + "\n");
   } catch (error) {
-    const message = error instanceof Error ? error.message : "Unknown failure";
+    const message = redactOperationalError(error instanceof Error ? error.message : "Unknown failure");
     process.stderr.write(structuredEvent(event, "failure", { durationMs: Date.now() - started, error: message }) + "\n");
     process.exitCode = 1;
   }
