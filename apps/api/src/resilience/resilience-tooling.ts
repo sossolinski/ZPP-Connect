@@ -330,7 +330,7 @@ export async function restoreBackup(options: {
     if (Number(existing[0]?.count ?? 0) !== 0) throw new Error("Restore target must be empty; existing user tables were found");
   } finally { await db.$disconnect(); }
 
-  await runCommand("pg_restore", ["--exit-on-error", "--no-owner", "--no-privileges", verified.archivePath], target.nativeEnv, 4 * 1024 * 1024);
+  await runCommand("pg_restore", ["--exit-on-error", "--no-owner", "--no-privileges", `--dbname=${target.databaseName}`, verified.archivePath], target.nativeEnv, 4 * 1024 * 1024);
 
   const restored = new PrismaClient({ datasources: { db: { url: options.restoreDatabaseUrl } } });
   try {

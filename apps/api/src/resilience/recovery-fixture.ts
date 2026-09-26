@@ -21,6 +21,12 @@ export async function createRecoveryFixture(db: PrismaClient) {
     createdById: actorRow.id,
     closedById: actorRow.id,
   } });
+  await db.incidentAssignment.create({ data: {
+    incidentId: session.id,
+    userId: actorRow.id,
+    function: "Stage 23 recovery operator",
+    createdById: actorRow.id,
+  } });
   await db.auditLog.create({ data: {
     action: "stage23_recovery_fixture_created",
     entityType: "session",
