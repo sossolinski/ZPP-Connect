@@ -85,6 +85,8 @@ jobs:
             exit 1
           fi
           curl --fail --silent http://127.0.0.1:4000/api/health
+          readiness=$(curl --fail --silent http://127.0.0.1:4000/api/health/readiness)
+          node -e 'const value = JSON.parse(process.argv[1]); if (value.ready !== true || value.database !== "reachable") process.exit(1)' "$readiness"
           auth_config=$(curl --fail --silent http://127.0.0.1:4000/api/auth/config)
           node -e 'const config = JSON.parse(process.argv[1]); if (config.developmentAccessEnabled !== false || JSON.stringify(config.authenticationMethods) !== JSON.stringify(["MICROSOFT_SSO"])) process.exit(1)' "$auth_config"
           dev_status=$(curl --silent --output /dev/null --write-out '%{http_code}' http://127.0.0.1:4000/api/auth/development/users)
@@ -106,6 +108,15 @@ jobs:
 
       - name: Dedicated Foundation Stage 21 PostgreSQL tests
         run: npm exec -w @zpp/api vitest run -- --no-file-parallelism --maxWorkers=1 src/foundation-stage21-postgres.integration.test.ts
+
+      - name: Dedicated Foundation Stage 23 PostgreSQL integrity tests
+        run: npm exec -w @zpp/api vitest run -- --no-file-parallelism --maxWorkers=1 src/foundation-stage23-postgres.integration.test.ts
+
+      - name: Foundation Stage 23 backup, restore and corruption gate
+        env:
+          STAGE23_ALLOW_RECOVERY: "true"
+          STAGE23_ADMIN_DATABASE_URL: postgresql://zpp:zpp@127.0.0.1:5432/postgres?schema=public
+        run: npm run test:recovery
 
       - name: Install Chromium for Stage 16 through 21 workflow coverage
         run: npx playwright install --with-deps chromium

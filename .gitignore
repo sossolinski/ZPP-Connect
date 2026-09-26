@@ -17,3 +17,6 @@ storage/uploads/*
 *.tsbuildinfo
 .DS_Store
 apps/api/prisma/dev.db
+/backups/
+*.backup.dump
+*.backup.manifest.json

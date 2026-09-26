@@ -21,6 +21,12 @@
     "db:generate": "npm run prisma:generate -w @zpp/api",
     "db:migrate": "npm run prisma:migrate -w @zpp/api",
     "db:seed": "npm run prisma:seed -w @zpp/api",
+    "backup": "npm run backup -w @zpp/api",
+    "backup:verify": "npm run backup:verify -w @zpp/api",
+    "backup:retention": "npm run backup:retention -w @zpp/api",
+    "restore:verify": "npm run restore:verify -w @zpp/api",
+    "integrity:check": "npm run integrity:check -w @zpp/api",
+    "test:recovery": "npm run test:recovery -w @zpp/api",
     "test:postgres": "npm run test:postgres -w @zpp/api",
     "test": "npm run test -w @zpp/api"
   },
