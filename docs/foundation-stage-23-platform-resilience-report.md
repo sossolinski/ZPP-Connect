@@ -1,6 +1,6 @@
 # Foundation Stage 23 — Platform Resilience, Recovery & Data Integrity
 
-Status: **IMPLEMENTED — LOCAL GATES GREEN, READY FOR PR REVIEW**
+Status: **IMPLEMENTED — LOCAL AND REMOTE GATES GREEN, READY FOR PR REVIEW**
 
 Validated locally on 2026-09-26 on branch
 `agent/foundation-stage-23-platform-resilience`, based on scope-decision merge
@@ -190,8 +190,11 @@ The normal PostgreSQL job now:
    randomized databases on the PostgreSQL CI service.
 
 The existing migration rehearsal, six PostgreSQL browser workflows, quality job and
-production dependency audit remain enabled. Remote PR CI will be recorded during review;
-the implementation is not authorized for merge in this task.
+production dependency audit remain enabled. On implementation head `cd45d74`, both the
+push workflow [36258176580](https://github.com/sossolinski/ZPP-Connect/actions/runs/36258176580)
+and PR workflow [36258195064](https://github.com/sossolinski/ZPP-Connect/actions/runs/36258195064)
+passed all three jobs, including the Stage 23 recovery gate. PR #21 is not authorized for
+merge in this task.
 
 ## K. Final local validation
 
@@ -261,7 +264,7 @@ added to code or CI, and no failing assertion was skipped or weakened.
 | 18 | Browser smoke | PASS, 73/73 |
 | 19 | Production PostgreSQL/Entra startup | PASS |
 | 20 | Production dependency audit | PASS, 0 vulnerabilities |
-| 21 | Meaningful CI recovery verification | PASS: workflow configured; remote execution pending PR |
+| 21 | Meaningful CI recovery verification | PASS: push and PR workflows green on implementation head |
 | 22 | No generated artifacts/temp DB state | PASS |
 | 23 | Complete Stage 23 report | PASS |
 
