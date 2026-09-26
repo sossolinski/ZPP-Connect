@@ -32,7 +32,9 @@ Stable commands are available at the repository root:
 - `npm run test:recovery`
 
 Every operational CLI emits one structured JSON success/failure event and a meaningful
-exit status. Errors redact connection URLs and configured passwords.
+exit status. Errors redact connection URLs and configured passwords. The package commands
+execute compiled `dist/src/resilience/*.js` entry points, so they are present in the API
+runtime image; a source checkout must build the API before invoking them.
 
 ## B. Protected assets and recovery boundary
 
@@ -79,9 +81,9 @@ and normally requires `zpp_stage23_restore_` naming. It never creates, drops, cl
 truncates or overwrites a database. The caller provisions the empty target.
 
 After `pg_restore --exit-on-error --no-owner --no-privileges`, it proves connectivity,
-exact manifest migration state, compatibility with migrations in the checkout, exact
-critical table counts and all application-level integrity checks. Passwords are provided
-to native tools through `PGPASSWORD`, never a command-line URL.
+exact manifest migration state, exact migration-name and migration-file SHA-256 compatibility
+with the checkout, exact critical table counts and all application-level integrity checks.
+Passwords are provided to native tools through `PGPASSWORD`, never a command-line URL.
 
 The automated rehearsal separately creates randomized source/restore databases, deploys
 all migrations, seeds, inserts a synthetic closed REAL incident plus assignment/Audit,
@@ -92,7 +94,7 @@ cleanup drops only exact generated database names and removes the generated temp
 
 Final local rehearsal result: **PASS**, 23 migrations, 6 Users, 8 Roles, 3 Sessions,
 6 Documents/versions, 9 Audit rows, 202 Dictionaries, 1 AAR/version/PDF; application
-integrity pass and `corruptionDetected: true` in **2.699 seconds**. After completion,
+integrity pass and `corruptionDetected: true` in **2.765 seconds**. After completion,
 PostgreSQL contained zero databases matching `zpp_stage23_%`.
 
 ## E. Recovery objectives and retention
@@ -123,7 +125,7 @@ purged by Stage 23.
 checked collection exceeds `INTEGRITY_MAX_ROWS` (default 10,000; explicit supported range
 1–1,000,000). It verifies:
 
-- successful Prisma state exactly matching repository migrations;
+- successful Prisma state exactly matching repository migration names and file checksums;
 - validated PostgreSQL constraints and valid indexes;
 - canonical SHA-256 for every Approved AAR inspected;
 - exact byte length/SHA-256 and Approved source digest for persisted AAR PDFs;
@@ -203,14 +205,15 @@ merge in this task.
 | `npm ci` | PASS, 445 packages installed from lockfile |
 | Prisma generate / validate | PASS, Prisma 6.19.3, 23 migrations |
 | `npm run lint` | PASS, API and web typechecks |
-| `npm test` | **124 passed**, 19 unit files; 24 PostgreSQL files intentionally skipped in unit mode |
+| `npm test` | **125 passed**, 19 unit files; 24 PostgreSQL files intentionally skipped in unit mode |
 | `npm run build` | PASS; existing Vite chunk-size warning only |
 | `npm run test:smoke` | **73/73 passed**, 1.8 minutes |
 | `npm audit --omit=dev --omit=optional` | **0 vulnerabilities** |
 | fresh migration chain + seed | PASS, 23/23 from zero |
 | complete ordered PostgreSQL Stage 1–23 | **300/300 passed**, 24 files, 46.93 seconds |
 | focused Stage 22 + 23 | **35/35 passed** |
-| final recovery gate | PASS, integrity pass, intentional corruption rejected, 2.699 seconds |
+| final recovery gate | PASS from compiled CLI, integrity pass, intentional corruption rejected, 2.765 seconds |
+| altered repository migration checksum | PASS: integrity checker rejected it with exit 1 |
 | production PostgreSQL/Entra startup | PASS; liveness 200, readiness 200/reachable, Microsoft SSO only, dev users 404 |
 | `git diff --check` | PASS |
 | generated backup/temp DB state | none |

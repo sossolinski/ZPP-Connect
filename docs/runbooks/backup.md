@@ -7,6 +7,8 @@ an access-controlled, encrypted, durable destination outside the application hos
 ## Prerequisites
 
 - Run from a checkout/image matching the deployed application release.
+- In a source checkout, run `npm run build -w @zpp/api` first. The production image already
+  contains these compiled operational entry points.
 - Install `pg_dump` and `pg_restore`. The supported rehearsed path uses one tool major for
   dump and restore; `pg_dump` must not be older than the PostgreSQL server.
 - Supply `DATABASE_URL` through the process environment or an authorized secret injector.

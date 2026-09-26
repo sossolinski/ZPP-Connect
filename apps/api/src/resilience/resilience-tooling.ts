@@ -298,7 +298,7 @@ export async function verifyBackup(manifestPath: string) {
   return { manifest, manifestPath: absoluteManifestPath, archivePath, pgRestoreVersion: restoreVersion.raw };
 }
 
-export async function repositoryMigrationNames() {
+async function repositoryMigrationsDirectory() {
   const here = path.dirname(fileURLToPath(import.meta.url));
   const candidates = [
     path.resolve(process.cwd(), "apps/api/prisma/migrations"),
@@ -309,11 +309,29 @@ export async function repositoryMigrationNames() {
   for (const candidate of candidates) {
     try {
       const entries = await readdir(candidate, { withFileTypes: true });
-      const names = entries.filter((entry) => entry.isDirectory()).map((entry) => entry.name).sort();
-      if (names.length) return names;
+      if (entries.some((entry) => entry.isDirectory())) return candidate;
     } catch { /* try the next runtime layout */ }
   }
   throw new Error("Unable to locate Prisma migrations directory");
+}
+
+export type MigrationIdentity = { migrationName: string; checksum: string };
+
+export async function repositoryMigrationState(): Promise<MigrationIdentity[]> {
+  const directory = await repositoryMigrationsDirectory();
+  const entries = await readdir(directory, { withFileTypes: true });
+  const names = entries.filter((entry) => entry.isDirectory()).map((entry) => entry.name).sort();
+  return Promise.all(names.map(async (migrationName) => ({
+    migrationName,
+    checksum: await fileSha256(path.join(directory, migrationName, "migration.sql")),
+  })));
+}
+
+export function migrationIdentitiesMatch(applied: MigrationIdentity[], expected: MigrationIdentity[]) {
+  const normalize = (rows: MigrationIdentity[]) => [...rows]
+    .map(({ migrationName, checksum }) => ({ migrationName, checksum }))
+    .sort((left, right) => left.migrationName.localeCompare(right.migrationName));
+  return JSON.stringify(normalize(applied)) === JSON.stringify(normalize(expected));
 }
 
 export async function restoreBackup(options: {
@@ -342,11 +360,11 @@ export async function restoreBackup(options: {
   try {
     await restored.$queryRawUnsafe(`SELECT 1`);
     const [migrations, counts, repositoryMigrations] = await Promise.all([
-      migrationState(restored), criticalCounts(restored), repositoryMigrationNames(),
+      migrationState(restored), criticalCounts(restored), repositoryMigrationState(),
     ]);
     if (JSON.stringify(migrations) !== JSON.stringify(verified.manifest.migrations)) throw new Error("Restored Prisma migration state does not match backup manifest");
-    if (JSON.stringify(migrations.map((item) => item.migrationName).sort()) !== JSON.stringify(repositoryMigrations)) {
-      throw new Error("Restored Prisma migrations do not match this application checkout");
+    if (!migrationIdentitiesMatch(migrations, repositoryMigrations)) {
+      throw new Error("Restored Prisma migration names or checksums do not match this application checkout");
     }
     if (JSON.stringify(counts) !== JSON.stringify(verified.manifest.criticalCounts)) throw new Error("Restored critical table counts do not match backup manifest");
   } finally { await restored.$disconnect(); }

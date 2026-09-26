@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import { PrismaClient } from "@prisma/client";
 import { contentDigest, sha256, versionInclude } from "../modules/after-action-reports/after-action-report-types.js";
-import { migrationState, repositoryMigrationNames } from "./resilience-tooling.js";
+import { migrationIdentitiesMatch, migrationState, repositoryMigrationState } from "./resilience-tooling.js";
 
 export type IntegrityFailure = { check: string; recordId?: string; message: string };
 
@@ -41,10 +41,9 @@ export async function runIntegrityCheck(databaseUrl: string, limit = 10_000): Pr
   const failures: IntegrityFailure[] = [];
   try {
     const migrations = await migrationState(db);
-    const expectedMigrations = await repositoryMigrationNames();
-    const appliedNames = migrations.map((item) => item.migrationName).sort();
-    if (JSON.stringify(appliedNames) !== JSON.stringify(expectedMigrations)) {
-      fail(failures, "prisma-migrations", "Applied migrations do not match this application checkout");
+    const expectedMigrations = await repositoryMigrationState();
+    if (!migrationIdentitiesMatch(migrations, expectedMigrations)) {
+      fail(failures, "prisma-migrations", "Applied migration names or checksums do not match this application checkout");
     }
 
     const invalidConstraints = await db.$queryRawUnsafe<Array<{ table_name: string; constraint_name: string }>>(

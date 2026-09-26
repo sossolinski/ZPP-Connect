@@ -4,6 +4,9 @@ Use this runbook to restore a Stage 23 backup into a new database. The repositor
 does not drop, clean, truncate or overwrite a database. It refuses a nonempty target and,
 by default, requires a name beginning `zpp_stage23_restore_`.
 
+Run from the matching production image. In a source checkout, first run
+`npm run build -w @zpp/api` so the compiled operational entry points match the checkout.
+
 ## 1. Incident preparation
 
 1. Record the incident, selected application release and recovery owner outside the failed
@@ -46,8 +49,8 @@ npm run restore:verify
 
 The command performs checksum/catalog verification again, rejects a target that fingerprints
 as the backup source, requires an empty database, invokes `pg_restore --exit-on-error`, and
-then verifies accessibility, exact Prisma migration state, repository migration compatibility,
-critical row counts and application integrity. Any failure returns non-zero.
+then verifies accessibility, exact Prisma migration state, repository migration names and
+checksums, critical row counts and application integrity. Any failure returns non-zero.
 
 `RESTORE_ALLOW_ANY_EMPTY_DATABASE=true` relaxes only the naming guard. Reserve it for an
 approved environment whose provisioning rules cannot use the prefix; it does not relax the

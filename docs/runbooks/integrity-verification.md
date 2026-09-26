@@ -2,6 +2,8 @@
 
 `npm run integrity:check` is a read-only, bounded operational checker for critical data
 invariants. It is not the cheap readiness endpoint and should not run on every HTTP request.
+Run it from the matching production image; in a source checkout, first run
+`npm run build -w @zpp/api`.
 
 ## Run
 
@@ -18,7 +20,7 @@ explicit complete scan. The hard accepted range is 1–1,000,000.
 
 ## Checks
 
-- successful Prisma migrations exactly match this checkout;
+- successful Prisma migration names and SHA-256 checksums exactly match this checkout;
 - PostgreSQL constraints are validated and indexes are valid;
 - Approved AAR canonical logical content matches `contentSha256`;
 - every persisted AAR PDF matches exact byte size/SHA-256 and its Approved source digest;

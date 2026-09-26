@@ -5,7 +5,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import {
   assertDumpCompatibility, assertRestoreCompatibility, backupManifestSchema, databaseUrlForName,
   fileSha256, parsePostgresConnection, parsePostgresToolVersion, positiveIntegerEnv,
-  redactOperationalError, requiredEnv, resolveDirectChild, selectExpiredBackups,
+  migrationIdentitiesMatch, redactOperationalError, requiredEnv, resolveDirectChild, selectExpiredBackups,
 } from "./resilience-tooling.js";
 
 const temporaryDirectories: string[] = [];
@@ -40,6 +40,13 @@ describe("Stage 23 resilience tooling", () => {
     const file = path.join(directory, "artifact");
     await writeFile(file, Buffer.from("stage-23"));
     expect(await fileSha256(file)).toBe("4ca0210bb455e0fa9afa4ffd1170f694bbe59e6d3913a32ba28fb99a63ef93cc");
+  });
+
+  it("requires both Prisma migration names and checksums to match", () => {
+    const applied = [{ migrationName: "001_initial", checksum: "sha-001" }];
+    expect(migrationIdentitiesMatch(applied, [{ migrationName: "001_initial", checksum: "sha-001" }])).toBe(true);
+    expect(migrationIdentitiesMatch(applied, [{ migrationName: "001_initial", checksum: "changed" }])).toBe(false);
+    expect(migrationIdentitiesMatch(applied, [{ migrationName: "002_other", checksum: "sha-001" }])).toBe(false);
   });
 
   it("maps a PostgreSQL URL to native-client environment without putting a URL in command arguments", () => {
