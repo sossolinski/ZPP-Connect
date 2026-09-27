@@ -140,6 +140,19 @@ export function createPublicProductionRouter() {
   return router;
 }
 
+export function createTechnicalReadinessRouter(db: PrismaClient, probe: () => Promise<unknown> = () => db.$queryRaw`SELECT 1`) {
+  const router = Router();
+  router.get("/health/readiness", async (_req, res) => {
+    try {
+      await probe();
+      res.json({ ok: true, ready: true, service: "zpp-connect-api", persistence: "postgres", database: "reachable" });
+    } catch {
+      res.status(503).json({ ok: false, ready: false, service: "zpp-connect-api", persistence: "postgres", database: "unavailable" });
+    }
+  });
+  return router;
+}
+
 export function createProductionSharedRouter(db: PrismaClient, requireIncidentPermission: IncidentPermissionGate) {
   const router = Router();
   router.get("/config/profile", (_req, res) => res.json(defaultProfile));

@@ -47,6 +47,7 @@ describe("Stage 20 production route ownership", () => {
     expect(owner("POST", "/admin/dictionaries")).toBe("configuration");
     expect(owner("POST", "/after-action-reports")).toBe("after-action-reports");
     expect(owner("GET", "/after-action-pdf-artifacts/:id/download")).toBe("after-action-reports");
+    expect(owner("GET", "/health/readiness")).toBe("technical-readiness");
   });
 
   it("keeps the generic demo composition available only for intentional memory tests", () => {

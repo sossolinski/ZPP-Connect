@@ -62,7 +62,7 @@ import type { FoundationTrainingRepository } from "../modules/training/training-
 import { createTrainingRouter } from "../modules/training/training-router.js";
 import { createTrainingService } from "../modules/training/training-service.js";
 import { createProductionRouteRegistry } from "./production-route-registry.js";
-import { createProductionSharedRouter, createPublicProductionRouter } from "./production-shared-router.js";
+import { createProductionSharedRouter, createPublicProductionRouter, createTechnicalReadinessRouter } from "./production-shared-router.js";
 
 type NotificationService = ReturnType<typeof createPersistentNotificationService>;
 
@@ -114,6 +114,7 @@ export function createProductionComposition(options: ProductionCompositionOption
   const publicRoutes = createPublicProductionRouter();
   mount("production-public", "E", "stateless", publicRoutes);
   registry.claim({ method: "GET", path: "/docs/*", owner: "production-public", category: "E", authority: "stateless" });
+  mount("technical-readiness", "E", "postgres", createTechnicalReadinessRouter(options.db));
   mount("identity", "A", "postgres", createIdentityRouter(options.db));
   router.use(authenticate);
 
