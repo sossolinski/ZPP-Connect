@@ -83,7 +83,7 @@ postgresDescribe("Foundation Stage 21 PostgreSQL dictionary and configuration in
 
   async function createSession(eventType: string, suffix: string) {
     const response = await request(createApp()).post("/api/sessions").set(asAdmin).send({
-      mode: "TRAINING",
+      mode: "REAL",
       status: "Draft",
       eventType,
       description: `${marker} ${suffix}`,

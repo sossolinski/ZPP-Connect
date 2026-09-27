@@ -6,7 +6,7 @@ const headers = { "content-type": "application/json", "x-user-email": "coordinat
 const cleanupSessionIds: string[] = [];
 
 async function createSession(page: Page, token: string) {
-  const response = await page.request.post(`${apiUrl}/sessions`, { headers, data: { mode: "EXERCISE", status: "Active", eventType: "Exercise", flightNumber: token, route: "WAW-TEST" } });
+  const response = await page.request.post(`${apiUrl}/sessions`, { headers, data: { mode: "REAL", status: "Draft", eventType: "Aircraft accident", flightNumber: token, route: "WAW-TEST" } });
   expect(response.status()).toBe(201);
   const session = await response.json();
   cleanupSessionIds.push(session.id);

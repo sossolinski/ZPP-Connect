@@ -20,7 +20,7 @@ type Row = Record<string, any>;
 async function createSession(page: Page, token: string) {
   const response = await page.request.post(`${apiUrl}/sessions`, {
     headers: coordinatorHeaders,
-    data: { mode: "EXERCISE", status: "Active", eventType: "Exercise", flightNumber: token, route: "WAW-S2C", description: "Isolated Stage 2C browser test session" }
+    data: { mode: "REAL", status: "Draft", eventType: "Aircraft accident", flightNumber: token, route: "WAW-S2C", description: "Isolated Stage 2C browser test session" }
   });
   expect(response.ok()).toBeTruthy();
   const session = await response.json() as Row;
@@ -34,13 +34,13 @@ async function useSession(page: Page, session: Row) {
   await expect(row).toBeVisible();
   const button = row.getByRole("button", { name: "Use this session" });
   if (await button.count()) await button.click();
-  await expect(page.locator(`[aria-label*="Current session EXERCISE ${session.operationalId}"]:visible`)).toHaveCount(1);
+  await expect(page.locator(`[aria-label*="Current session REAL ${session.operationalId}"]:visible`)).toHaveCount(1);
 }
 
 async function setSessionForRestrictedPersona(page: Page, session: Row) {
   await page.evaluate((sessionId) => localStorage.setItem("zpp:activeSessionId", sessionId), session.id);
   await page.reload();
-  await expect(page.locator(`[aria-label*="Current session EXERCISE ${session.operationalId}"]:visible`)).toHaveCount(1);
+  await expect(page.locator(`[aria-label*="Current session REAL ${session.operationalId}"]:visible`)).toHaveCount(1);
 }
 
 async function openAssignmentsAfterPersonaSwitch(page: Page, sessionId: string) {

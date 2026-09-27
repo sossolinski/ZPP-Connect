@@ -8,7 +8,7 @@ const cleanupSessionIds: string[] = [];
 async function createSession(page: Page, suffix: string) {
   const response = await page.request.post(`${apiUrl}/sessions`, {
     headers,
-    data: { mode: "EXERCISE", status: "Active", eventType: "Exercise", flightNumber: `F16-${suffix}-${Date.now()}` }
+    data: { mode: "REAL", status: "Draft", eventType: "Aircraft accident", flightNumber: `F16-${suffix}-${Date.now()}` }
   });
   expect(response.status()).toBe(201);
   const session = await response.json();

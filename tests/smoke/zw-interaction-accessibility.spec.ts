@@ -11,7 +11,7 @@ type Row = Record<string, any>;
 async function createSession(page: Page, token: string) {
   const response = await page.request.post(`${apiUrl}/sessions`, {
     headers,
-    data: { mode: "EXERCISE", status: "Active", eventType: "Exercise", flightNumber: token, route: "WAW-A11Y", description: "Isolated Stage 2D browser test" }
+    data: { mode: "REAL", status: "Draft", eventType: "Aircraft accident", flightNumber: token, route: "WAW-A11Y", description: "Isolated Stage 2D browser test" }
   });
   expect(response.ok()).toBeTruthy();
   const session = await response.json() as Row;
@@ -133,7 +133,6 @@ test("keyboard rows, sort state, read-only Escape, Retry and mobile layout remai
   const session = await createSession(page, token);
   const note = await page.request.post(`${apiUrl}/timeline`, { headers, data: { sessionId: session.id, eventType: "operational_update", title: token, body: "Keyboard-accessible full detail text." } });
   expect(note.ok()).toBeTruthy();
-  await page.request.post(`${apiUrl}/exercise/observations`, { headers, data: { sessionId: session.id, area: "Intake", severity: "Low", observation: `${token}-INERT` } });
 
   await login(page);
   await useSession(page, session);
@@ -150,11 +149,6 @@ test("keyboard rows, sort state, read-only Escape, Retry and mobile layout remai
   await expect(detail).toHaveCount(0);
   await expect(row).toBeFocused();
   await expect(page.getByRole("dialog", { name: "Discard unsaved changes?" })).toHaveCount(0);
-
-  await page.goto("/exercise");
-  const inertRow = page.getByRole("row").filter({ hasText: `${token}-INERT` });
-  await expect(inertRow).not.toHaveAttribute("tabindex");
-  await expect(inertRow).not.toHaveClass(/cursor-pointer/);
 
   let failedOnce = false;
   await page.route("**/api/audit-logs**", async (route) => {

@@ -57,7 +57,7 @@ postgresDescribe("Foundation Stage 8 PostgreSQL Operational Assignment safety", 
     await prisma!.$connect();
     adminId = (await prisma!.user.findUniqueOrThrow({ where: { email: "admin@lot.pl" } })).id;
     const incidents = await Promise.all([
-      prisma!.session.create({ data: { operationalId: `${marker}-EX`, mode: "EXERCISE", status: "Active", eventType: marker, createdById: adminId } }),
+      prisma!.session.create({ data: { operationalId: `${marker}-A`, mode: "REAL", status: "Draft", eventType: marker, createdById: adminId } }),
       prisma!.session.create({ data: { operationalId: `${marker}-REAL`, mode: "REAL", status: "Draft", eventType: marker, createdById: adminId } }),
       prisma!.session.create({ data: { operationalId: `${marker}-CLOSED`, mode: "TRAINING", status: "Closed", eventType: marker, createdById: adminId } }),
     ]);

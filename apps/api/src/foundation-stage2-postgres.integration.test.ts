@@ -40,9 +40,9 @@ postgresDescribe("Foundation Stage 2 PostgreSQL Enquiry isolation", () => {
     ]);
     const marker = Date.now();
     const [exercise, real, training] = await Promise.all([
-      prisma!.session.create({ data: { operationalId: `F2-EX-${marker}`, mode: "EXERCISE", status: "Active", eventType: "Stage 2 isolation", createdById: admin.id } }),
+      prisma!.session.create({ data: { operationalId: `F2-A-${marker}`, mode: "REAL", status: "Draft", eventType: "Stage 2 isolation", createdById: admin.id } }),
       prisma!.session.create({ data: { operationalId: `F2-REAL-${marker}`, mode: "REAL", status: "Draft", eventType: "Stage 2 cross-mode", createdById: admin.id } }),
-      prisma!.session.create({ data: { operationalId: `F2-TRAINING-${marker}`, mode: "TRAINING", status: "Active", eventType: "Stage 2 cross-mode", createdById: admin.id } })
+      prisma!.session.create({ data: { operationalId: `F2-B-${marker}`, mode: "REAL", status: "Draft", eventType: "Stage 2 cross-incident", createdById: admin.id } })
     ]);
     incidentA = exercise.id;
     incidentB = real.id;

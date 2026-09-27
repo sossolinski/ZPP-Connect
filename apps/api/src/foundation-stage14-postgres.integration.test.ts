@@ -61,7 +61,7 @@ postgresDescribe("Foundation Stage 14 PostgreSQL Admin and identity access integ
   }
 
   async function createIncident(suffix: string) {
-    const incident = await prisma!.session.create({ data: { operationalId: `${marker}-${suffix}`, mode: "EXERCISE", status: "Active", eventType: marker, createdById: admin.id } });
+    const incident = await prisma!.session.create({ data: { operationalId: `${marker}-${suffix}`, mode: "REAL", status: "Draft", eventType: marker, createdById: admin.id } });
     incidentIds.push(incident.id);
     return incident;
   }
@@ -216,7 +216,7 @@ postgresDescribe("Foundation Stage 14 PostgreSQL Admin and identity access integ
   it("requires IncidentAssignment before a group role contributes permissions", async () => {
     const user = await createUser("group-scope");
     const role = await createRole("group-reader", ["passenger:read"], ["GROUP"]);
-    const incident = await prisma!.session.create({ data: { operationalId: `${marker}-INC`, mode: "EXERCISE", status: "Active", eventType: marker, createdById: admin.id } });
+    const incident = await prisma!.session.create({ data: { operationalId: `${marker}-INC`, mode: "REAL", status: "Draft", eventType: marker, createdById: admin.id } });
     incidentIds.push(incident.id);
     const group = await prisma!.operationalGroup.create({ data: { id: `${markerEmail}-group`, operationalId: `${marker}-GROUP`, incidentId: incident.id, name: `${marker} group`, pool: "ZPP", functionName: "Family assistance", createdById: admin.id, updatedById: admin.id } });
     groupIds.push(group.id);
@@ -716,7 +716,7 @@ postgresDescribe("Foundation Stage 14 PostgreSQL Admin and identity access integ
   it("keeps group assignment, Group archive and IncidentAssignment revocation scope-safe under concurrency", async () => {
     const user = await createUser("group-concurrency");
     const role = await createRole("group-concurrency", ["passenger:read"], ["GROUP"]);
-    const incident = await prisma!.session.create({ data: { operationalId: `${marker}-GROUP-RACE`, mode: "EXERCISE", status: "Active", eventType: marker, createdById: admin.id } });
+    const incident = await prisma!.session.create({ data: { operationalId: `${marker}-GROUP-RACE`, mode: "REAL", status: "Draft", eventType: marker, createdById: admin.id } });
     incidentIds.push(incident.id);
     const group = await prisma!.operationalGroup.create({ data: { id: `${markerEmail}-group-race`, operationalId: `${marker}-GROUP-RACE`, incidentId: incident.id, name: `${marker} group race`, pool: "ZPP", functionName: "Family assistance", createdById: admin.id, updatedById: admin.id } });
     groupIds.push(group.id);

@@ -24,8 +24,8 @@ postgresDescribe("Foundation Stage 16 PostgreSQL Imports persistence and orchest
   let coordinator: { id: string; email: string; displayName: string };
   const actor = () => ({ id: coordinator.id, email: coordinator.email, displayName: coordinator.displayName, roles: ["zpp-coordinator"], requestId: randomUUID() });
 
-  async function incident(suffix: string, status = "Active", assignedUserIds: string[] = []) {
-    const row = await prisma!.session.create({ data: { operationalId: `${marker}-${suffix}`, mode: "EXERCISE", status, eventType: marker, createdById: coordinator.id } });
+  async function incident(suffix: string, status = "Draft", assignedUserIds: string[] = []) {
+    const row = await prisma!.session.create({ data: { operationalId: `${marker}-${suffix}`, mode: "REAL", status: status === "Active" ? "Draft" : status, eventType: marker, createdById: coordinator.id } });
     incidentIds.push(row.id);
     await prisma!.incidentAssignment.createMany({
       data: Array.from(new Set([coordinator.id, ...assignedUserIds])).map((userId) => ({ incidentId: row.id, userId, function: marker, createdById: coordinator.id }))

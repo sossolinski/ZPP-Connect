@@ -35,7 +35,7 @@ postgresDescribe("Foundation Stage 19 PostgreSQL Readiness projection integrity"
 
   const application = (service?: ReturnType<typeof createPrismaReadinessProjectionService>) => {
     const options = { readinessService: service ?? createPrismaReadinessProjectionService(prisma!, { now: () => new Date(at) }), trainingClock: { now: () => new Date(at) } };
-    return service ? createApp(options) : createSharedApp(options);
+    return service ? createApp(options as any) : createSharedApp(options as any);
   };
 
   async function userWithRole(suffix: string, permissions: string[], scopeType: "GLOBAL" | "GROUP" = "GLOBAL") {

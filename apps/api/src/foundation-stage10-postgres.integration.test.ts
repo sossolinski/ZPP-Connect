@@ -105,7 +105,7 @@ postgresDescribe("Foundation Stage 10 PostgreSQL Rostering and Availability", ()
     await prisma!.$connect();
     adminId = (await prisma!.user.findUniqueOrThrow({ where: { email: "admin@lot.pl" } })).id;
     const incidents = await Promise.all([
-      prisma!.session.create({ data: { operationalId: `${marker}-EXERCISE`, mode: "EXERCISE", status: "Active", eventType: marker, createdById: adminId } }),
+      prisma!.session.create({ data: { operationalId: `${marker}-INCIDENT-A`, mode: "REAL", status: "Draft", eventType: marker, createdById: adminId } }),
       prisma!.session.create({ data: { operationalId: `${marker}-REAL`, mode: "REAL", status: "Draft", eventType: marker, createdById: adminId } }),
       prisma!.session.create({ data: { operationalId: `${marker}-TRAINING`, mode: "TRAINING", status: "Active", eventType: marker, createdById: adminId } }),
       prisma!.session.create({ data: { operationalId: `${marker}-CLOSED`, mode: "EXERCISE", status: "Closed", eventType: marker, createdById: adminId } }),
@@ -179,11 +179,10 @@ postgresDescribe("Foundation Stage 10 PostgreSQL Rostering and Availability", ()
     await prisma!.incidentAssignment.update({ where: { incidentId_userId: { incidentId: incidentA, userId: actors.worker!.id } }, data: { active: false, revokedAt: new Date(), revokedById: adminId } });
     expect((await request(application()).get("/api/roster-shifts").query({ sessionId: incidentA, mine: true }).set(as(actors.worker!.email))).status).toBe(403);
     await prisma!.incidentAssignment.update({ where: { incidentId_userId: { incidentId: incidentA, userId: actors.worker!.id } }, data: { active: true, revokedAt: null, revokedById: null } });
-    for (const [incidentId, mode] of [[incidentB, "REAL"], [incidentTraining, "TRAINING"]] as const) {
-      const created = await createShift({ sessionId: incidentId, groupId: incidentId === incidentB ? groupB : null, title: `${marker} ${mode}` });
-      expect(created.status).toBe(201);
-      expect((await prisma!.rosterShift.findUniqueOrThrow({ where: { id: created.body.id } })).sessionId).toBe(incidentId);
-    }
+    const realCreated = await createShift({ sessionId: incidentB, groupId: groupB, title: `${marker} REAL` });
+    expect(realCreated.status).toBe(201);
+    expect((await prisma!.rosterShift.findUniqueOrThrow({ where: { id: realCreated.body.id } })).sessionId).toBe(incidentB);
+    expect((await createShift({ sessionId: incidentTraining, groupId: null, title: `${marker} TRAINING` })).status).toBe(409);
   });
 
   it("keeps global Availability independent from incidents and enforces own/manage-all ownership", async () => {
@@ -335,7 +334,7 @@ postgresDescribe("Foundation Stage 10 PostgreSQL Rostering and Availability", ()
     expect(availabilityPage.body.data).toHaveLength(41);
   });
 
-  it("serves durable Member, Group and Readiness projections without write-back and audits no PII", async () => {
+  it("serves durable Member and Group projections without legacy Readiness write-back", async () => {
     const projectedMemberId = "mem-2026-000003";
     const shift = await createShift({ assignedMemberProfileId: projectedMemberId, groupId: null, startAt: "2026-12-01T08:00:00.000Z", endAt: "2026-12-01T12:00:00.000Z" });
     const groupShift = await createShift({ assignedMemberProfileId: null, groupId: groupA, startAt: "2026-12-02T08:00:00.000Z", endAt: "2026-12-02T12:00:00.000Z" });
@@ -345,9 +344,8 @@ postgresDescribe("Foundation Stage 10 PostgreSQL Rostering and Availability", ()
     expect(memberResponse.body).toMatchObject({ rosterSummary: { id: expect.any(String) }, availabilitySummary: { id: expect.any(String) } });
     const groupResponse = await request(application()).get(`/api/groups/${groupA}`).query({ sessionId: incidentA }).set(as(actors.manager!.email));
     expect(groupResponse.body.rosterShiftIds).toContain(groupShift.body.id);
-    const readiness = await request(application()).get(`/api/readiness/members/${projectedMemberId}`).query({ evaluationAt: "2026-12-01T09:00:00.000Z" }).set(as("admin@lot.pl"));
-    expect(readiness.status, JSON.stringify(readiness.body)).toBe(200);
-    expect(readiness.body.dimensions.find((item: any) => item.key === "availability").items.map((item: any) => item.id)).toContain(availability.body.id);
+    expect((await request(application()).get(`/api/readiness/members/${projectedMemberId}`).set(as("admin@lot.pl"))).status).toBe(404);
+    expect(availability.body.id).toBeTruthy();
     const after = await prisma!.memberProfile.findUniqueOrThrow({ where: { id: projectedMemberId } });
     expect(after.version).toBe(before.version);
     expect(after.updatedAt).toEqual(before.updatedAt);

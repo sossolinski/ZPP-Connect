@@ -34,8 +34,8 @@ postgresDescribe("Foundation Stage 17 PostgreSQL export disclosure and report in
     return request(application).post(`/api/exports/${type}`).set(as(email)).send({ sessionId: incidentId, operationId });
   }
 
-  async function incident(suffix: string, status = "Active", assigned: string[] = []) {
-    const row = await prisma!.session.create({ data: { operationalId: `${marker}-${suffix}`, mode: "EXERCISE", status, eventType: marker, createdById: coordinator.id } });
+  async function incident(suffix: string, status = "Draft", assigned: string[] = []) {
+    const row = await prisma!.session.create({ data: { operationalId: `${marker}-${suffix}`, mode: "REAL", status: status === "Active" ? "Draft" : status, eventType: marker, createdById: coordinator.id } });
     incidentIds.push(row.id);
     await prisma!.incidentAssignment.createMany({ data: Array.from(new Set([coordinator.id, ...assigned])).map((userId) => ({ incidentId: row.id, userId, function: marker, createdById: coordinator.id })) });
     return row;

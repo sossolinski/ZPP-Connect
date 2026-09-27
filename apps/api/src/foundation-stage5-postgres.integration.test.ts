@@ -51,7 +51,7 @@ postgresDescribe("Foundation Stage 5 PostgreSQL matching persistence and concurr
     adminId = admin.id;
     coordinatorId = coordinator.id;
     const [exercise, real, closed] = await Promise.all([
-      prisma!.session.create({ data: { operationalId: `${marker}-EX`, mode: "EXERCISE", status: "Active", eventType: marker, createdById: admin.id } }),
+      prisma!.session.create({ data: { operationalId: `${marker}-A`, mode: "REAL", status: "Draft", eventType: marker, createdById: admin.id } }),
       prisma!.session.create({ data: { operationalId: `${marker}-REAL`, mode: "REAL", status: "Draft", eventType: marker, createdById: admin.id } }),
       prisma!.session.create({ data: { operationalId: `${marker}-CLOSED`, mode: "TRAINING", status: "Closed", eventType: marker, createdById: admin.id } })
     ]);

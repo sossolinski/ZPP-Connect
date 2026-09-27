@@ -22,7 +22,7 @@ describe("Incident access lifecycle", () => {
 
   beforeEach(() => {
     sessions = [
-      { id: "incident-exercise", operationalId: "SES-EX", mode: "EXERCISE", status: "Active", eventType: "Exercise", createdAt: "2026-08-04T10:00:00Z", updatedAt: "2026-08-04T10:00:00Z" },
+      { id: "incident-exercise", operationalId: "SES-EX", mode: "REAL", status: "Draft", eventType: "Aircraft accident", createdAt: "2026-08-04T10:00:00Z", updatedAt: "2026-08-04T10:00:00Z" },
       { id: "incident-real", operationalId: "SES-REAL", mode: "REAL", status: "Draft", eventType: "Real", createdAt: "2026-08-04T10:00:00Z", updatedAt: "2026-08-04T10:00:00Z" },
       { id: "incident-training", operationalId: "SES-TR", mode: "TRAINING", status: "Active", eventType: "Training", createdAt: "2026-08-04T10:00:00Z", updatedAt: "2026-08-04T10:00:00Z" }
     ];

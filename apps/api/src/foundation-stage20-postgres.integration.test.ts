@@ -27,8 +27,8 @@ postgresDescribe("Foundation Stage 20 PostgreSQL production composition provenan
     adminId = admin.id;
     incidentId = (await prisma!.session.create({ data: {
       operationalId: `${marker}-SESSION`,
-      mode: "EXERCISE",
-      status: "Active",
+      mode: "REAL",
+      status: "Draft",
       eventType: marker,
       description: "Stage 20 durable provenance sentinel",
       createdById: adminId,
@@ -145,12 +145,11 @@ postgresDescribe("Foundation Stage 20 PostgreSQL production composition provenan
     expect(generation.body).toMatchObject({ id: exportId, incidentId, fileName: `${marker}.csv` });
 
     const injects = await request(createApp()).get("/api/exercise/injects").set(asAdmin).query({ sessionId: incidentId, limit: 50, offset: 0 });
-    expect(injects.status, JSON.stringify(injects.body)).toBe(200);
-    expect(injects.body.data).toEqual(expect.arrayContaining([expect.objectContaining({ id: injectId, text: "Stage 20 durable exercise sentinel" })]));
+    expect(injects.status).toBe(404);
+    expect(await prisma!.exerciseInject.findUnique({ where: { id: injectId } })).toMatchObject({ text: "Stage 20 durable exercise sentinel" });
 
     const readiness = await request(createApp()).get("/api/readiness/summary").set(asAdmin);
-    expect(readiness.status, JSON.stringify(readiness.body)).toBe(200);
-    expect(readiness.body).toHaveProperty("totalMembers");
+    expect(readiness.status).toBe(404);
   }, 30_000);
 
   it("keeps empty durable results honest after database deletion and process reconstruction", async () => {

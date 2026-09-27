@@ -7,7 +7,7 @@ import { createMemoryIncidentRepository } from "./modules/incidents/memory-incid
 
 type Row = Record<string, any>;
 
-const sessionA = { id: "incident-exercise-a", operationalId: "SES-A", mode: "EXERCISE", status: "Active", eventType: "Exercise", createdAt: "2026-08-04T10:00:00Z", updatedAt: "2026-08-04T10:00:00Z" };
+const sessionA = { id: "incident-real-a", operationalId: "SES-A", mode: "REAL", status: "Draft", eventType: "Aircraft accident", createdAt: "2026-08-04T10:00:00Z", updatedAt: "2026-08-04T10:00:00Z" };
 const sessionB = { id: "incident-real-b", operationalId: "SES-B", mode: "REAL", status: "Active", eventType: "Real", createdAt: "2026-08-04T10:00:00Z", updatedAt: "2026-08-04T10:00:00Z" };
 
 function enquiry(id: string, sessionId: string, callerName: string) {

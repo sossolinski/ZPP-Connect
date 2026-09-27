@@ -10,7 +10,7 @@ const apiUrl = process.env.PLAYWRIGHT_API_URL ?? `http://127.0.0.1:${Number(proc
 const headers = { "x-user-email": "coordinator@lot.pl" };
 let coordinatorId: string;
 async function incident(suffix: string, status = "Closed") {
-  const s = await db.session.create({ data: { operationalId: marker + "-" + suffix, mode: "EXERCISE", status, eventType: "Exercise", createdById: coordinatorId } });
+  const s = await db.session.create({ data: { operationalId: marker + "-" + suffix, mode: "REAL", status, eventType: "Aircraft accident", createdById: coordinatorId } });
   await db.incidentAssignment.create({ data: { incidentId: s.id, userId: coordinatorId, function: "AAR browser", createdById: coordinatorId } });
   return s;
 }
@@ -105,27 +105,33 @@ test("preserves unsaved input on navigation, stale, validation and server errors
 test("pages historical Sessions independently, excludes Active and reads Archived history", async ({ page }) => {
   test.setTimeout(60000);
   for (let i = 0; i < 22; i++) await incident("PAGING-" + String(i).padStart(2, "0"));
+  const priorActive = await db.session.findMany({ where: { mode: "REAL", status: "Active" }, select: { id: true } });
+  await db.session.updateMany({ where: { id: { in: priorActive.map(({ id }) => id) } }, data: { status: "Draft" } });
   const archived = await incident("PAGING-ARCHIVED", "Closed"), active = await incident("PAGING-ACTIVE", "Active");
-  const create = await page.request.post(apiUrl + "/after-action-reports", { headers, data: { sessionId: archived.id, title: "Historical Draft", operationId: randomUUID() } });
-  expect(create.status()).toBe(201);
-  await db.session.update({ where: { id: archived.id }, data: { status: "Archived" } });
-  await login(page, "coordinator@lot.pl"); await page.goto("/reports/after-action");
-  const globalBefore = await page.evaluate(() => localStorage.getItem("zpp:activeSessionId"));
-  await page.getByLabel("Search report Sessions").fill(marker + "-PAGING");
-  const selector = page.getByLabel("Report Session", { exact: true });
-  await expect(selector.locator("option")).toHaveCount(21);
-  await expect(selector.locator("option", { hasText: active.operationalId })).toHaveCount(0);
-  await page.getByRole("button", { name: "Next Sessions" }).click();
-  await expect(selector.locator("option")).toHaveCount(3);
-  await page.getByLabel("Report Session status").selectOption("Archived");
-  await expect(selector.locator("option")).toHaveCount(2);
-  await selector.selectOption(archived.id);
-  await expect(page.getByLabel("Report title")).toHaveValue("Historical Draft");
-  await expect(page.getByLabel("Report title")).toBeDisabled();
-  await expect(page.getByRole("button", { name: "Create report", exact: true })).toHaveCount(0);
-  await expect(page.getByRole("button", { name: "Save draft" })).toHaveCount(0);
-  expect(await page.evaluate(() => localStorage.getItem("zpp:activeSessionId"))).toBe(globalBefore);
-  await db.session.update({ where: { id: active.id }, data: { status: "Closed" } });
+  try {
+    const create = await page.request.post(apiUrl + "/after-action-reports", { headers, data: { sessionId: archived.id, title: "Historical Draft", operationId: randomUUID() } });
+    expect(create.status()).toBe(201);
+    await db.session.update({ where: { id: archived.id }, data: { status: "Archived" } });
+    await login(page, "coordinator@lot.pl"); await page.goto("/reports/after-action");
+    const globalBefore = await page.evaluate(() => localStorage.getItem("zpp:activeSessionId"));
+    await page.getByLabel("Search report Sessions").fill(marker + "-PAGING");
+    const selector = page.getByLabel("Report Session", { exact: true });
+    await expect(selector.locator("option")).toHaveCount(21);
+    await expect(selector.locator("option", { hasText: active.operationalId })).toHaveCount(0);
+    await page.getByRole("button", { name: "Next Sessions" }).click();
+    await expect(selector.locator("option")).toHaveCount(3);
+    await page.getByLabel("Report Session status").selectOption("Archived");
+    await expect(selector.locator("option")).toHaveCount(2);
+    await selector.selectOption(archived.id);
+    await expect(page.getByLabel("Report title")).toHaveValue("Historical Draft");
+    await expect(page.getByLabel("Report title")).toBeDisabled();
+    await expect(page.getByRole("button", { name: "Create report", exact: true })).toHaveCount(0);
+    await expect(page.getByRole("button", { name: "Save draft" })).toHaveCount(0);
+    expect(await page.evaluate(() => localStorage.getItem("zpp:activeSessionId"))).toBe(globalBefore);
+  } finally {
+    await db.session.update({ where: { id: active.id }, data: { status: "Closed" } });
+    await db.session.updateMany({ where: { id: { in: priorActive.map(({ id }) => id) } }, data: { status: "Active" } });
+  }
 });
 
 test("hides AAR workflow and rejects direct API access for denied role", async ({ page }) => {

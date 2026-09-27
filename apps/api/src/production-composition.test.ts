@@ -1,13 +1,13 @@
 import { describe, expect, it } from "vitest";
 import { createApp } from "./app.js";
 import { createDemoRouter } from "./demo-router.js";
-import { createPrismaReadinessProjectionService } from "./modules/readiness/prisma-readiness-service.js";
+import { createPrismaDictionaryService } from "./modules/configuration/prisma-dictionary-service.js";
 import { prisma } from "./prisma.js";
 import type { ProductionRouteClaim } from "./routes/production-route-registry.js";
 
 function productionApp() {
   return createApp({
-    readinessService: createPrismaReadinessProjectionService(prisma),
+    dictionaryService: createPrismaDictionaryService(prisma),
     skipRuntimeValidation: true,
   });
 }
@@ -39,8 +39,9 @@ describe("Stage 20 production route ownership", () => {
     expect(owner("GET", "/sessions/:sessionId/briefings/current")).toBe("operational-briefings");
     expect(owner("POST", "/imports/:type")).toBe("imports");
     expect(owner("POST", "/exports/:type")).toBe("exports-reports");
-    expect(owner("POST", "/exercise/injects")).toBe("exercise");
-    expect(owner("GET", "/readiness/summary")).toBe("readiness");
+    expect(owner("POST", "/exercise/injects")).toBeUndefined();
+    expect(owner("GET", "/readiness/summary")).toBeUndefined();
+    expect(owner("GET", "/training/courses")).toBeUndefined();
     expect(owner("GET", "/dashboard")).toBe("production-shared");
     expect(owner("GET", "/timeline")).toBe("production-shared");
     expect(owner("GET", "/dictionaries")).toBe("configuration");

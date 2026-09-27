@@ -45,8 +45,8 @@ postgresDescribe("Foundation Stage 15 PostgreSQL Operational Briefings and Activ
 
   const actor = () => ({ id: operator.id, email: operator.email, displayName: "Stage 15 operator", roles: ["stage15-operator"], permissions });
 
-  async function incident(suffix: string, status = "Active") {
-    const row = await prisma!.session.create({ data: { operationalId: `${marker}-${suffix}`, mode: "EXERCISE", status, eventType: marker, createdById: coordinator.id } });
+  async function incident(suffix: string, status = "Draft") {
+    const row = await prisma!.session.create({ data: { operationalId: `${marker}-${suffix}`, mode: "REAL", status: status === "Active" ? "Draft" : status, eventType: marker, createdById: coordinator.id } });
     incidentIds.push(row.id);
     await prisma!.incidentAssignment.createMany({ data: [coordinator.id, operator.id].map((userId) => ({ incidentId: row.id, userId, function: marker, createdById: coordinator.id })) });
     return row;

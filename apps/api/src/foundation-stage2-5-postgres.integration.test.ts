@@ -40,9 +40,9 @@ postgresDescribe("Foundation Stage 2.5 PostgreSQL incident access closure", () =
     viewerId = viewer.id;
 
     const [exercise, real, training] = await Promise.all([
-      prisma!.session.create({ data: { operationalId: `${marker}-EX`, mode: "EXERCISE", status: "Active", eventType: marker, createdById: adminId } }),
+      prisma!.session.create({ data: { operationalId: `${marker}-A`, mode: "REAL", status: "Draft", eventType: marker, createdById: adminId } }),
       prisma!.session.create({ data: { operationalId: `${marker}-REAL`, mode: "REAL", status: "Draft", eventType: marker, createdById: adminId } }),
-      prisma!.session.create({ data: { operationalId: `${marker}-TR`, mode: "TRAINING", status: "Active", eventType: marker, createdById: adminId } })
+      prisma!.session.create({ data: { operationalId: `${marker}-B`, mode: "REAL", status: "Draft", eventType: marker, createdById: adminId } })
     ]);
     exerciseId = exercise.id;
     realId = real.id;
@@ -197,9 +197,9 @@ postgresDescribe("Foundation Stage 2.5 PostgreSQL incident access closure", () =
   it("creates the incident, creator assignment and both audit records atomically", async () => {
     const api = app();
     const created = await request(api).post("/api/sessions").set(as("coordinator@lot.pl")).send({
-      mode: "TRAINING",
+      mode: "REAL",
       status: "Draft",
-      eventType: "Training session",
+      eventType: "Aircraft accident",
       flightNumber: `${marker}-CREATOR`
     });
     expect(created.status).toBe(201);

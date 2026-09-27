@@ -46,7 +46,7 @@ postgresDescribe("Foundation Stage 13 PostgreSQL Notifications delivery integrit
   }
 
   function application() {
-    return createSharedApp({ notificationRepository: repository, trainingClock: clock, documentClock: clock });
+    return createSharedApp({ notificationRepository: repository, documentClock: clock });
   }
 
   async function createOutbox(values: Record<string, unknown> = {}) {
@@ -67,7 +67,7 @@ postgresDescribe("Foundation Stage 13 PostgreSQL Notifications delivery integrit
     await prisma!.notification.deleteMany();
     await prisma!.notificationOutbox.deleteMany();
     admin = await prisma!.user.findUniqueOrThrow({ where: { email: "admin@lot.pl" }, select: { id: true, email: true } });
-    const incident = await prisma!.session.create({ data: { operationalId: `${marker}-INCIDENT`, mode: "EXERCISE", status: "Active", eventType: marker, createdById: admin.id } });
+    const incident = await prisma!.session.create({ data: { operationalId: `${marker}-INCIDENT`, mode: "REAL", status: "Draft", eventType: marker, createdById: admin.id } });
     incidentId = incident.id;
     for (const key of ["manager", "a", "b", "inactive"]) {
       const role = await prisma!.role.create({ data: { name: `${marker.toLowerCase()}-${key}`, displayName: `${marker} ${key}`, permissions: key === "manager" ? ["session:read", "assignment:read", "assignment:create", "assignment:update", "assignment:assign", "admin:manage"] : ["session:read", "assignment:read", "assignment:update"] } });
@@ -100,7 +100,7 @@ postgresDescribe("Foundation Stage 13 PostgreSQL Notifications delivery integrit
   });
 
   it("deploys the Stage 13 schema, exact Prisma seed, constraints, trigger and indexes", async () => {
-    expect(seedSnapshot).toEqual({ notifications: 3, migration: 1 });
+    expect(seedSnapshot).toEqual({ notifications: 2, migration: 1 });
     const constraints = await prisma!.$queryRaw<Array<{ name: string }>>`SELECT conname AS name FROM pg_constraint WHERE conname IN ('Notification_kind_check', 'Notification_mode_check', 'Notification_condition_shape_check', 'Notification_version_check', 'Notification_action_destination_check', 'NotificationOutbox_status_check', 'NotificationOutbox_attempt_check')`;
     expect(constraints).toHaveLength(7);
     const indexes = await prisma!.$queryRaw<Array<{ indexname: string }>>`SELECT indexname FROM pg_indexes WHERE indexname IN ('Notification_recipientUserId_deduplicationKey_key', 'Notification_recipientUserId_createdAt_idx', 'Notification_recipientUserId_readAt_createdAt_idx', 'Notification_recipientUserId_resolvedAt_createdAt_idx', 'Notification_recipientUserId_category_idx', 'Notification_sessionId_recipientUserId_idx', 'NotificationOutbox_status_availableAt_createdAt_idx', 'NotificationOutbox_leaseUntil_status_idx', 'NotificationOutbox_aggregateType_aggregateId_status_idx')`;
@@ -167,18 +167,18 @@ postgresDescribe("Foundation Stage 13 PostgreSQL Notifications delivery integrit
     expect((await repository.deliveryHealth(now)).failed).toBeGreaterThanOrEqual(1);
   });
 
-  it("waits for a real linked active user instead of fabricating a training recipient", async () => {
+  it("retires queued Training intents without fabricating a recipient or notification", async () => {
     const memberId = `${marker.toLowerCase()}-unlinked-member`;
     await prisma!.memberProfile.create({ data: { id: memberId, memberId: `${marker}-UNLINKED`, firstName: "Pending", lastName: "Identity", pool: "ZPP", role: "Member", assignedFunction: marker, languages: ["PL"], createdById: admin.id, updatedById: admin.id } });
     const outbox = await createOutbox({ eventType: "TRAINING_ASSIGNED", aggregateType: "trainingRecord", recipientUserId: null, sessionId: null, payload: { memberProfileId: memberId, operationalId: `${marker}-TRAINING`, occurredAt: now.toISOString() } });
     const dispatcher = createNotificationDispatcher(prisma!, repository, { clock, workerId: `${marker}-link` });
     await dispatcher.runOnce();
-    expect(await prisma!.notificationOutbox.findUnique({ where: { id: outbox.id } })).toMatchObject({ status: "PENDING", attemptCount: 0 });
+    expect(await prisma!.notificationOutbox.findUnique({ where: { id: outbox.id } })).toMatchObject({ status: "DELIVERED", attemptCount: 1 });
     expect(await prisma!.notification.count({ where: { sourceId: outbox.aggregateId } })).toBe(0);
     await prisma!.memberProfile.update({ where: { id: memberId }, data: { linkedUserId: users.b!.id } });
     now = new Date(now.getTime() + 61_000);
     await dispatcher.runOnce();
-    expect(await prisma!.notification.count({ where: { sourceId: outbox.aggregateId, recipientUserId: users.b!.id } })).toBe(1);
+    expect(await prisma!.notification.count({ where: { sourceId: outbox.aggregateId, recipientUserId: users.b!.id } })).toBe(0);
     await prisma!.memberProfile.delete({ where: { id: memberId } });
   });
 
@@ -221,7 +221,7 @@ postgresDescribe("Foundation Stage 13 PostgreSQL Notifications delivery integrit
     assignmentIds.push(second.body.id);
     const emptyTraining = { evaluateMemberCompliance: async () => null } as any;
     const emptyDocuments = { evaluateMemberCompliance: async () => null } as any;
-    const projector = createNotificationProjector(prisma!, repository, { training: emptyTraining, documents: emptyDocuments, clock });
+    const projector = createNotificationProjector(prisma!, repository, { documents: emptyDocuments, clock });
     await projector.runOnce();
     const reassigned = await request(app).post(`/api/assignments/${second.body.id}/reassign`).set(as(users.manager!.email)).send({ sessionId: incidentId, expectedVersion: assignedSecond.body.version, assignedUserId: users.b!.id, operationId: randomUUID(), reason: "Controlled handover" });
     expect(reassigned.status).toBe(200);
@@ -273,7 +273,7 @@ postgresDescribe("Foundation Stage 13 PostgreSQL Notifications delivery integrit
     await prisma!.documentRequirement.update({ where: { id: requirementId }, data: { active: true, endedAt: null, endedById: null } });
     const documentRepository = createPrismaDocumentRepository(prisma!, clock);
     const emptyTraining = { evaluateMemberCompliance: async () => null } as any;
-    const projector = createNotificationProjector(prisma!, repository, { training: emptyTraining, documents: documentRepository, clock });
+    const projector = createNotificationProjector(prisma!, repository, { documents: documentRepository, clock });
     await projector.runOnce();
     const conditionKey = `condition:documentVersion:${versionId}:document:${users.b!.id}`;
     expect(await prisma!.notification.findUniqueOrThrow({ where: { recipientUserId_deduplicationKey: { recipientUserId: users.b!.id, deduplicationKey: conditionKey } } })).toMatchObject({ resolvedAt: null });
@@ -356,7 +356,7 @@ postgresDescribe("Foundation Stage 13 PostgreSQL Notifications delivery integrit
     assignmentIds.push(...created.map(({ id }) => id));
     const emptyTraining = { evaluateMemberCompliance: async () => null } as any;
     const emptyDocuments = { evaluateMemberCompliance: async () => null } as any;
-    const projector = createNotificationProjector(prisma!, repository, { training: emptyTraining, documents: emptyDocuments, clock, batchSize: 113, maxRows: 2000 });
+    const projector = createNotificationProjector(prisma!, repository, { documents: emptyDocuments, clock, batchSize: 113, maxRows: 2000 });
     const result = await projector.runOnce();
     expect(result.assignment.seen).toBeGreaterThanOrEqual(1005);
     expect(await prisma!.notification.count({ where: { recipientUserId: users.a!.id, conditionType: "assignment", sourceId: { in: created.map(({ id }) => id) }, resolvedAt: null } })).toBe(1005);

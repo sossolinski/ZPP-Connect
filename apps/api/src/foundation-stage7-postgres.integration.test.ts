@@ -98,9 +98,9 @@ postgresDescribe("Foundation Stage 7 PostgreSQL Request safety", () => {
     const [exercise, training, closed] = await Promise.all([
       prisma!.session.create({
         data: {
-          operationalId: `${marker}-EX`,
-          mode: "EXERCISE",
-          status: "Active",
+          operationalId: `${marker}-A`,
+          mode: "REAL",
+          status: "Draft",
           eventType: marker,
           createdById: adminId,
         },

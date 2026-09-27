@@ -12,7 +12,7 @@ describe("Stage 22 OpenAPI contract", () => {
     const routes = (app.locals.productionRouteManifest as ProductionRouteClaim[]).filter(r => r.owner === "after-action-reports")
       .map(r => r.method + " " + r.path.replace(/:([a-zA-Z]+)/g, "{$1}")).sort();
     const documented = Object.entries(aarOpenApiPaths).flatMap(([path, methods]) => Object.keys(methods).map(method => method.toUpperCase() + " " + path)).sort();
-    expect(documented).toEqual(routes); expect(routes).toHaveLength(16);
+    expect(documented).toEqual(routes); expect(routes).toHaveLength(15);
     expect(aarOpenApiPaths["/after-action-report-versions/{id}/approve"].post.responses).not.toHaveProperty("201");
     expect(aarOpenApiPaths["/after-action-report-versions/{id}/pdf-artifacts"].post.responses).toHaveProperty("201");
     for (const [path, methods] of Object.entries(aarOpenApiPaths)) for (const op of Object.values(methods)) {
