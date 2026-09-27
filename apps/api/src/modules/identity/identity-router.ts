@@ -147,7 +147,8 @@ async function detailedUser(db: PrismaClient | Tx, id: string) {
 }
 
 function roleResponse(role: Prisma.RoleGetPayload<{ include: { users: true; groupAssignments: true } }>) {
-  return { ...role, assignedUserCount: new Set([...role.users.map((item) => item.userId), ...role.groupAssignments.filter((item) => item.status === "Active").map((item) => item.userId)]).size, capabilityCount: Array.isArray(role.permissions) ? role.permissions.length : 0 };
+  const activePermissions = Array.isArray(role.permissions) ? role.permissions.map(String).filter((item) => item in permissions) : [];
+  return { ...role, permissions: activePermissions, assignedUserCount: new Set([...role.users.map((item) => item.userId), ...role.groupAssignments.filter((item) => item.status === "Active").map((item) => item.userId)]).size, capabilityCount: activePermissions.length };
 }
 
 export function createIdentityRouter(db: PrismaClient) {
@@ -434,14 +435,15 @@ export function createIdentityRouter(db: PrismaClient) {
       const role = await tx.role.findUniqueOrThrow({ where: { id: roleCandidate.id } });
       assertVersion(role.version, req.body?.expectedVersion);
       if (role.protected && (req.body?.name !== undefined || req.body?.permissions !== undefined)) throw new HttpError(409, "Protected role identifiers and capabilities are code-owned.");
-      const capabilityList = (req.body?.permissions === undefined ? (Array.isArray(role.permissions) ? role.permissions.map(String) : []) : [...new Set((req.body.permissions as unknown[]).map(String))]) as string[];
-      if (capabilityList.includes("admin:manage")) throw new HttpError(403, "Custom roles cannot create administrative access.");
-      if (capabilityList.some((item) => !(item in permissions))) throw new HttpError(400, "Capabilities must use the existing catalogue.");
-      const result = await tx.role.update({ where: { id: role.id }, data: { displayName: role.protected ? role.displayName : text(req.body?.displayName) || role.displayName, description: text(req.body?.description ?? role.description) || null, permissions: role.protected ? role.permissions as Prisma.InputJsonValue : capabilityList, updatedById: actor(req).id, version: { increment: 1 } } });
+      const requestedPermissions = req.body?.permissions === undefined ? undefined : [...new Set((req.body.permissions as unknown[]).map(String))] as string[];
+      if (requestedPermissions?.includes("admin:manage")) throw new HttpError(403, "Custom roles cannot create administrative access.");
+      if (requestedPermissions?.some((item) => !(item in permissions))) throw new HttpError(400, "Capabilities must use the existing catalogue.");
+      const result = await tx.role.update({ where: { id: role.id }, data: { displayName: role.protected ? role.displayName : text(req.body?.displayName) || role.displayName, description: text(req.body?.description ?? role.description) || null, permissions: role.protected || requestedPermissions === undefined ? role.permissions as Prisma.InputJsonValue : requestedPermissions, updatedById: actor(req).id, version: { increment: 1 } } });
       await audit(tx, req, "role_updated", "role", role.id, "Role updated", { roleId: role.id, previousVersion: role.version, nextVersion: result.version });
       return result;
     });
-    res.json({ ...updated, capabilityCount: Array.isArray(updated.permissions) ? updated.permissions.length : 0 });
+    const activePermissions = Array.isArray(updated.permissions) ? updated.permissions.map(String).filter((item) => item in permissions) : [];
+    res.json({ ...updated, permissions: activePermissions, capabilityCount: activePermissions.length });
   }));
   router.post("/admin/roles/:roleId/archive", asyncHandler(async (req, res) => {
     const roleId = param(req, "roleId");

@@ -1,6 +1,6 @@
 import type { NotificationInput } from "./notification-types.js";
 
-const allowedRoutes = new Set(["/active-event", "/sessions", "/assignments", "/rostering", "/training", "/documents", "/settings"]);
+const allowedRoutes = new Set(["/active-event", "/sessions", "/assignments", "/rostering", "/documents", "/settings"]);
 const forbiddenCopy = /password|token|secret|passport|date of birth|phone|email address|medical|identity document|\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b|\+\d[\d\s().-]{7,}\d|\b\d{9,15}\b|(?<![-A-Z])\d{3}-\d{3}-\d{3}(?![-A-Z])/i;
 
 function safeText(value: string, label: string, max: number) {

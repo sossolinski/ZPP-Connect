@@ -118,15 +118,6 @@ export const permissions = {
   "availability:update-own": "Update own availability",
   "availability:read-all": "Read all availability",
   "availability:manage-all": "Manage all availability",
-  "training:read-own": "Read own training",
-  "training:read-all": "Read all training",
-  "training:course:manage": "Manage training courses",
-  "training:requirement:manage": "Manage training requirements",
-  "training:assign": "Assign training",
-  "training:complete-own": "Complete own training",
-  "training:complete-all": "Record training completion",
-  "training:verify": "Verify training completion",
-  "training:waive": "Waive training requirements",
   "document:read-own": "Read own required documents",
   "document:read-all": "Read document library and compliance records",
   "document:manage": "Manage documents",
@@ -136,12 +127,6 @@ export const permissions = {
   "document:acknowledge-own": "Acknowledge own documents",
   "document:acknowledge-all": "Record document acknowledgements",
   "document:audit:read": "Read document acknowledgement audit",
-  "readiness:read-own": "Read own readiness",
-  "readiness:read-group": "Read group readiness",
-  "readiness:read-all": "Read all readiness",
-  "readiness:read-summary": "Read readiness summary",
-  "readiness:policy:read": "Read readiness policy",
-  "readiness:policy:manage": "Manage readiness policy",
   "briefing:read": "Read current operational briefing",
   "briefing:read-history": "Read briefing revision history",
   "briefing:create-draft": "Create briefing drafts",
@@ -153,7 +138,6 @@ export const permissions = {
   "audit:read": "Read audit log",
   "import:create": "Import data",
   "export:create": "Export data",
-  "exercise:manage": "Manage exercise injects and observations",
   "reports:read": "Read reports",
   "aar:read": "Read After Action Reports",
   "aar:create": "Create After Action Reports and revisions",
@@ -165,7 +149,17 @@ export const permissions = {
   "admin:manage": "Manage organizations, users, roles, dictionaries and profile"
 } as const;
 
-export type Permission = keyof typeof permissions;
+/** Historical domain permissions remain a storage/compatibility vocabulary only.
+ * They are deliberately absent from `permissions`, so they cannot be granted or
+ * become effective through the active product catalogue. */
+export type LegacyDomainPermission =
+  | "training:read-own" | "training:read-all" | "training:course:manage"
+  | "training:requirement:manage" | "training:assign" | "training:complete-own"
+  | "training:complete-all" | "training:verify" | "training:waive"
+  | "readiness:read-own" | "readiness:read-group" | "readiness:read-all"
+  | "readiness:read-summary" | "readiness:policy:read" | "readiness:policy:manage"
+  | "exercise:manage";
+export type Permission = keyof typeof permissions | LegacyDomainPermission;
 
 export type RoleScopeType = "GLOBAL" | "GROUP";
 export type RolePool = "ZPP" | "TEC" | "ALL";
@@ -212,8 +206,6 @@ export const defaultRoles: Array<{
       "session:read",
       "incident:members:read",
       "incident:members:manage",
-      "readiness:policy:read",
-      "readiness:policy:manage",
       "document:audit:read",
       "audit:read",
       "reports:read",
@@ -226,7 +218,7 @@ export const defaultRoles: Array<{
   {
     name: "zpp-coordinator",
     displayName: "ZPP Coordinator",
-    description: "Global ZPP operational coordination, controlled disclosure workflows, readiness and handover oversight.",
+    description: "Global ZPP operational coordination, controlled disclosure workflows and handover oversight.",
     permissions: [
       "session:read",
       "session:create",
@@ -292,15 +284,6 @@ export const defaultRoles: Array<{
       "availability:update-own",
       "availability:read-all",
       "availability:manage-all",
-      "training:read-own",
-      "training:read-all",
-      "training:course:manage",
-      "training:requirement:manage",
-      "training:assign",
-      "training:complete-own",
-      "training:complete-all",
-      "training:verify",
-      "training:waive",
       "document:read-own",
       "document:read-all",
       "document:manage",
@@ -310,11 +293,6 @@ export const defaultRoles: Array<{
       "document:acknowledge-own",
       "document:acknowledge-all",
       "document:audit:read",
-      "readiness:read-own",
-      "readiness:read-group",
-      "readiness:read-all",
-      "readiness:read-summary",
-      "readiness:policy:read",
       "briefing:read",
       "briefing:read-history",
       "briefing:create-draft",
@@ -326,7 +304,6 @@ export const defaultRoles: Array<{
       "audit:read",
       "import:create",
       "export:create",
-      "exercise:manage",
       "aar:read", "aar:create", "aar:update-draft", "aar:review", "aar:approve", "aar:archive", "aar:pdf:generate",
       "reports:read"
     ],
@@ -337,7 +314,7 @@ export const defaultRoles: Array<{
   {
     name: "tec-coordinator",
     displayName: "TEC Coordinator",
-    description: "Global TEC coordination for call intake, enquiry handover, TEC staffing and readiness oversight.",
+    description: "Global TEC coordination for call intake, enquiry handover and TEC staffing oversight.",
     permissions: [
       "session:read",
       "session:create",
@@ -383,22 +360,11 @@ export const defaultRoles: Array<{
       "availability:update-own",
       "availability:read-all",
       "availability:manage-all",
-      "training:read-own",
-      "training:read-all",
-      "training:requirement:manage",
-      "training:assign",
-      "training:complete-own",
-      "training:complete-all",
-      "training:verify",
       "document:read-own",
       "document:read-all",
       "document:requirement:manage",
       "document:acknowledge-own",
       "document:acknowledge-all",
-      "readiness:read-own",
-      "readiness:read-group",
-      "readiness:read-summary",
-      "readiness:policy:read",
       "briefing:read",
       "briefing:read-history",
       "briefing:create-draft",
@@ -409,7 +375,6 @@ export const defaultRoles: Array<{
       "timeline:create",
       "import:create",
       "export:create",
-      "exercise:manage",
       "aar:read", "aar:create", "aar:update-draft", "aar:review", "aar:approve", "aar:archive", "aar:pdf:generate",
       "reports:read"
     ],
@@ -447,22 +412,11 @@ export const defaultRoles: Array<{
       "availability:update-own",
       "availability:read-all",
       "availability:manage-all",
-      "training:read-own",
-      "training:read-all",
-      "training:requirement:manage",
-      "training:assign",
-      "training:complete-own",
-      "training:complete-all",
-      "training:verify",
       "document:read-own",
       "document:read-all",
       "document:requirement:manage",
       "document:acknowledge-own",
       "document:acknowledge-all",
-      "readiness:read-own",
-      "readiness:read-group",
-      "readiness:read-summary",
-      "readiness:policy:read",
       "briefing:read",
       "briefing:read-history"
     ],
@@ -500,22 +454,11 @@ export const defaultRoles: Array<{
       "availability:update-own",
       "availability:read-all",
       "availability:manage-all",
-      "training:read-own",
-      "training:read-all",
-      "training:requirement:manage",
-      "training:assign",
-      "training:complete-own",
-      "training:complete-all",
-      "training:verify",
       "document:read-own",
       "document:read-all",
       "document:requirement:manage",
       "document:acknowledge-own",
       "document:acknowledge-all",
-      "readiness:read-own",
-      "readiness:read-group",
-      "readiness:read-summary",
-      "readiness:policy:read",
       "briefing:read",
       "briefing:read-history"
     ],
@@ -526,7 +469,7 @@ export const defaultRoles: Array<{
   {
     name: "zpp-member",
     displayName: "ZPP Member",
-    description: "Works on assigned ZPP tasks, personal availability, training, documents and briefings.",
+    description: "Works on assigned ZPP tasks, personal availability, documents and briefings.",
     permissions: [
       "session:read",
       "member:read",
@@ -536,11 +479,8 @@ export const defaultRoles: Array<{
       "roster:decline-own",
       "availability:read-own",
       "availability:update-own",
-      "training:read-own",
-      "training:complete-own",
       "document:read-own",
       "document:acknowledge-own",
-      "readiness:read-own",
       "briefing:read",
       "assignment:read",
       "assignment:update"
@@ -569,11 +509,8 @@ export const defaultRoles: Array<{
       "roster:decline-own",
       "availability:read-own",
       "availability:update-own",
-      "training:read-own",
-      "training:complete-own",
       "document:read-own",
       "document:acknowledge-own",
-      "readiness:read-own",
       "briefing:read",
       "timeline:read",
       "timeline:create"
@@ -585,13 +522,11 @@ export const defaultRoles: Array<{
   {
     name: "observer",
     displayName: "Observer",
-    description: "Read-only operational overview for observers and training viewers.",
+    description: "Read-only operational overview for observers.",
     permissions: [
       "session:read",
       "roster:read",
-      "training:read-all",
       "document:read-all",
-      "readiness:read-summary",
       "briefing:read"
     ],
     scopeTypes: ["GLOBAL"],
@@ -608,9 +543,7 @@ export const dictionaries = {
     "Serious incident",
     "Airport emergency",
     "Mass disruption",
-    "Passenger/crew welfare event",
-    "Exercise",
-    "Training session"
+    "Passenger/crew welfare event"
   ],
   channels: [
     "Phone",
@@ -740,8 +673,7 @@ export const dictionaries = {
     "Matching",
     "Release Control",
     "Rostering",
-    "Documentation",
-    "Training"
+    "Documentation"
   ],
   exerciseInjectStatuses: ["Planned", "Released", "Completed", "Cancelled"],
   observationAreas: [

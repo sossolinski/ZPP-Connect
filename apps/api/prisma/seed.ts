@@ -20,7 +20,7 @@ const sampleUsers = [
   { email: "tec@lot.pl", displayName: "TEC Member", department: "Telephone Enquiry Centre", organizationKey: "tec" },
   { email: "zpp@lot.pl", displayName: "ZPP Group Leader", department: "Zespół Pomocy Poszkodowanym", organizationKey: "zpp" },
   { email: "volunteer@lot.pl", displayName: "ZPP Member 01", department: "Zespół Pomocy Poszkodowanym", organizationKey: "zpp" },
-  { email: "viewer@lot.pl", displayName: "Observer", department: "Training / observation", organizationKey: "lot" }
+  { email: "viewer@lot.pl", displayName: "Observer", department: "Operational assurance", organizationKey: "lot" }
 ];
 
 const obsoleteDemoUsers = ["intake@lot.pl", "matching@lot.pl", "logistics@lot.pl"];
@@ -144,11 +144,11 @@ async function seedMemberDirectory(input: {
     ["mem-2026-000010", "ZPP-255", null, "Krzysztof", "Szymanski", "ZPP", "Logistics Support", "Logistics Support", "krzysztof.szymanski@lot.pl", "+48 600 100 255", ["PL", "EN", "FR"], "Today 14:00-22:00", "Restricted", "Confirmed", "Leader Delta"],
   ] as const;
 
-  for (const [id, memberId, linkedUserId, firstName, lastName, pool, role, assignedFunction, contactEmail, phone, languages, legacyAvailability, legacyTrainingStatus, legacyRosterStatus, legacyAssignedLeader] of members) {
+  for (const [id, memberId, linkedUserId, firstName, lastName, pool, role, assignedFunction, contactEmail, phone, languages, legacyAvailability, _legacyTrainingStatus, legacyRosterStatus, legacyAssignedLeader] of members) {
     await prisma.memberProfile.upsert({
       where: { id },
-      update: { memberId, linkedUserId, firstName, lastName, pool, role, assignedFunction, contactEmail, normalizedContactEmail: contactEmail.toLowerCase(), phone, languages: [...languages], legacyAvailability, legacyTrainingStatus, legacyRosterStatus, legacyAssignedLeader },
-      create: { id, memberId, linkedUserId, firstName, lastName, pool, role, assignedFunction, contactEmail, normalizedContactEmail: contactEmail.toLowerCase(), phone, languages: [...languages], legacyAvailability, legacyTrainingStatus, legacyRosterStatus, legacyAssignedLeader, createdAt: timestamp, updatedAt: timestamp, createdById: input.adminId, updatedById: input.adminId }
+      update: { memberId, linkedUserId, firstName, lastName, pool, role, assignedFunction, contactEmail, normalizedContactEmail: contactEmail.toLowerCase(), phone, languages: [...languages], legacyAvailability, legacyRosterStatus, legacyAssignedLeader },
+      create: { id, memberId, linkedUserId, firstName, lastName, pool, role, assignedFunction, contactEmail, normalizedContactEmail: contactEmail.toLowerCase(), phone, languages: [...languages], legacyAvailability, legacyTrainingStatus: null, legacyRosterStatus, legacyAssignedLeader, createdAt: timestamp, updatedAt: timestamp, createdById: input.adminId, updatedById: input.adminId }
     });
   }
 
@@ -199,103 +199,6 @@ async function seedMemberDirectory(input: {
   await prisma.$executeRawUnsafe(`SELECT setval('"MemberProfile_business_seq"', 255, true)`);
   await prisma.$executeRawUnsafe(`SELECT setval('"OperationalGroup_id_seq"', 4, true)`);
   await prisma.$executeRawUnsafe(`SELECT setval('"GroupMembership_id_seq"', 12, true)`);
-}
-
-async function seedTraining(input: { adminId: string; coordinatorId: string; zppId: string }) {
-  const timestamp = new Date("2026-07-09T09:00:00.000Z");
-  const courses = [
-    ["crs-2026-000001", "ERP-FAM", "ERP Familiarization", "Core briefing for working inside the active response structure.", "Core", "Briefing", 24, true, true, null],
-    ["crs-2026-000002", "FAC-BASICS", "Family Assistance Basics", "Practical expectations for family support work and handover.", "Family Assistance", "Classroom", 12, true, false, null],
-    ["crs-2026-000003", "PFA-AWARE", "Psychological First Aid Awareness", "Recognition, boundaries and escalation for welfare support.", "Welfare", "E-learning", 12, true, true, null],
-    ["crs-2026-000004", "TEC-PROC", "Telephone Enquiry Center Procedures", "Call handling, status boundaries and escalation practice for TEC work.", "TEC", "Practical", 6, true, true, null],
-    ["crs-2026-000005", "DATA-CRISIS", "Data Protection for Crisis Response", "Sensitive information handling for crisis response records.", "Data Protection", "E-learning", 12, true, true, null],
-    ["crs-2026-000006", "ROLE-CARD", "Role Card Briefing", "Historical role-card briefing retained for previous completion records.", "Coordination", "Briefing", 12, false, false, "2026-07-10T12:00:00.000Z"],
-  ] as const;
-  for (const [id, code, title, description, category, deliveryType, validityMonths, active, selfCompletable, deactivatedAt] of courses) {
-    const data = {
-      code,
-      normalizedCode: code,
-      title,
-      description,
-      category,
-      deliveryType,
-      validityMonths,
-      active,
-      selfCompletable,
-      deactivatedAt: deactivatedAt ? new Date(deactivatedAt) : null,
-      legacyImported: true,
-      legacyMetadata: { provenance: "memory-seed" },
-      createdAt: timestamp,
-      updatedAt: timestamp,
-      createdById: input.adminId,
-      updatedById: input.adminId,
-    };
-    await prisma.trainingCourse.upsert({ where: { id }, update: data, create: { id, ...data } });
-  }
-
-  const requirements = [
-    ["trq-2026-000001", "crs-2026-000005", "Role", "ZPP Member", null, null, "Required", "2026-07-25T12:00:00.000Z"],
-    ["trq-2026-000002", "crs-2026-000002", "Group", null, "grp-2026-000001", null, "Required", "2026-07-20T12:00:00.000Z"],
-    ["trq-2026-000003", "crs-2026-000004", "MemberProfile", null, null, "mem-2026-000002", "Required", "2026-07-08T12:00:00.000Z"],
-    ["trq-2026-000004", "crs-2026-000001", "Role", "ZPP Member", null, null, "Recommended", "2026-08-01T12:00:00.000Z"],
-  ] as const;
-  for (const [id, courseId, targetType, targetRole, groupId, memberProfileId, requiredStatus, dueAt] of requirements) {
-    const data = {
-      courseId,
-      targetType,
-      targetRole,
-      groupId,
-      memberProfileId,
-      requiredStatus,
-      dueAt: new Date(dueAt),
-      effectiveFrom: new Date("2026-07-09T00:00:00.000Z"),
-      active: true,
-      provenance: { source: "memory-seed", actorEvidenceAvailable: false },
-      createdAt: timestamp,
-      updatedAt: timestamp,
-      createdById: input.adminId,
-      updatedById: input.adminId,
-    };
-    await prisma.trainingRequirement.upsert({ where: { id }, update: data, create: { id, ...data } });
-  }
-
-  const records = [
-    ["trn-2026-000001", "TRN-2026-000001", "mem-2026-000008", "crs-2026-000005", "trq-2026-000001", "2026-07-10T08:00:00.000Z", "2026-07-20T12:00:00.000Z", "Assigned", null, null, null, null, null],
-    ["trn-2026-000002", "TRN-2026-000002", "mem-2026-000008", "crs-2026-000001", null, "2026-06-15T08:00:00.000Z", "2026-08-01T12:00:00.000Z", "Completed", "2026-07-01T10:00:00.000Z", "2028-07-01T10:00:00.000Z", "Completed during response familiarization.", input.zppId, "2026-07-01T11:00:00.000Z"],
-    ["trn-2026-000003", "TRN-2026-000003", "mem-2026-000003", "crs-2026-000002", "trq-2026-000002", "2026-07-09T08:00:00.000Z", "2026-07-20T12:00:00.000Z", "In Progress", null, null, null, null, null],
-    ["trn-2026-000004", "TRN-2026-000004", "mem-2026-000002", "crs-2026-000004", "trq-2026-000003", "2026-07-05T08:00:00.000Z", "2026-07-08T12:00:00.000Z", "Assigned", null, null, null, null, null],
-    ["trn-2026-000005", "TRN-2026-000005", "mem-2026-000001", "crs-2026-000005", "trq-2026-000001", "2025-07-01T08:00:00.000Z", "2025-08-01T12:00:00.000Z", "Completed", "2025-08-01T09:00:00.000Z", "2026-08-01T09:00:00.000Z", "Annual refresher completed.", input.adminId, "2025-08-01T10:00:00.000Z"],
-    ["trn-2026-000006", "TRN-2026-000006", "mem-2026-000005", "crs-2026-000003", null, "2025-05-01T08:00:00.000Z", "2025-06-01T12:00:00.000Z", "Completed", "2025-06-01T09:00:00.000Z", "2026-06-01T09:00:00.000Z", "Previous welfare support course.", null, null],
-  ] as const;
-  for (const [id, operationalId, memberProfileId, courseId, sourceRequirementId, assignedAt, dueAt, status, completedAt, expiryAt, completionNote, verifiedById, verifiedAt] of records) {
-    const data = {
-      operationalId,
-      memberProfileId,
-      courseId,
-      sourceRequirementId,
-      assignedAt: new Date(assignedAt),
-      assignedById: input.coordinatorId,
-      dueAt: new Date(dueAt),
-      status,
-      completedAt: completedAt ? new Date(completedAt) : null,
-      expiryAt: expiryAt ? new Date(expiryAt) : null,
-      completionNote,
-      verifiedById,
-      verifiedAt: verifiedAt ? new Date(verifiedAt) : null,
-      legacyImported: true,
-      legacyMetadata: { provenance: "memory-seed", completionActorAvailable: false, startActorAvailable: false },
-      provenance: { source: "memory-seed" },
-      createdAt: timestamp,
-      updatedAt: timestamp,
-      createdById: input.coordinatorId,
-      updatedById: input.coordinatorId,
-    };
-    await prisma.memberTrainingRecord.upsert({ where: { id }, update: data, create: { id, ...data } });
-  }
-
-  await prisma.$queryRaw`SELECT setval('"TrainingCourse_id_seq"', GREATEST(COALESCE((SELECT MAX(substring("id" FROM '([0-9]+)$')::BIGINT) FROM "TrainingCourse"), 0) + 1, 1), false)`;
-  await prisma.$queryRaw`SELECT setval('"TrainingRequirement_id_seq"', GREATEST(COALESCE((SELECT MAX(substring("id" FROM '([0-9]+)$')::BIGINT) FROM "TrainingRequirement"), 0) + 1, 1), false)`;
-  await prisma.$queryRaw`SELECT setval('"MemberTrainingRecord_id_seq"', GREATEST(COALESCE((SELECT MAX(substring("id" FROM '([0-9]+)$')::BIGINT) FROM "MemberTrainingRecord"), 0) + 1, 1), false)`;
 }
 
 async function seedDocuments(input: { adminId: string; zppId: string }) {
@@ -381,17 +284,17 @@ async function seedOperationalData() {
     update: {},
     create: {
       operationalId: "SES-2026-001",
-      mode: "EXERCISE",
+      mode: "REAL",
       status: "Active",
-      eventType: "Exercise",
+      eventType: "Aircraft accident",
       flightNumber: "LO3924",
       route: "KRK-WAW",
       aircraftRegistration: "SP-LRA",
       airportLocation: "Warsaw Chopin Airport",
-      description: "ZPP tabletop exercise for family assistance, matching and reunification workflows.",
+      description: "ZPP operational response for family assistance, matching and reunification workflows.",
       startAt: new Date("2026-06-21T08:00:00.000Z"),
       createdById: coordinator.id,
-      notes: "Seed exercise session. All records are simulated and must remain separated from real activations."
+      notes: "Seed operational incident used for local development."
     }
   });
 
@@ -405,7 +308,7 @@ async function seedOperationalData() {
       create: {
         incidentId: session.id,
         userId: user.id,
-        function: "Seed exercise access",
+        function: "Seed operational access",
         scope: "OPERATIONAL",
         createdById: admin.id
       }
@@ -413,12 +316,11 @@ async function seedOperationalData() {
   }
 
   await seedMemberDirectory({ incidentId: session.id, adminId: admin.id, tecId: tec.id, zppId: zpp.id, volunteerId: volunteer.id });
-  await seedTraining({ adminId: admin.id, coordinatorId: coordinator.id, zppId: zpp.id });
   await seedDocuments({ adminId: admin.id, zppId: zpp.id });
 
   const rosterTimestamp = new Date("2026-07-09T09:00:00.000Z");
   const rosterShifts = [
-    ["rst-2026-000001", "RST-001", "grp-2026-000001", "mem-2026-000003", "Family Assistance Centre morning support", "Family support desk", "Family Assistance Team", "2026-07-13T04:00:00.000Z", "2026-07-13T12:00:00.000Z", "Family Assistance Centre", "Published", "Confirm readiness before the morning handover."],
+    ["rst-2026-000001", "RST-001", "grp-2026-000001", "mem-2026-000003", "Family Assistance Centre morning support", "Family support desk", "Family Assistance Team", "2026-07-13T04:00:00.000Z", "2026-07-13T12:00:00.000Z", "Family Assistance Centre", "Published", "Confirm availability before the morning handover."],
     ["rst-2026-000002", "RST-002", "grp-2026-000004", "mem-2026-000008", "Documentation Cell afternoon support", "Record review", "Documentation Support", "2026-07-13T12:00:00.000Z", "2026-07-13T20:00:00.000Z", "Remote support", "Published", "Review assigned notes and confirm availability."],
     ["rst-2026-000003", "RST-003", "grp-2026-000002", "mem-2026-000002", "Telephone Enquiry Center evening supervisor", "TEC supervision", "Telephone Enquiry Center", "2026-07-13T10:00:00.000Z", "2026-07-13T18:00:00.000Z", "Hybrid", "Confirmed", "Supervisor confirmed for the evening handover."],
     ["rst-2026-000004", "RST-004", "grp-2026-000003", "mem-2026-000005", "Welfare Support reserve shift", "Reserve coverage", "Welfare Support", "2026-07-14T06:00:00.000Z", "2026-07-14T14:00:00.000Z", "On-site", "Cancelled", "Cancelled after coverage plan changed."],
@@ -612,7 +514,7 @@ async function seedOperationalData() {
       conditionStatus: "Unknown",
       holdStatus: "Identity verification hold",
       srcConfirmed: false,
-      notes: "Exercise manifest record. No status decision is implied.",
+      notes: "Operational manifest record. No status decision is implied.",
       createdById: coordinator.id,
       updatedById: zpp.id
     }
@@ -643,8 +545,8 @@ async function seedOperationalData() {
       srcConfirmed: true,
       srcConfirmedAt: new Date("2026-06-21T08:30:00.000Z"),
       srcConfirmedById: zpp.id,
-      srcConfirmationBasis: "Seeded SRC confirmation for the exercise scenario.",
-      notes: "Exercise manifest record.",
+      srcConfirmationBasis: "Seeded SRC confirmation for the operational scenario.",
+      notes: "Operational manifest record.",
       createdById: coordinator.id,
       updatedById: zpp.id
     }
@@ -763,7 +665,7 @@ async function seedOperationalData() {
         disclosureApproved: false
       },
       holdCheck: "No hold",
-      decisionNotes: "Suggested by seed data for exercise review.",
+      decisionNotes: "Suggested by seed data for operational review.",
       createdById: zpp.id,
       updatedById: zpp.id
     }
@@ -906,75 +808,6 @@ async function seedOperationalData() {
     )
   `;
 
-  const tecRole = await prisma.role.findUniqueOrThrow({ where: { normalizedName: "tec-member" } });
-  if (!await prisma.exerciseInject.findUnique({ where: { sessionId_injectNumber: { sessionId: session.id, injectNumber: 1 } } })) {
-    await prisma.exerciseInject.create({ data: {
-      operationalId: "INJ-2026-000001",
-      sessionId: session.id,
-      injectNumber: 1,
-      scenarioTime: new Date("2026-06-21T08:15:00.000Z"),
-      targetRoleId: tecRole.id,
-      targetRoleKey: tecRole.normalizedName,
-      targetRole: tecRole.displayName,
-      text: "Caller reports missing contact with a passenger and asks if they are injured.",
-      expectedAction: "Create enquiry, mark urgent welfare if appropriate, do not disclose passenger/casualty status.",
-      status: "Released",
-      version: 2,
-      createdById: coordinator.id,
-      updatedById: coordinator.id,
-      releasedById: coordinator.id,
-      releasedAt: new Date("2026-06-21T08:15:00.000Z")
-    } });
-  }
-
-  if (!await prisma.exerciseObservation.findUnique({ where: { operationalId: "OBS-2026-000001" } })) {
-    await prisma.$transaction(async (tx) => {
-      const observation = await tx.exerciseObservation.create({ data: {
-        operationalId: "OBS-2026-000001",
-        sessionId: session.id,
-        area: "Intake",
-        observation: "Intake correctly recorded the enquiry without confirming passenger or casualty status.",
-        severity: "Low",
-        recommendation: "Continue reinforcing controlled disclosure language.",
-        owner: "Exercise Director",
-        includeInAar: true,
-        status: "Open",
-        version: 1,
-        createdById: coordinator.id,
-        updatedById: coordinator.id
-      } });
-      await tx.exerciseObservationRevision.create({ data: {
-        observationId: observation.id,
-        version: 1,
-        area: observation.area,
-        severity: observation.severity,
-        observation: observation.observation,
-        recommendation: observation.recommendation,
-        owner: observation.owner,
-        includeInAar: observation.includeInAar,
-        status: observation.status,
-        changedFields: ["area", "severity", "observation", "recommendation", "owner", "includeInAar", "status"],
-        changedById: coordinator.id,
-        source: "Seed"
-      } });
-    });
-  }
-
-  await prisma.$queryRaw`
-    SELECT setval(
-      '"ExerciseInject_operational_seq"',
-      GREATEST(COALESCE((SELECT MAX(substring("operationalId" FROM '([0-9]+)$')::BIGINT) FROM "ExerciseInject"), 0) + 1, 1),
-      false
-    )
-  `;
-  await prisma.$queryRaw`
-    SELECT setval(
-      '"ExerciseObservation_operational_seq"',
-      GREATEST(COALESCE((SELECT MAX(substring("operationalId" FROM '([0-9]+)$')::BIGINT) FROM "ExerciseObservation"), 0) + 1, 1),
-      false
-    )
-  `;
-
   const timelineCount = await prisma.caseTimelineEvent.count({ where: { sessionId: session.id } });
   if (timelineCount === 0) {
     await prisma.caseTimelineEvent.createMany({
@@ -1022,7 +855,7 @@ async function seedOperationalData() {
           sessionId: session.id,
           actorId: coordinator.id,
           actorEmail: coordinator.email,
-          summary: "Seed exercise session created."
+          summary: "Seed operational session created."
         },
         {
           action: "create_enquiry",
@@ -1039,7 +872,7 @@ async function seedOperationalData() {
           sessionId: session.id,
           actorId: zpp.id,
           actorEmail: zpp.email,
-          summary: "Seed matching records created for exercise."
+          summary: "Seed matching records created for the incident."
         }
       ]
     });
@@ -1047,10 +880,9 @@ async function seedOperationalData() {
 }
 
 async function seedNotifications() {
-  const [admin, coordinator, volunteer, session] = await Promise.all([
+  const [admin, coordinator, session] = await Promise.all([
     prisma.user.findUniqueOrThrow({ where: { email: "admin@lot.pl" } }),
     prisma.user.findUniqueOrThrow({ where: { email: "coordinator@lot.pl" } }),
-    prisma.user.findUniqueOrThrow({ where: { email: "volunteer@lot.pl" } }),
     prisma.session.findUniqueOrThrow({ where: { operationalId: "SES-2026-001" } }),
   ]);
   const createdAt = new Date("2026-07-09T09:30:00.000Z");
@@ -1060,7 +892,7 @@ async function seedNotifications() {
       {
         id: "13000000-0000-4000-8000-000000000001", recipientUserId: coordinator.id,
         deduplicationKey: "seed:event:session:ses-2026-001:briefing", mode: "EVENT", kind: "Information", severity: "Information", category: "Session",
-        title: "Exercise session available", message: "SES-2026-001 is available for operational review.", sessionId: session.id, sessionLabel: session.operationalId,
+        title: "Operational session available", message: "SES-2026-001 is available for operational review.", sessionId: session.id, sessionLabel: session.operationalId,
         sourceType: "session", sourceId: session.id, sourceLabel: session.operationalId, actionDestination: "/sessions", actionLabel: "Open sessions",
         metadata: { provenance: "prisma-seed" }, createdAt, updatedAt: createdAt,
       },
@@ -1069,12 +901,6 @@ async function seedNotifications() {
         deduplicationKey: "seed:event:access:admin-ready", mode: "EVENT", kind: "Information", severity: "Information", category: "Admin",
         title: "Administration access ready", message: "Your administration workspace is ready for review.", sourceType: "access", sourceId: admin.id, sourceLabel: "Administration",
         actionDestination: "/settings", actionLabel: "Open settings", metadata: { provenance: "prisma-seed" }, createdAt, updatedAt: createdAt,
-      },
-      {
-        id: "13000000-0000-4000-8000-000000000003", recipientUserId: volunteer.id,
-        deduplicationKey: `seed:condition:training:trn-2026-000004:${volunteer.id}`, mode: "CONDITION", kind: "Action required", severity: "Attention", category: "Training",
-        title: "Training overdue", message: "Assigned crisis response training needs attention.", sourceType: "trainingRecord", sourceId: "trn-2026-000004", sourceLabel: "TRN-2026-000004",
-        conditionType: "training", actionDestination: "/training", actionLabel: "Open training", metadata: { condition: true, conditionType: "training", provenance: "prisma-seed" }, createdAt, updatedAt: createdAt,
       },
     ],
   });
@@ -1087,16 +913,17 @@ async function seedOperationalBriefings() {
     prisma.user.findUniqueOrThrow({ where: { email: "admin@lot.pl" } }),
     prisma.session.findUniqueOrThrow({ where: { operationalId: "SES-2026-001" } }),
   ]);
-  const training = await prisma.session.upsert({
+  const historical = await prisma.session.upsert({
     where: { operationalId: "SES-2026-002" },
     update: {},
     create: {
       operationalId: "SES-2026-002",
-      mode: "TRAINING",
-      status: "Active",
-      eventType: "Briefing practice",
-      description: "Training Incident for Operational Briefing revision practice.",
+      mode: "REAL",
+      status: "Closed",
+      eventType: "Airport emergency",
+      description: "Closed operational incident retained for briefing history review.",
       startAt: new Date("2026-06-20T09:00:00.000Z"),
+      endAt: new Date("2026-06-20T12:00:00.000Z"),
       createdById: coordinator.id,
     },
   });
@@ -1116,9 +943,9 @@ async function seedOperationalBriefings() {
   `;
   for (const user of await prisma.user.findMany({ where: { email: { in: sampleUsers.map((item) => item.email) } } })) {
     await prisma.incidentAssignment.upsert({
-      where: { incidentId_userId: { incidentId: training.id, userId: user.id } },
+      where: { incidentId_userId: { incidentId: historical.id, userId: user.id } },
       update: { active: true, revokedAt: null, revokedById: null, revokeReason: null },
-      create: { incidentId: training.id, userId: user.id, function: "Seed briefing training access", scope: "OPERATIONAL", createdById: admin.id },
+      create: { incidentId: historical.id, userId: user.id, function: "Seed historical incident access", scope: "OPERATIONAL", createdById: admin.id },
     });
   }
   const assignments = await prisma.assignmentTask.findMany({
@@ -1135,8 +962,8 @@ async function seedOperationalBriefings() {
         revision: 1,
         status: "Published",
         title: "Current operational briefing",
-        situationSummary: "EXERCISE session is active for ZPP coordination training. Telephone enquiry intake, family support, matching review and roster coverage are operating under exercise conditions.",
-        overview: "Training scenario for flight LO3924 KRK-WAW. No passenger or casualty status may be disclosed from TEC intake or family support workflows.",
+        situationSummary: "A REAL operational session is active. Telephone enquiry intake, family support, matching review and roster coverage are operating under incident conditions.",
+        overview: "Operational response for flight LO3924 KRK-WAW. No passenger or casualty status may be disclosed from TEC intake or family support workflows.",
         nextUpdateDueAt: new Date("2026-06-21T14:00:00.000Z"),
         version: 1,
         createdAt: new Date("2026-06-21T09:20:00.000Z"),
@@ -1146,8 +973,8 @@ async function seedOperationalBriefings() {
         publishedAt: primaryPublishedAt,
         publishedById: coordinator.id,
         confirmedFacts: { create: [
-          { id: "brf-ses-demo-1-r1-fact-01", sortOrder: 1, statement: "Session SES-2026-001 is active in EXERCISE mode.", source: "Session control", sourceResourceType: "session", sourceResourceId: primary.id, confirmedAt: new Date("2026-06-21T08:00:00.000Z"), createdAt: primaryPublishedAt, createdById: coordinator.id },
-          { id: "brf-ses-demo-1-r1-fact-02", sortOrder: 2, statement: "TEC enquiry intake is open for the exercise and must not confirm protected passenger status.", source: "TEC operating rule", sourceResourceType: "enquiry", confirmedAt: primaryPublishedAt, createdAt: primaryPublishedAt, createdById: coordinator.id },
+          { id: "brf-ses-demo-1-r1-fact-01", sortOrder: 1, statement: "Session SES-2026-001 is active in REAL mode.", source: "Session control", sourceResourceType: "session", sourceResourceId: primary.id, confirmedAt: new Date("2026-06-21T08:00:00.000Z"), createdAt: primaryPublishedAt, createdById: coordinator.id },
+          { id: "brf-ses-demo-1-r1-fact-02", sortOrder: 2, statement: "TEC enquiry intake is open and must not confirm protected passenger status.", source: "TEC operating rule", sourceResourceType: "enquiry", confirmedAt: primaryPublishedAt, createdAt: primaryPublishedAt, createdById: coordinator.id },
         ] },
         unconfirmedInformation: { create: [
           { id: "brf-ses-demo-1-r1-unconfirmed-01", sortOrder: 1, statement: "Family relationship verification remains pending for the active hold.", source: "Matching review", verificationStatus: "Needs verification", owner: "Family Assistance", reviewDueAt: new Date("2026-06-21T11:00:00.000Z"), createdAt: primaryPublishedAt, createdById: coordinator.id },
@@ -1168,26 +995,26 @@ async function seedOperationalBriefings() {
       },
     });
   }
-  const trainingPublishedAt = new Date("2026-06-20T10:00:00.000Z");
+  const historicalPublishedAt = new Date("2026-06-20T10:00:00.000Z");
   if (!await prisma.operationalBriefing.findUnique({ where: { id: "brf-ses-demo-2-r1" } })) {
     await prisma.operationalBriefing.create({ data: {
-      id: "brf-ses-demo-2-r1", sessionId: training.id, revision: 1, status: "Published", title: "Training briefing",
-      situationSummary: "TRAINING session is prepared for briefing practice and role familiarization.", overview: "Training context only. Participants should practice reading the current briefing before taking module actions.",
-      version: 1, createdAt: new Date("2026-06-20T09:40:00.000Z"), createdById: zpp.id, updatedAt: trainingPublishedAt, updatedById: zpp.id, publishedAt: trainingPublishedAt, publishedById: zpp.id,
-      confirmedFacts: { create: [{ id: "brf-ses-demo-2-r1-fact-01", sortOrder: 1, statement: "Training briefing practice is active.", source: "Training control", confirmedAt: trainingPublishedAt, createdAt: trainingPublishedAt, createdById: zpp.id }] },
-      priorities: { create: [{ id: "brf-ses-demo-2-r1-priority-01", sortOrder: 1, description: "Read the current training briefing.", status: "In progress", responsible: "Participants" }] },
-      risks: { create: [{ id: "brf-ses-demo-2-r1-risk-01", sortOrder: 1, description: "Training information must not be treated as a real activation.", severity: "Information", status: "Open", createdAt: trainingPublishedAt, updatedAt: trainingPublishedAt }] },
+      id: "brf-ses-demo-2-r1", sessionId: historical.id, revision: 1, status: "Published", title: "Historical operational briefing",
+      situationSummary: "The incident is closed and retained for historical review.", overview: "Historical operational context retained for authorized review.",
+      version: 1, createdAt: new Date("2026-06-20T09:40:00.000Z"), createdById: zpp.id, updatedAt: historicalPublishedAt, updatedById: zpp.id, publishedAt: historicalPublishedAt, publishedById: zpp.id,
+      confirmedFacts: { create: [{ id: "brf-ses-demo-2-r1-fact-01", sortOrder: 1, statement: "The operational incident is closed.", source: "Session control", confirmedAt: historicalPublishedAt, createdAt: historicalPublishedAt, createdById: zpp.id }] },
+      priorities: { create: [{ id: "brf-ses-demo-2-r1-priority-01", sortOrder: 1, description: "Retain the approved briefing for review.", status: "Completed", responsible: "Coordinator" }] },
+      risks: { create: [{ id: "brf-ses-demo-2-r1-risk-01", sortOrder: 1, description: "Historical information remains subject to controlled disclosure.", severity: "Information", status: "Open", createdAt: historicalPublishedAt, updatedAt: historicalPublishedAt }] },
     } });
   }
   if (!await prisma.operationalBriefing.findUnique({ where: { id: "brf-ses-demo-2-r2" } })) {
     const draftAt = new Date("2026-06-20T11:00:00.000Z");
     await prisma.operationalBriefing.create({ data: {
-      id: "brf-ses-demo-2-r2", sessionId: training.id, revision: 2, status: "Draft", title: "Draft training briefing update",
-      situationSummary: "TRAINING session is ready for a refreshed briefing practice round.", overview: "Training context only. Participants should practice reading the current briefing before taking module actions.",
+      id: "brf-ses-demo-2-r2", sessionId: historical.id, revision: 2, status: "Draft", title: "Retained historical briefing draft",
+      situationSummary: "The closed incident has a retained draft revision.", overview: "Historical draft retained without reopening the incident.",
       version: 2, createdAt: draftAt, createdById: zpp.id, updatedAt: draftAt, updatedById: zpp.id,
-      confirmedFacts: { create: [{ id: "brf-ses-demo-2-r2-fact-01", sortOrder: 1, statement: "Training briefing practice is active.", source: "Training control", confirmedAt: trainingPublishedAt, createdAt: trainingPublishedAt, createdById: zpp.id }] },
-      priorities: { create: [{ id: "brf-ses-demo-2-r2-priority-01", sortOrder: 1, description: "Read the refreshed training briefing.", status: "Not started", responsible: "Participants" }] },
-      risks: { create: [{ id: "brf-ses-demo-2-r2-risk-01", sortOrder: 1, description: "Training information must not be treated as a real activation.", severity: "Information", status: "Open", createdAt: trainingPublishedAt, updatedAt: draftAt }] },
+      confirmedFacts: { create: [{ id: "brf-ses-demo-2-r2-fact-01", sortOrder: 1, statement: "The operational incident remains closed.", source: "Session control", confirmedAt: historicalPublishedAt, createdAt: historicalPublishedAt, createdById: zpp.id }] },
+      priorities: { create: [{ id: "brf-ses-demo-2-r2-priority-01", sortOrder: 1, description: "Review retained historical material.", status: "Not started", responsible: "Coordinator" }] },
+      risks: { create: [{ id: "brf-ses-demo-2-r2-risk-01", sortOrder: 1, description: "Historical information remains subject to controlled disclosure.", severity: "Information", status: "Open", createdAt: historicalPublishedAt, updatedAt: draftAt }] },
     } });
   }
 }

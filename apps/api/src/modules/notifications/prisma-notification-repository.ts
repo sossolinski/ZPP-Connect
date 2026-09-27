@@ -8,6 +8,7 @@ const iso = (date?: Date | null) => date?.toISOString() ?? null;
 
 function item(row: Notification): NotificationItem {
   const active = !row.resolvedAt;
+  const actionDestination = row.actionDestination === "/training" || row.actionDestination === "/readiness" ? null : row.actionDestination;
   const metadata = row.metadata && typeof row.metadata === "object" && !Array.isArray(row.metadata) ? row.metadata as Record<string, unknown> : {};
   return {
     id: row.id, deduplicationKey: row.deduplicationKey, recipientUserId: row.recipientUserId,
@@ -15,11 +16,11 @@ function item(row: Notification): NotificationItem {
     kind: row.kind as NotificationItem["kind"], severity: row.severity as NotificationItem["severity"], category: row.category as NotificationItem["category"],
     title: row.title, message: row.message, sessionId: row.sessionId, sessionLabel: row.sessionLabel,
     sourceType: row.sourceType as NotificationItem["sourceType"], sourceId: row.sourceId, sourceLabel: row.sourceLabel,
-    conditionType: row.conditionType, actionDestination: row.actionDestination, actionLabel: row.actionLabel, metadata,
+    conditionType: row.conditionType, actionDestination, actionLabel: actionDestination ? row.actionLabel : null, metadata,
     createdAt: productTime(row.createdAt), createdAtIso: row.createdAt.toISOString(), updatedAt: productTime(row.updatedAt), updatedAtIso: row.updatedAt.toISOString(),
     readAt: iso(row.readAt), resolvedAt: iso(row.resolvedAt), resolutionReason: row.resolutionReason, version: row.version,
     read: Boolean(row.readAt), unread: !row.readAt, active, resolved: !active, requiresAction: row.kind === "Action required" && active,
-    href: row.actionDestination ?? undefined,
+    href: actionDestination ?? undefined,
     priority: row.severity === "Critical" ? "critical" : row.kind === "Action required" ? "action" : row.severity === "Attention" ? "update" : "info",
     categoryLegacy: row.category === "Training" || row.category === "Documents" || row.category === "Readiness" ? "training" : row.category === "Assignment" || row.category === "Rostering" ? "task" : row.category === "Session" || row.category === "Briefing" || row.category === "Requests" || row.category === "Operational" ? "operational" : "system",
   };
