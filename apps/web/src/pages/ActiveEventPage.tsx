@@ -398,7 +398,7 @@ export function ActiveEventPage() {
                     </dd>
                   </div>
                   <div className="rounded-md border border-border bg-muted p-3">
-                    <dt className="font-black uppercase tracking-wide text-muted-foreground">Event / exercise</dt>
+                    <dt className="font-black uppercase tracking-wide text-muted-foreground">Event</dt>
                     <dd className="mt-1 font-bold text-foreground">{activeSession.description || activeSession.eventType}</dd>
                     {activeSession.flightNumber || activeSession.route ? <dd className="mt-1 text-xs font-semibold text-muted-foreground">{[activeSession.flightNumber, activeSession.route].filter(Boolean).join(" · ")}</dd> : null}
                   </div>
@@ -634,7 +634,7 @@ export function ActiveEventPage() {
               <Field label="Situation summary" required helperText="Short orientation for a stressed team member.">
                 <Textarea value={form.situationSummary} disabled={saving} onChange={(event) => setForm((current) => ({ ...current, situationSummary: event.target.value }))} />
               </Field>
-              <Field label="Incident or exercise overview">
+              <Field label="Incident overview">
                 <Textarea value={form.overview} disabled={saving} onChange={(event) => setForm((current) => ({ ...current, overview: event.target.value }))} />
               </Field>
               <Field label="Confirmed information" helperText="One item per line. Optional source: statement | source">

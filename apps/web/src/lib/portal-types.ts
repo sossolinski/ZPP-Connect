@@ -25,14 +25,11 @@ export type PortalRouteKey =
   | "groups"
   | "rostering"
   | "assignments"
-  | "training"
   | "documents"
-  | "readiness"
   | "files-import"
   | "reports"
   | "users-access"
   | "roles-permissions"
-  | "exercise"
   | "audit"
   | "settings";
 

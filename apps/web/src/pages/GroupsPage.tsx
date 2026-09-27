@@ -23,7 +23,6 @@ type MemberProfile = {
   phone?: string | null;
   role: string;
   availability: string;
-  trainingStatus: string;
   assignedFunction: string;
   rosterStatus: string;
   assignedLeader?: string | null;
@@ -45,30 +44,6 @@ type GroupRecord = {
   rosterLinkCount?: number;
   notes?: string | null;
   version: number;
-};
-type ReadinessStatus = "Ready" | "Ready with attention" | "Not ready" | "Unknown" | "Not applicable";
-type GroupReadiness = {
-  group?: {
-    id?: string;
-  };
-  calculatedAt?: string;
-  summary?: {
-    totalMembers?: number;
-    byStatus?: Partial<Record<ReadinessStatus, number>>;
-    issueCounts?: Record<string, number>;
-  };
-  members?: Array<{
-    member?: {
-      id?: string;
-      memberId?: string;
-      displayName?: string;
-    };
-    overallStatus?: ReadinessStatus;
-    primaryIssue?: {
-      title?: string;
-      category?: string;
-    } | null;
-  }>;
 };
 
 const groupPools: GroupPool[] = ["ZPP", "TEC", "Mixed"];
@@ -93,7 +68,6 @@ function normalizeMember(input: Record<string, any>): MemberProfile {
     phone: input.phone ?? "",
     role: String(input.role ?? "Member"),
     availability: String(input.availability ?? "Availability not set"),
-    trainingStatus: String(input.trainingStatus ?? "Pending"),
     assignedFunction: String(input.assignedFunction ?? "Unassigned"),
     rosterStatus: String(input.rosterStatus ?? "Unassigned"),
     assignedLeader: input.assignedLeader ?? ""
@@ -170,111 +144,30 @@ function functionMatches(recordFunction: string, groupFunction: string) {
   return record === group || record.includes(compactGroup) || group.includes(compactRecord);
 }
 
-function normalizeReadinessStatus(value: unknown): ReadinessStatus {
-  if (value === "Ready" || value === "Ready with attention" || value === "Not ready" || value === "Not applicable") return value;
-  return "Unknown";
-}
-
-function readinessLabel(status: ReadinessStatus) {
-  return status === "Unknown" ? "Unable to determine" : status;
-}
-
-function readinessTone(status: ReadinessStatus): BadgeTone {
-  if (status === "Ready") return "success";
-  if (status === "Ready with attention") return "warning";
-  if (status === "Not ready") return "danger";
-  if (status === "Not applicable") return "neutral";
-  return "info";
-}
-
-function normalizeGroupReadiness(input: Record<string, any>): GroupReadiness {
-  const byStatus = input.summary?.byStatus ?? {};
-  return {
-    group: input.group,
-    calculatedAt: typeof input.calculatedAt === "string" ? input.calculatedAt : undefined,
-    summary: {
-      totalMembers: Number(input.summary?.totalMembers ?? 0),
-      byStatus: {
-        Ready: Number(byStatus.Ready ?? 0),
-        "Ready with attention": Number(byStatus["Ready with attention"] ?? 0),
-        "Not ready": Number(byStatus["Not ready"] ?? 0),
-        Unknown: Number(byStatus.Unknown ?? 0),
-        "Not applicable": Number(byStatus["Not applicable"] ?? 0)
-      },
-      issueCounts: input.summary?.issueCounts && typeof input.summary.issueCounts === "object" ? input.summary.issueCounts : {}
-    },
-    members: Array.isArray(input.members)
-      ? input.members.map((member: any) => ({
-          member: member.member,
-          overallStatus: normalizeReadinessStatus(member.overallStatus),
-          primaryIssue: member.primaryIssue ?? null
-        }))
-      : []
-  };
-}
-
-function readinessForMember(groupReadiness: GroupReadiness | undefined, memberId: string) {
-  return groupReadiness?.members?.find((item) => item.member?.id === memberId);
-}
-
 function groupStatusRank(status: GroupStatus) {
   return { Active: 0, Standby: 1, Draft: 2, Archived: 3 }[status];
 }
 
-function ReadinessDistribution({
-  readiness,
-  canReadReadiness,
-  compact = false
-}: {
-  readiness?: GroupReadiness;
-  canReadReadiness: boolean;
-  compact?: boolean;
-}) {
-  if (!canReadReadiness) return <Badge tone="neutral">Readiness not shown</Badge>;
-  if (!readiness?.summary?.byStatus) return <Badge tone="info">Readiness unavailable</Badge>;
-  const statuses: ReadinessStatus[] = ["Ready", "Ready with attention", "Not ready", "Unknown", "Not applicable"];
-  const items = statuses
-    .map((status) => ({ status, count: Number(readiness.summary?.byStatus?.[status] ?? 0) }))
-    .filter((item) => item.count > 0);
-  if (!items.length) return <Badge tone="neutral">No members assessed</Badge>;
-  return (
-    <>
-      {items.map(({ status, count }) => (
-        <Badge key={status} tone={readinessTone(status)}>
-          {compact ? `${count} ${readinessLabel(status)}` : `${readinessLabel(status)} ${count}`}
-        </Badge>
-      ))}
-    </>
-  );
-}
-
 function MemberLine({
   member,
-  readiness,
   onRemove,
   readOnly = false,
   busy = false
 }: {
   member: MemberProfile;
-  readiness?: NonNullable<GroupReadiness["members"]>[number];
   onRemove: (id: string) => void;
   readOnly?: boolean;
   busy?: boolean;
 }) {
-  const status = readiness?.overallStatus ?? "Unknown";
   return (
     <div className="grid gap-2 rounded-md border border-border bg-muted p-2 text-foreground sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center">
       <div className="min-w-0">
         <div className="flex min-w-0 flex-wrap items-center gap-1.5">
           <p className="truncate text-sm font-black text-foreground">{member.displayName}</p>
           <Badge tone={member.pool === "TEC" ? "petrol" : "navy"}>{member.pool}</Badge>
-          <Badge tone={readinessTone(status)}>{readinessLabel(status)}</Badge>
         </div>
         <p className="mt-1 truncate text-xs font-semibold text-muted-foreground">
           {member.memberId} · {member.assignedFunction} · {member.availability}
-        </p>
-        <p className="mt-1 line-clamp-2 text-xs font-semibold text-muted-foreground">
-          {readiness?.primaryIssue?.title ?? "No immediate blocker"}
         </p>
       </div>
       {!readOnly ? (
@@ -295,7 +188,7 @@ function CandidateLine({ member, onAdd, busy = false }: { member: MemberProfile;
           <Badge tone={member.pool === "TEC" ? "petrol" : "navy"}>{member.memberId}</Badge>
         </div>
         <p className="mt-1 truncate text-xs font-semibold text-muted-foreground">
-          {member.assignedFunction} · {member.trainingStatus} · {member.rosterStatus}
+          {member.assignedFunction} · {member.rosterStatus}
         </p>
       </div>
       <Button type="button" size="sm" icon={UserPlus} aria-label={`Add ${member.memberId}`} disabled={busy} onClick={() => onAdd(member.id)}>
@@ -309,10 +202,8 @@ export function GroupsPage() {
   const { activeSession, activeSessionWritable, can, verifyActiveSessionWrite } = useApp();
   const [records, setRecords] = useState<MemberProfile[]>([]);
   const [groups, setGroups] = useState<GroupRecord[]>([]);
-  const [groupReadinessRows, setGroupReadinessRows] = useState<GroupReadiness[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
-  const [readinessError, setReadinessError] = useState("");
   const [notice, setNotice] = useState("");
   const [query, setQuery] = useState("");
   const [poolFilter, setPoolFilter] = useState<PoolFilter>("all");
@@ -329,18 +220,9 @@ export function GroupsPage() {
   const canUpdate = activeSessionWritable && (can("group:update") || can("admin:manage"));
   const canArchive = activeSessionWritable && (can("group:archive") || can("admin:manage"));
   const canManageMembership = activeSessionWritable && (can("group:membership:manage") || can("admin:manage"));
-  const canReadOrgReadiness = can("readiness:read-all") || can("readiness:read-group") || can("admin:manage");
   const canSaveCurrent = editing?.id ? canUpdate : canCreate;
 
   const memberById = useMemo(() => new Map(records.map((record) => [record.id, record])), [records]);
-  const groupReadinessById = useMemo(() => {
-    const entries: Array<[string, GroupReadiness]> = [];
-    for (const row of groupReadinessRows) {
-      const id = String(row.group?.id ?? "");
-      if (id) entries.push([id, row]);
-    }
-    return new Map(entries);
-  }, [groupReadinessRows]);
   const functionOptions = useMemo(
     () => Array.from(new Set([...defaultFunctions, ...records.map((record) => record.assignedFunction), ...groups.map((group) => group.functionName)].filter(Boolean))).sort(compareText),
     [groups, records]
@@ -354,7 +236,6 @@ export function GroupsPage() {
   const loadData = useCallback(async () => {
     setLoading(true);
     setError("");
-    setReadinessError("");
     try {
       const [membersResult, groupsResult] = await Promise.all([
         api.memberProfilesPage({ limit: 100, offset: 0, sortBy: "displayName", sortDirection: "asc" }),
@@ -370,25 +251,16 @@ export function GroupsPage() {
           sortDirection: "asc"
         })
       ]);
-      const groupIds = groupsResult.data.map((group) => String(group.id)).filter(Boolean);
-      const readinessResult = canReadOrgReadiness && groupIds.length
-          ? await api.readinessGroupsPage({ groupIds: groupIds.join(","), limit: groupIds.length, offset: 0 }).catch((err) => {
-              setReadinessError(err instanceof Error ? err.message : "Unable to load readiness.");
-              return null;
-            })
-          : null;
       setRecords(membersResult.data.map(normalizeMember));
       setGroups(groupsResult.data.map(normalizeGroup));
-      setGroupReadinessRows(readinessResult?.data.map(normalizeGroupReadiness) ?? []);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Unable to load groups.");
       setRecords([]);
       setGroups([]);
-      setGroupReadinessRows([]);
     } finally {
       setLoading(false);
     }
-  }, [activeSession?.id, canReadOrgReadiness, functionFilter, poolFilter, query, statusFilter]);
+  }, [activeSession?.id, functionFilter, poolFilter, query, statusFilter]);
 
   useEffect(() => {
     void loadData();
@@ -425,7 +297,6 @@ export function GroupsPage() {
     () => (editing ? editing.memberIds.map((id) => memberById.get(id)).filter((member): member is MemberProfile => Boolean(member)) : []),
     [editing, memberById]
   );
-  const selectedGroupReadiness = editing?.id ? groupReadinessById.get(editing.id) : undefined;
 
   const candidateMembers = useMemo(() => {
     if (!editing) return [];
@@ -483,21 +354,6 @@ export function GroupsPage() {
       return current.map((item, itemIndex) => (itemIndex === index ? normalized : item));
     });
     setEditing(normalized);
-  }
-
-  async function refreshGroupReadiness(groupId?: string) {
-    if (!groupId || !canReadOrgReadiness) return;
-    try {
-      const next = normalizeGroupReadiness(await api.readinessGroup(groupId));
-      setGroupReadinessRows((current) => {
-        const index = current.findIndex((item) => item.group?.id === groupId);
-        if (index < 0) return [next, ...current];
-        return current.map((item, itemIndex) => (itemIndex === index ? next : item));
-      });
-      setReadinessError("");
-    } catch (err) {
-      setReadinessError(err instanceof Error ? err.message : "Unable to load readiness.");
-    }
   }
 
   function clearFilters() {
@@ -563,7 +419,6 @@ export function GroupsPage() {
         role: "Member"
       });
       replaceGroup(group);
-      await refreshGroupReadiness(group.id);
       setNotice("Member added to group");
     } catch (err) {
       setEditorError(err instanceof Error ? err.message : "Unable to add member.");
@@ -593,7 +448,6 @@ export function GroupsPage() {
         expectedVersion: editing.version
       });
       replaceGroup(group);
-      await refreshGroupReadiness(group.id);
       setNotice("Member removed from group");
     } catch (err) {
       setEditorError(err instanceof Error ? err.message : "Unable to remove member.");
@@ -651,7 +505,6 @@ export function GroupsPage() {
         });
       }
       replaceGroup(saved);
-      await refreshGroupReadiness(saved.id);
       setEditing(null);
       setNotice(editing.id ? "Group updated" : "Group created");
     } catch (err) {
@@ -672,7 +525,6 @@ export function GroupsPage() {
       });
       const normalized = normalizeGroup(archived);
       setGroups((current) => current.filter((group) => groupKey(group) !== groupKey(normalized)));
-      setGroupReadinessRows((current) => current.filter((item) => item.group?.id !== normalized.id));
       setEditing(null);
       setNotice("Group archived");
     } catch (err) {
@@ -690,7 +542,6 @@ export function GroupsPage() {
 
       {notice ? <AlertBox tone="success" className="mt-3">{notice}</AlertBox> : null}
       {error ? <AlertBox tone="danger" className="mt-3">Unable to load groups. {error}</AlertBox> : null}
-      {readinessError ? <AlertBox tone="warning" className="mt-3">Readiness status could not be loaded. Groups remain available.</AlertBox> : null}
 
       <div className="mt-3 grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
         <section className="rounded-md border border-border bg-card p-3 text-foreground shadow-panel">
@@ -779,7 +630,7 @@ export function GroupsPage() {
           <div className="border-b border-border px-3.5 py-3">
             <SectionHeader
               title="Operational Groups"
-              description="Compact group register with member coverage, readiness and linked roster shifts."
+              description="Compact group register with member coverage and linked roster shifts."
               action={loading ? <Badge tone="neutral">Loading</Badge> : <Badge tone="petrol">{filteredGroups.length} groups</Badge>}
             />
           </div>
@@ -792,7 +643,6 @@ export function GroupsPage() {
             <div className="divide-y divide-border">
               {filteredGroups.map((group) => {
                 const members = group.memberIds.map((id) => memberById.get(id)).filter((member): member is MemberProfile => Boolean(member));
-                const readiness = group.id ? groupReadinessById.get(group.id) : undefined;
                 return (
                   <article key={groupKey(group)} className="grid gap-3 px-3.5 py-3 transition hover:bg-muted xl:grid-cols-[minmax(18rem,1.25fr)_minmax(14rem,0.9fr)_minmax(12rem,0.75fr)_auto] xl:items-center">
                     <div className="min-w-0">
@@ -814,7 +664,6 @@ export function GroupsPage() {
                     <div className="min-w-0">
                       <div className="flex flex-wrap gap-1.5">
                         <Badge tone="neutral">{group.memberCount ?? members.length} members</Badge>
-                        <ReadinessDistribution readiness={readiness} canReadReadiness={canReadOrgReadiness} compact />
                       </div>
                       <p className="mt-1 truncate text-xs font-semibold text-muted-foreground">
                         {group.rosterShiftIds.length ? `${group.rosterShiftIds.length} roster link${group.rosterShiftIds.length === 1 ? "" : "s"}` : "No roster links"}
@@ -922,7 +771,6 @@ export function GroupsPage() {
                     action={
                       <div className="flex flex-wrap gap-1.5">
                         <Badge tone="neutral">{selectedMembers.length} selected</Badge>
-                        <ReadinessDistribution readiness={selectedGroupReadiness} canReadReadiness={canReadOrgReadiness} compact />
                       </div>
                     }
                   />
@@ -933,7 +781,6 @@ export function GroupsPage() {
                         <MemberLine
                           key={member.id}
                           member={member}
-                          readiness={readinessForMember(selectedGroupReadiness, member.id)}
                           onRemove={removeMember}
                           readOnly={!canManageMembership && Boolean(editing.id)}
                           busy={membershipBusy}

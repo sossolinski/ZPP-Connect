@@ -3,7 +3,7 @@ import { useBlocker } from "react-router-dom";
 import { api, ApiRequestError } from "../lib/api";
 import { useApp } from "../lib/app-context";
 import type { ApiList, SessionRecord } from "../lib/types";
-import type { AarVersion, AarPage, AarArtifact, AarSource, AarResult } from "../lib/aar-types";
+import type { AarVersion, AarPage, AarArtifact, AarResult } from "../lib/aar-types";
 import { AlertBox, Button, Card, CardHeader, ConfirmDialog, Field, Input, Loading, Select, StatusBadge, Textarea } from "../components/ui";
 
 type Form = Pick<AarVersion, "title" | "eventDate" | "executiveSummary" | "findings" | "lessons" | "correctiveActions">;
@@ -49,7 +49,6 @@ function AfterActionWorkspace({ sessionId, onDirtyChange }: { sessionId: string;
   const [version, setVersion] = useState<AarVersion>();
   const [form, setForm] = useState<Form>();
   const [canCreate, setCanCreate] = useState(false);
-  const [canSource, setCanSource] = useState(false);
   const [title, setTitle] = useState("");
   const [reason, setReason] = useState("");
   const [dirty, setDirty] = useState(false);
@@ -59,8 +58,6 @@ function AfterActionWorkspace({ sessionId, onDirtyChange }: { sessionId: string;
   const [error, setError] = useState("");
   const [history, setHistory] = useState<AarPage<AarVersion>>();
   const [artifacts, setArtifacts] = useState<AarPage<AarArtifact>>();
-  const [sources, setSources] = useState<AarPage<AarSource>>();
-  const [selectedSources, setSelectedSources] = useState<string[]>([]);
   const [decision, setDecision] = useState<{ action: string; label: string; operationId: string }>();
   const [createOperationId, setCreateOperationId] = useState(() => crypto.randomUUID());
   const navigationBlocker = useBlocker(dirty);
@@ -71,11 +68,11 @@ function AfterActionWorkspace({ sessionId, onDirtyChange }: { sessionId: string;
   async function loadVersion(id: string) {
     const v = await api.aarVersion(id);
     const [h, a] = await Promise.all([api.aarHistory(v.reportId), api.aarArtifacts(id)]);
-    setVersion(v); setForm(formFor(v)); setHistory(h); setArtifacts(a); setDirty(false); setSelectedSources([]); setError("");
+    setVersion(v); setForm(formFor(v)); setHistory(h); setArtifacts(a); setDirty(false); setError("");
   }
   async function reload() {
     const list = await api.aarList(sessionId);
-    setCanCreate(list.capabilities.create); setCanSource(list.capabilities.sourceObservations);
+    setCanCreate(list.capabilities.create);
     if (list.data[0]) { const r = await api.aarReport(list.data[0].id); await loadVersion(r.latest.id); }
     setLoaded(true);
     setError("");
@@ -86,7 +83,7 @@ function AfterActionWorkspace({ sessionId, onDirtyChange }: { sessionId: string;
       try {
         const list = await api.aarList(sessionId);
         if (!active) return;
-        setCanCreate(list.capabilities.create); setCanSource(list.capabilities.sourceObservations);
+        setCanCreate(list.capabilities.create);
         if (list.data[0]) {
           const r = await api.aarReport(list.data[0].id), v = await api.aarVersion(r.latest.id);
           const [h, a] = await Promise.all([api.aarHistory(r.id), api.aarArtifacts(v.id)]);
@@ -106,14 +103,14 @@ function AfterActionWorkspace({ sessionId, onDirtyChange }: { sessionId: string;
   const change = (update: Partial<Form>) => { setForm(old => ({ ...old!, ...update })); setDirty(true); };
   async function create() {
     if (busy) return; setBusy(true); setError("");
-    try { const r = await api.aarCreate({ sessionId, title, operationId: createOperationId, sourceObservationIds: selectedSources }); await loadVersion(r.reportVersionId!); setCanCreate(false); setCreateOperationId(crypto.randomUUID()); }
+    try { const r = await api.aarCreate({ sessionId, title, operationId: createOperationId }); await loadVersion(r.reportVersionId!); setCanCreate(false); setCreateOperationId(crypto.randomUUID()); }
     catch (e) { failure(e); } finally { setBusy(false); }
   }
   async function save() {
     if (!version || !form || busy) return; setBusy(true); setError("");
     try {
       const result = await api.aarEdit(version.id, { ...form, eventDate: form.eventDate === version.eventDate.slice(0, 10) ? version.eventDate : new Date(form.eventDate).toISOString(), expectedVersion: version.version,
-        correctiveActions: form.correctiveActions.map(a => ({ ...a, targetDate: a.targetDate ? new Date(a.targetDate).toISOString() : null })), sourceObservationIds: selectedSources });
+        correctiveActions: form.correctiveActions.map(a => ({ ...a, targetDate: a.targetDate ? new Date(a.targetDate).toISOString() : null })) });
       await loadVersion(result.reportVersionId!);
     } catch (e) { failure(e); } finally { setBusy(false); }
   }
@@ -148,11 +145,6 @@ function AfterActionWorkspace({ sessionId, onDirtyChange }: { sessionId: string;
     {!version && loaded && <Card><CardHeader title="After Action Reports" description="One report per Session. Authoring is available only after the Session is Closed." /><div className="grid gap-4 p-4">
       <p>No report is available for this Session.</p>
       {canCreate && <><Field label="Report title"><Input value={title} maxLength={500} onChange={e => { setTitle(e.target.value); setCreateOperationId(crypto.randomUUID()); }} /></Field><Button variant="create" disabled={busy || !title.trim()} onClick={() => void create()}>Create report</Button></>}
-    </div></Card>}
-    {canSource && (canCreate || editable) && <Card><CardHeader title="Exercise Observation snapshots" description="Selected evidence is copied into findings; later Observation edits do not rewrite it." /><div className="grid gap-3 p-4">
-      <Button disabled={busy} onClick={() => safe(async () => setSources(await api.aarSources(sessionId)))}>Choose observations</Button>
-      {sources?.data.map(s => <label key={s.id} className="flex gap-2"><input type="checkbox" checked={selectedSources.includes(s.id)} disabled={busy} onChange={e => { setSelectedSources(old => e.target.checked ? [...old, s.id] : old.filter(id => id !== s.id)); setDirty(Boolean(version)); setCreateOperationId(crypto.randomUUID()); }} /><span>{s.operationalId} v{s.version} · {s.area}: {s.observation}</span></label>)}
-      {sources && pagination(sources, async offset => setSources(await api.aarSources(sessionId, offset)))}
     </div></Card>}
     {version && form && <>
       <Card><CardHeader title={version.report.operationalId + " · Revision " + version.revision} description={"Session: " + version.report.session.status + " · Report: " + version.report.status} action={<StatusBadge value={version.status} />} />
