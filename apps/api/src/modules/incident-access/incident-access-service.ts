@@ -30,7 +30,7 @@ export function createIncidentAccessService(repository: IncidentAccessRepository
         actorId: access.databaseUserId ?? actor.id,
         actorEmail: actor.email,
         systemAdminOverride,
-        writable: !["Closed", "Archived"].includes(access.status)
+        writable: access.mode === "REAL" && !["Closed", "Archived"].includes(access.status)
       };
     }
   };

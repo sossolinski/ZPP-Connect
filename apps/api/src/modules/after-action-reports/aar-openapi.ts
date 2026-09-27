@@ -21,7 +21,7 @@ export const aarOpenApiPaths = {
   "/after-action-reports": {
     get: get("List AARs for a Session (session:read + aar:read), with total and server capabilities", [...page, { in: "query", name: "sessionId", required: true, schema: uuid }, { in: "query", name: "status", schema: { type: "string", enum: ["Active", "Archived"] } }, { in: "query", name: "search", schema: { type: "string", maxLength: 200 } }]),
     post: post("Create one AAR for a Closed Session (aar:create); actor is server-owned", { type: "object", additionalProperties: false, required: ["operationId", "sessionId", "title"], properties: {
-      operationId: uuid, sessionId: uuid, title: { type: "string", minLength: 1, maxLength: 500 }, eventDate: { type: "string", format: "date-time" }, sourceObservationIds: { type: "array", maxItems: 100, items: uuid, description: "Same-Session includeInAar snapshots; also requires exercise:manage" },
+      operationId: uuid, sessionId: uuid, title: { type: "string", minLength: 1, maxLength: 500 }, eventDate: { type: "string", format: "date-time" },
     } }, []),
   },
   "/after-action-reports/{id}": { get: get("Current report, latest revision and effective server capabilities (aar:read)") },
@@ -35,7 +35,6 @@ export const aarOpenApiPaths = {
   "/after-action-report-versions/{id}/approve": { post: post("Approve immutable content and aar-v1 SHA-256 (aar:approve)") },
   "/after-action-reports/{id}/revisions": { post: post("Clone latest Approved revision; expectedVersion is the REPORT token (aar:create + aar:update-draft)") },
   "/after-action-reports/{id}/archive": { post: post("Archive with no mutable revision; expectedVersion is the REPORT token (aar:archive)", { ...command, required: [...command.required, "reason"], properties: { ...command.properties, reason: { type: "string", minLength: 1, maxLength: 2000 } } }) },
-  "/sessions/{sessionId}/aar-source-observations": { get: get("Eligible Observation snapshots (session:read + aar:create + exercise:manage)", [{ in: "path", name: "sessionId", required: true, schema: uuid }, ...page]) },
   "/after-action-report-versions/{id}/pdf-artifacts": {
     get: get("Retained artifact metadata only (aar:read)", [id, ...page]),
     post: post("Render exact Approved version, verify source digest, retain up to 10 MiB atomically (aar:read + aar:pdf:generate)"),
@@ -81,17 +80,15 @@ export const aarOpenApiSchemas = {
     findings: { type: "array", maxItems: 100, items: { type: "object", additionalProperties: false, required: ["area", "summary"], properties: { id: uuid, area: text(200), summary: text(10000), detail: { type: "string", maxLength: 10000, nullable: true } } } },
     lessons: { type: "array", maxItems: 100, items: { type: "object", additionalProperties: false, required: ["statement"], properties: { statement: text(10000) } } },
     correctiveActions: { type: "array", maxItems: 100, items: { type: "object", additionalProperties: false, required: ["recommendation"], properties: { recommendation: text(10000), owner: { type: "string", maxLength: 200, nullable: true }, targetDate: { type: "string", format: "date-time", nullable: true } } } },
-    sourceObservationIds: { type: "array", maxItems: 100, items: uuid },
   } },
 };
 const pageOf = (items: object, extra: object = {}) => ({ type: "object", required: ["data", "total", "limit", "offset"], properties: { data: { type: "array", items }, total: { type: "integer", minimum: 0 }, limit: { type: "integer", minimum: 1, maximum: 200 }, offset: { type: "integer", minimum: 0 }, ...extra } });
 const ref = (name: string) => ({ $ref: "#/components/schemas/" + name });
 const readSchemas: Record<string, object> = {
-  "/after-action-reports": pageOf(ref("AarReportRecord"), { capabilities: { type: "object", required: ["create", "sourceObservations"], properties: { create: { type: "boolean" }, sourceObservations: { type: "boolean" } } } }),
+  "/after-action-reports": pageOf(ref("AarReportRecord"), { capabilities: { type: "object", required: ["create"], properties: { create: { type: "boolean" } } } }),
   "/after-action-reports/{id}": ref("AarReport"),
   "/after-action-reports/{id}/versions": pageOf({ type: "object", properties: { id: uuid, revision: { type: "integer" }, status: { type: "string" }, title: { type: "string" }, version: { type: "integer" }, contentSha256: { type: "string", nullable: true }, approvedAt: { type: "string", format: "date-time", nullable: true }, createdAt: { type: "string", format: "date-time" }, basedOnVersionId: { ...uuid, nullable: true } } }),
   "/after-action-report-versions/{id}": ref("AarVersion"),
-  "/sessions/{sessionId}/aar-source-observations": pageOf({ type: "object", properties: { id: uuid, operationalId: { type: "string" }, version: { type: "integer" }, area: { type: "string" }, observation: { type: "string" }, recommendation: { type: "string", nullable: true } } }),
   "/after-action-report-versions/{id}/pdf-artifacts": pageOf(ref("AarArtifact")),
   "/after-action-pdf-artifacts/{id}": ref("AarArtifact"),
 };

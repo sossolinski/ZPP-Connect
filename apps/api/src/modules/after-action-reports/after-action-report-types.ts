@@ -14,7 +14,6 @@ export const archiveSchema = commandSchema.extend({ reason: text(2000) });
 export const createSchema = z.object({
   operationId: uuid, sessionId: uuid, title: text(500),
   eventDate: z.string().datetime({ offset: true }).optional(),
-  sourceObservationIds: z.array(uuid).max(100).default([]),
 }).strict();
 export const editSchema = z.object({
   expectedVersion, title: text(500), eventDate: z.string().datetime({ offset: true }),
@@ -22,7 +21,6 @@ export const editSchema = z.object({
   findings: z.array(z.object({ id: uuid.optional(), area: text(200), summary: text(10000), detail: optionalText(10000) }).strict()).max(100),
   lessons: z.array(z.object({ statement: text(10000) }).strict()).max(100),
   correctiveActions: z.array(z.object({ recommendation: text(10000), owner: optionalText(200), targetDate: z.string().datetime({ offset: true }).nullable().optional() }).strict()).max(100),
-  sourceObservationIds: z.array(uuid).max(100).default([]),
 }).strict();
 export type AarActor = { id: string; email: string; displayName: string; requestId?: string };
 export type AarPage = z.infer<typeof pageSchema>;

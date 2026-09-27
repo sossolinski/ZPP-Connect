@@ -67,7 +67,7 @@ export function createPrismaAfterActionReportService(client: PrismaClient, hooks
     await tx.$queryRaw`SELECT "id" FROM "AfterActionReport" WHERE "id"=${c.reportId}::uuid FOR UPDATE`;
     if (c.reportVersionId) await tx.$queryRaw`SELECT "id" FROM "AfterActionReportVersion" WHERE "id"=${c.reportVersionId}::uuid FOR UPDATE`;
     const report = await tx.afterActionReport.findUniqueOrThrow({ where: { id: c.reportId }, include: reportInclude });
-    if (writable && (session.status !== "Closed" || report.status !== "Active")) throw new HttpError(409, "Report content requires an active report and Closed Session");
+    if (writable && (session.mode !== "REAL" || session.status !== "Closed" || report.status !== "Active")) throw new HttpError(409, "Report content requires an active report and Closed REAL Session");
     return report;
   }
   async function transaction<T>(work: (tx: Tx) => Promise<T>) {
@@ -102,20 +102,9 @@ export function createPrismaAfterActionReportService(client: PrismaClient, hooks
     } });
     return { ...result, replayed: false };
   }
-  async function sources(tx: Tx, sessionId: string, ids: string[], actor: AarActor) {
-    if (!ids.length) return [];
-    await authorize(tx, sessionId, actor, ["aar:create", "exercise:manage"]);
-    if (new Set(ids).size !== ids.length) throw new HttpError(400, "Duplicate source observation");
-    const rows = await tx.exerciseObservation.findMany({ where: { id: { in: ids }, sessionId, includeInAar: true } });
-    if (rows.length !== ids.length) throw new HttpError(400, "Source observations must be eligible and belong to the same Session");
-    return ids.map(id => {
-      const r = rows.find(row => row.id === id)!;
-      return { area: r.area, summary: r.observation, detail: r.recommendation, sourceObservationId: r.id, sourceObservationVersion: r.version, sourceObservationOperationalId: r.operationalId };
-    });
-  }
   function caps(report: Report, v: { status: string } | undefined, permissions: Permission[]) {
     const has = (p: Permission) => permissions.includes(p);
-    const writable = report.status === "Active" && report.session.status === "Closed";
+    const writable = report.status === "Active" && report.session.status === "Closed" && report.session.mode === "REAL";
     return {
       edit: writable && v?.status === "Draft" && has("aar:update-draft"),
       submit: writable && v?.status === "Draft" && has("aar:review"),
@@ -142,9 +131,9 @@ export function createPrismaAfterActionReportService(client: PrismaClient, hooks
       const session = await lockSession(tx, input.sessionId);
       await authorize(tx, session.id, actor, ["aar:create"], false);
       const old = await replay(tx, input.operationId, fp); if (old) return old;
+      if (session.mode !== "REAL") throw new HttpError(409, "New AARs are available only for REAL Sessions");
       if (session.status !== "Closed") throw new HttpError(409, "AAR authoring requires a Closed Session");
       if (await tx.afterActionReport.findUnique({ where: { sessionId: session.id } })) throw new HttpError(409, "This Session already has an After Action Report");
-      const snapshots = await sources(tx, session.id, input.sourceObservationIds, actor);
       const seq = await tx.$queryRaw<Array<{ n: bigint }>>`SELECT nextval('"AfterActionReport_operational_seq"') AS n`;
       const report = await tx.afterActionReport.create({ data: {
         operationalId: "AAR-" + new Date().getUTCFullYear() + "-" + String(seq[0]!.n).padStart(6, "0"),
@@ -153,7 +142,6 @@ export function createPrismaAfterActionReportService(client: PrismaClient, hooks
       const v = await tx.afterActionReportVersion.create({ data: {
         reportId: report.id, revision: 1, title: input.title, eventDate: input.eventDate ? new Date(input.eventDate) : session.endAt ?? session.startAt ?? session.createdAt,
         createdById: actor.id, updatedById: actor.id,
-        findings: { create: snapshots.map((s, i) => ({ ...s, sortOrder: i + 1 })) },
       } });
       return commit(tx, "create", input.operationId, fp, { reportId: report.id, reportVersionId: v.id, version: v.version, status: v.status }, report, actor);
     });
@@ -165,8 +153,6 @@ export function createPrismaAfterActionReportService(client: PrismaClient, hooks
       const v = await tx.afterActionReportVersion.findUniqueOrThrow({ where: { id }, include: versionInclude });
       expectVersion(v.version, input.expectedVersion);
       if (v.status !== "Draft") throw new HttpError(409, "Only Draft content can be edited");
-      const snapshots = await sources(tx, report.sessionId, input.sourceObservationIds, actor);
-      if (input.findings.length + snapshots.length > 100) throw new HttpError(400, "At most 100 findings are permitted");
       const seen = new Set<string>();
       const findings = input.findings.map((f, i) => {
         const old = f.id ? v.findings.find(row => row.id === f.id) : undefined;
@@ -181,7 +167,7 @@ export function createPrismaAfterActionReportService(client: PrismaClient, hooks
       const next = await tx.afterActionReportVersion.update({ where: { id }, data: {
         title: input.title, eventDate: new Date(input.eventDate), executiveSummary: input.executiveSummary,
         version: { increment: 1 }, updatedById: actor.id,
-        findings: { create: [...findings, ...snapshots.map((s, i) => ({ ...s, sortOrder: findings.length + i + 1 }))] },
+        findings: { create: findings },
         lessons: { create: input.lessons.map((l, i) => ({ ...l, sortOrder: i + 1 })) },
         correctiveActions: { create: input.correctiveActions.map((a, i) => ({ recommendation: a.recommendation, owner: a.owner ?? null, targetDate: a.targetDate ? new Date(a.targetDate) : null, sortOrder: i + 1 })) },
       } });
@@ -195,7 +181,7 @@ export function createPrismaAfterActionReportService(client: PrismaClient, hooks
     return transaction(async tx => {
       const report = await locked(tx, "version", id, actor, [command === "approve" ? "aar:approve" : "aar:review"], false);
       const old = await replay(tx, input.operationId, fp); if (old) return old;
-      if (report.status !== "Active" || report.session.status !== "Closed") throw new HttpError(409, "Report is read only");
+      if (report.status !== "Active" || report.session.status !== "Closed" || report.session.mode !== "REAL") throw new HttpError(409, "Report is read only");
       const v = await tx.afterActionReportVersion.findUniqueOrThrow({ where: { id }, include: versionInclude });
       expectVersion(v.version, input.expectedVersion);
       if (v.status !== (command === "submit" ? "Draft" : "Under review")) throw new HttpError(409, "Invalid report transition");
@@ -221,7 +207,7 @@ export function createPrismaAfterActionReportService(client: PrismaClient, hooks
     return transaction(async tx => {
       const report = await locked(tx, "report", id, actor, ["aar:create", "aar:update-draft"], false);
       const old = await replay(tx, input.operationId, fp); if (old) return old;
-      if (report.status !== "Active" || report.session.status !== "Closed") throw new HttpError(409, "Report is read only");
+      if (report.status !== "Active" || report.session.status !== "Closed" || report.session.mode !== "REAL") throw new HttpError(409, "Report is read only");
       expectVersion(report.version, input.expectedVersion);
       const base = await tx.afterActionReportVersion.findFirstOrThrow({ where: { reportId: id }, orderBy: { revision: "desc" }, include: versionInclude });
       if (base.status !== "Approved") throw new HttpError(409, "Approve the current revision first");
@@ -242,7 +228,7 @@ export function createPrismaAfterActionReportService(client: PrismaClient, hooks
     return transaction(async tx => {
       const report = await locked(tx, "report", id, actor, ["aar:archive"], false);
       const old = await replay(tx, input.operationId, fp); if (old) return old;
-      if (report.status !== "Active" || report.session.status !== "Closed") throw new HttpError(409, "Report is read only");
+      if (report.status !== "Active" || report.session.status !== "Closed" || report.session.mode !== "REAL") throw new HttpError(409, "Report is read only");
       expectVersion(report.version, input.expectedVersion);
       if (await tx.afterActionReportVersion.count({ where: { reportId: id, status: { not: "Approved" } } })) throw new HttpError(409, "Approve the current revision before archiving");
       const next = await tx.afterActionReport.update({ where: { id }, data: { status: "Archived", archivedAt: new Date(), archivedById: actor.id, archiveReason: input.reason, version: { increment: 1 }, updatedById: actor.id } });
@@ -266,14 +252,14 @@ export function createPrismaAfterActionReportService(client: PrismaClient, hooks
     const q = listSchema.parse(raw);
     return client.$transaction(async tx => {
       const permissions = await authorize(tx, q.sessionId, actor, ["aar:read"], false);
-      const session = await tx.session.findUnique({ where: { id: q.sessionId }, select: { status: true } }); if (!session) throw absent();
+      const session = await tx.session.findUnique({ where: { id: q.sessionId }, select: { status: true, mode: true } }); if (!session) throw absent();
       const where: Prisma.AfterActionReportWhereInput = { sessionId: q.sessionId, status: q.status,
         ...(q.search ? { OR: [{ operationalId: { contains: q.search, mode: "insensitive" } }, { versions: { some: { title: { contains: q.search, mode: "insensitive" } } } }] } : {}) };
       const total = await tx.afterActionReport.count({ where });
       const rows = await tx.afterActionReport.findMany({ where, include: reportInclude, orderBy: [{ createdAt: "desc" }, { id: "asc" }], take: q.limit, skip: q.offset });
       const exists = await tx.afterActionReport.count({ where: { sessionId: q.sessionId } });
       return { data: rows.map(reportView), total, limit: q.limit, offset: q.offset,
-        capabilities: { create: session.status === "Closed" && exists === 0 && permissions.includes("aar:create"), sourceObservations: permissions.includes("aar:create") && permissions.includes("exercise:manage") } };
+        capabilities: { create: session.mode === "REAL" && session.status === "Closed" && exists === 0 && permissions.includes("aar:create") } };
     }, { isolationLevel: Prisma.TransactionIsolationLevel.RepeatableRead });
   }
   async function history(id: string, raw: unknown, actor: AarActor) {
@@ -283,16 +269,6 @@ export function createPrismaAfterActionReportService(client: PrismaClient, hooks
     const [total, data] = await client.$transaction([
       client.afterActionReportVersion.count({ where }),
       client.afterActionReportVersion.findMany({ where, select: { id: true, revision: true, status: true, title: true, version: true, contentSha256: true, approvedAt: true, createdAt: true, basedOnVersionId: true }, orderBy: { revision: "desc" }, take: q.limit, skip: q.offset }),
-    ], { isolationLevel: Prisma.TransactionIsolationLevel.RepeatableRead });
-    return { total, data, ...q };
-  }
-  async function sourceObservations(sessionId: string, raw: unknown, actor: AarActor) {
-    uuid.parse(sessionId); const q = pageSchema.parse(raw);
-    await authorize(client, sessionId, actor, ["aar:create", "exercise:manage"], false);
-    const where = { sessionId, includeInAar: true };
-    const [total, data] = await client.$transaction([
-      client.exerciseObservation.count({ where }),
-      client.exerciseObservation.findMany({ where, select: { id: true, operationalId: true, version: true, area: true, observation: true, recommendation: true }, orderBy: [{ createdAt: "asc" }, { id: "asc" }], take: q.limit, skip: q.offset }),
     ], { isolationLevel: Prisma.TransactionIsolationLevel.RepeatableRead });
     return { total, data, ...q };
   }
@@ -342,6 +318,6 @@ export function createPrismaAfterActionReportService(client: PrismaClient, hooks
     const { content: _bytes, ...metadata } = row;
     return { metadata: { ...metadata, contentSizeBytes: content.length }, content };
   }
-  return { kind: "postgres" as const, context, create, edit, transition, revision, archive, getReport, getVersion, list, history, sourceObservations, generatePdf, artifact, artifacts, download };
+  return { kind: "postgres" as const, context, create, edit, transition, revision, archive, getReport, getVersion, list, history, generatePdf, artifact, artifacts, download };
 }
 export type PrismaAfterActionReportService = ReturnType<typeof createPrismaAfterActionReportService>;
