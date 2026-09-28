@@ -99,7 +99,9 @@ compatibility tests;
 When an older restored fixture contains only active non-REAL Sessions, the retained Stage 21
 dictionary test creates and removes its own transient REAL incident for business-write
 assertions. This keeps the recovery gate meaningful without making historical Training or
-Exercise Sessions writable again.
+Exercise Sessions writable again. The Stage 22 upgrade rehearsal likewise inserts its
+predecessor observation and revision as a direct historical persistence fixture instead of
+calling the retired Exercise command service.
 
 The old browser journeys that created Training/Exercise/Readiness state were removed, while
 incident and AAR coverage remains. Stage 24 browser assertions verify clean navigation,

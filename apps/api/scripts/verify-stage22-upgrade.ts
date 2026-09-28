@@ -3,7 +3,6 @@ import { randomUUID } from "node:crypto";
 import { execFileSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { PrismaClient } from "@prisma/client";
-import { createPrismaExerciseService } from "../src/modules/exercise/prisma-exercise-service.js";
 
 // Run only on an explicitly disposable, already migrated/seeded Stage 21 database.
 // The caller owns creation and cleanup; this script never drops a database.
@@ -20,7 +19,35 @@ try {
   const marker = "F22-UPGRADE-" + randomUUID().slice(0, 8);
   const session = await db.session.create({ data: { operationalId: marker, mode: "EXERCISE", status: "Active", eventType: "Exercise", createdById: actor.id } });
   await db.incidentAssignment.create({ data: { incidentId: session.id, userId: actor.id, function: marker, createdById: actor.id } });
-  await createPrismaExerciseService(db).createObservation({ sessionId: session.id, operationId: randomUUID(), area: "Coordination", severity: "Low", observation: "Preserve observation evidence", recommendation: "Preserve historical advice", owner: null, includeInAar: true, status: "Open" }, actor);
+  await db.$transaction(async tx => {
+    const observation = await tx.exerciseObservation.create({ data: {
+      operationalId: marker + "-OBSERVATION",
+      sessionId: session.id,
+      area: "Coordination",
+      severity: "Low",
+      observation: "Preserve observation evidence",
+      recommendation: "Preserve historical advice",
+      includeInAar: true,
+      status: "Open",
+      version: 1,
+      createdById: actor.id,
+      updatedById: actor.id,
+    } });
+    await tx.exerciseObservationRevision.create({ data: {
+      observationId: observation.id,
+      version: observation.version,
+      area: observation.area,
+      severity: observation.severity,
+      observation: observation.observation,
+      recommendation: observation.recommendation,
+      owner: observation.owner,
+      includeInAar: observation.includeInAar,
+      status: observation.status,
+      changedFields: ["created"],
+      changedById: actor.id,
+      source: "Seed",
+    } });
+  });
   await db.operationalBriefing.create({ data: { id: marker + "-BRIEFING", sessionId: session.id, revision: 1, status: "Published", title: "Upgrade briefing", situationSummary: "Stage 15 evidence", createdById: actor.id, updatedById: actor.id, publishedById: actor.id, publishedAt: new Date() } });
   await db.exportGeneration.create({ data: { operationId: randomUUID(), commandFingerprint: "a".repeat(64), incidentId: session.id, exportType: "passenger-register", format: "csv", schemaVersion: "stage17-v1", fileName: marker + ".csv", contentSha256: "b".repeat(64), contentSizeBytes: 123, rowCount: 1, sectionCounts: { Session: 1 }, includedSections: ["Session"], preparedById: actor.id } });
   await db.importBatch.create({ data: { operationalId: marker + "-IMPORT", sessionId: session.id, importType: "manifest", sourceFilename: marker + ".csv", status: "Validated", totalRecords: 1, validRecords: 1, createdById: actor.id, validatedById: actor.id, validatedAt: new Date() } });
