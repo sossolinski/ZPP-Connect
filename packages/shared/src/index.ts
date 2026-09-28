@@ -146,6 +146,9 @@ export const permissions = {
   "aar:approve": "Approve After Action Reports",
   "aar:archive": "Archive After Action Reports",
   "aar:pdf:generate": "Generate retained After Action Report PDFs",
+  "evidence:read": "Read incident evidence",
+  "evidence:upload": "Upload incident evidence",
+  "evidence:withdraw": "Withdraw incident evidence",
   "admin:manage": "Manage organizations, users, roles, dictionaries and profile"
 } as const;
 
@@ -305,7 +308,8 @@ export const defaultRoles: Array<{
       "import:create",
       "export:create",
       "aar:read", "aar:create", "aar:update-draft", "aar:review", "aar:approve", "aar:archive", "aar:pdf:generate",
-      "reports:read"
+      "reports:read",
+      "evidence:read", "evidence:upload", "evidence:withdraw"
     ],
     scopeTypes: ["GLOBAL"],
     pool: "ZPP",
@@ -376,7 +380,8 @@ export const defaultRoles: Array<{
       "import:create",
       "export:create",
       "aar:read", "aar:create", "aar:update-draft", "aar:review", "aar:approve", "aar:archive", "aar:pdf:generate",
-      "reports:read"
+      "reports:read",
+      "evidence:read", "evidence:upload", "evidence:withdraw"
     ],
     scopeTypes: ["GLOBAL"],
     pool: "TEC",
@@ -418,7 +423,8 @@ export const defaultRoles: Array<{
       "document:acknowledge-own",
       "document:acknowledge-all",
       "briefing:read",
-      "briefing:read-history"
+      "briefing:read-history",
+      "evidence:read", "evidence:upload"
     ],
     scopeTypes: ["GROUP"],
     pool: "ZPP",
@@ -460,7 +466,8 @@ export const defaultRoles: Array<{
       "document:acknowledge-own",
       "document:acknowledge-all",
       "briefing:read",
-      "briefing:read-history"
+      "briefing:read-history",
+      "evidence:read", "evidence:upload"
     ],
     scopeTypes: ["GROUP"],
     pool: "TEC",
@@ -483,7 +490,8 @@ export const defaultRoles: Array<{
       "document:acknowledge-own",
       "briefing:read",
       "assignment:read",
-      "assignment:update"
+      "assignment:update",
+      "evidence:read"
     ],
     scopeTypes: ["GLOBAL"],
     pool: "ZPP",
@@ -513,7 +521,8 @@ export const defaultRoles: Array<{
       "document:acknowledge-own",
       "briefing:read",
       "timeline:read",
-      "timeline:create"
+      "timeline:create",
+      "evidence:read"
     ],
     scopeTypes: ["GLOBAL"],
     pool: "TEC",
