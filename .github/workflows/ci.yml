@@ -94,8 +94,11 @@ jobs:
           kill "$api_pid"
           wait "$api_pid" || true
 
-      - name: PostgreSQL Foundation Stage 1 through 24 integration tests (zero skipped)
+      - name: PostgreSQL Foundation Stage 1 through 25 integration tests (zero skipped)
         run: npm run test:postgres
+
+      - name: Dedicated Foundation Stage 25 evidence integrity tests
+        run: npm exec -w @zpp/api vitest run -- --no-file-parallelism --maxWorkers=1 src/foundation-stage25-postgres.integration.test.ts
 
       - name: Dedicated Foundation Stage 20 PostgreSQL tests
         run: npm exec -w @zpp/api vitest run -- --no-file-parallelism --maxWorkers=1 src/foundation-stage20-postgres.integration.test.ts
@@ -142,6 +145,11 @@ jobs:
         env:
           PLAYWRIGHT_PERSISTENCE_MODE: postgres
         run: npx playwright test tests/smoke/zz-stage22-aar.spec.ts
+
+      - name: Stage 25 PostgreSQL incident evidence workflow
+        env:
+          PLAYWRIGHT_PERSISTENCE_MODE: postgres
+        run: npx playwright test tests/smoke/zz-stage25-evidence.spec.ts
 
       - name: Rehearse exact Stage 20 to Stage 21 dictionary authority migration
         env:
