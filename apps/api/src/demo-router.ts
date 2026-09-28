@@ -36,11 +36,9 @@ import type { DirectoryActor } from "./member-directory.js";
 import { createDocumentRepository } from "./documents.js";
 import { normalizeRow, parseWorkbook, workbookBuffer } from "./exporters.js";
 import { createNotificationService } from "./notifications.js";
-import { createReadinessService } from "./readiness.js";
 import { createRosteringRepository } from "./rostering.js";
 import type { RosterStatus } from "./rostering.js";
 import { permissionScope } from "./scope-policy.js";
-import { createTrainingRepository } from "./training.js";
 import { upload } from "./storage.js";
 import { HttpError, asyncHandler } from "./errors.js";
 import type { AuthenticatedUser } from "./types.js";
@@ -97,9 +95,6 @@ import type { FoundationMemberDirectoryRepository } from "./modules/member-direc
 import { createRosteringRouter } from "./modules/rostering/rostering-router.js";
 import { createRosteringService } from "./modules/rostering/rostering-service.js";
 import type { FoundationRosteringRepository } from "./modules/rostering/rostering-repository.js";
-import { createTrainingRouter } from "./modules/training/training-router.js";
-import { createTrainingService } from "./modules/training/training-service.js";
-import type { FoundationTrainingRepository } from "./modules/training/training-repository.js";
 import { createDocumentRouter } from "./modules/documents/document-router.js";
 import { createDocumentService } from "./modules/documents/document-service.js";
 import type { FoundationDocumentRepository } from "./modules/documents/document-repository.js";
@@ -110,8 +105,6 @@ import { createImportRouter } from "./modules/imports/import-router.js";
 import type { PrismaImportService } from "./modules/imports/prisma-import-service.js";
 import { createExportRouter } from "./modules/exports/export-router.js";
 import type { PrismaExportService } from "./modules/exports/prisma-export-service.js";
-import { createExerciseRouter } from "./modules/exercise/exercise-router.js";
-import type { PrismaExerciseService } from "./modules/exercise/prisma-exercise-service.js";
 import { dictionaryPolicies, dictionaryPolicy, profileDictionaryPolicy } from "./modules/configuration/dictionary-policy.js";
 
 type Row = Record<string, any>;
@@ -722,17 +715,17 @@ const sessions: Row[] = [
   {
     id: "ses-demo-1",
     operationalId: "SES-2026-001",
-    mode: "EXERCISE",
+    mode: "REAL",
     status: "Active",
-    eventType: "Exercise",
+    eventType: "Aircraft accident",
     flightNumber: "LO3924",
     route: "KRK-WAW",
     aircraftRegistration: "SP-LRA",
     airportLocation: "Warsaw Chopin Airport",
-    description: "Active exercise session for operational training.",
+    description: "Active real-event session for operational response.",
     startAt: "2026-06-21T08:00:00.000Z",
     endAt: null,
-    notes: "Training scenario for ZPP coordination and support workflows.",
+    notes: "Operational scenario for ZPP coordination and support workflows.",
     createdAt: now(),
     updatedAt: now()
   },
@@ -1965,8 +1958,6 @@ export function createDemoRouter(options: {
   assignmentRepository?: AssignmentRepository;
   memberDirectoryRepository?: FoundationMemberDirectoryRepository;
   rosteringRepository?: FoundationRosteringRepository;
-  trainingRepository?: FoundationTrainingRepository;
-  trainingClock?: { now(): Date };
   documentRepository?: FoundationDocumentRepository;
   documentClock?: { now(): Date };
   notificationService?: ReturnType<typeof createPersistentNotificationService>;
@@ -1974,12 +1965,9 @@ export function createDemoRouter(options: {
   operationalBriefingService?: PrismaOperationalBriefingService;
   importService?: PrismaImportService;
   exportService?: PrismaExportService;
-  exerciseService?: PrismaExerciseService;
-  disableLegacyReadiness?: boolean;
   documentNotificationHook?: (record: Record<string, unknown>) => void;
   assignmentNotificationHook?: (record: Record<string, unknown>, command: string) => void;
   rosteringNotificationHook?: (record: Record<string, unknown>, command: string) => void;
-  trainingNotificationHook?: (record: Record<string, unknown>, command: string) => void;
 } = {}) {
   const postgresRepositoryInjected = [
     options.incidentRepository,
@@ -1996,15 +1984,12 @@ export function createDemoRouter(options: {
     postgresRepositoryInjected
     || options.memberDirectoryRepository
     || options.rosteringRepository
-    || options.trainingRepository
     || options.documentRepository
     || options.notificationService?.durable
     || options.effectiveAccessAuthority
     || options.operationalBriefingService
     || options.importService
     || options.exportService
-    || options.exerciseService
-    || options.disableLegacyReadiness
   ) {
     throw new Error("createDemoRouter is test-memory-only and cannot compose PostgreSQL production authorities");
   }
@@ -2134,17 +2119,10 @@ export function createDemoRouter(options: {
   const foundationRosteringService = options.rosteringRepository
     ? createRosteringService(options.rosteringRepository, incidentAccessService)
     : null;
-  const training = createTrainingRepository(memberDirectory);
-  const foundationTrainingService = options.trainingRepository
-    ? createTrainingService(options.trainingRepository, incidentAccessService, options.trainingClock)
-    : null;
   const foundationDocumentService = options.documentRepository
     ? createDocumentService(options.documentRepository, incidentAccessService, options.documentClock)
     : null;
   const documentsRepository = createDocumentRepository(memberDirectory);
-  const readiness = options.disableLegacyReadiness
-    ? null
-    : createReadinessService({ directory: memberDirectory, training, documents: documentsRepository, rostering, foundationRostering: foundationRosteringService, foundationTraining: foundationTrainingService, foundationDocuments: foundationDocumentService });
   const memoryActiveEvent = options.operationalBriefingService ? null : createActiveEventService({ users, sessions, assignments, enquiries, familyRecords, passengerRecords, matchingRecords, releases, requests });
   const activeEvent = options.operationalBriefingService ?? memoryActiveEvent!;
   const effectiveAccessAuthority = options.effectiveAccessAuthority ?? {
@@ -2154,7 +2132,7 @@ export function createDemoRouter(options: {
     }
   };
   const requireIncidentPermission = createIncidentPermissionGate(effectiveAccessAuthority, incidentAccessService);
-  const notifications = options.notificationService ? undefined : createNotificationService({ users, sessions, assignments, directory: memberDirectory, rostering, training, documents: foundationDocumentService ? undefined : documentsRepository, activeEvent: memoryActiveEvent!, permissionsForRoleNames });
+  const notifications = options.notificationService ? undefined : createNotificationService({ users, sessions, assignments, directory: memberDirectory, rostering, documents: foundationDocumentService ? undefined : documentsRepository, activeEvent: memoryActiveEvent!, permissionsForRoleNames });
   notificationsForAdmin = options.notificationService ? { create: (input) => options.notificationService!.createEvent(input) } : notifications;
 
   const notifySafely = (handler: () => void) => {
@@ -2167,6 +2145,9 @@ export function createDemoRouter(options: {
 
   router.get("/health", (_req, res) => {
     res.json({ ok: true, service: "zpp-connect-api", persistence: incidentService.kind });
+  });
+  router.get("/health/readiness", (_req, res) => {
+    res.json({ ready: true, database: "not-required", persistence: incidentService.kind });
   });
 
   router.get("/auth/config", (_req, res) => {
@@ -2293,7 +2274,6 @@ export function createDemoRouter(options: {
   router.get("/dictionaries", (_req, res) => res.json(dictionaryRows()));
   if (options.importService) router.use(createImportRouter(options.importService, requireIncidentPermission));
   if (options.exportService) router.use(createExportRouter(options.exportService, requireIncidentPermission));
-  if (options.exerciseService) router.use(createExerciseRouter(options.exerciseService, requireIncidentPermission));
   router.use(createIncidentRouter(incidentService, {
     requireIncidentPermission,
   }));
@@ -2332,14 +2312,6 @@ export function createDemoRouter(options: {
         if (!options.notificationService && command === "publish") notifications!.notifyRosterShiftPublished(record);
         if (!options.notificationService && ["confirm", "decline", "cancel", "complete"].includes(command)) notifications!.resolveSource("rosterShift", record.id, "Source resolved");
         options.rosteringNotificationHook?.(record, command);
-      },
-    }));
-  }
-  if (foundationTrainingService) {
-    router.use(createTrainingRouter(foundationTrainingService, {
-      onAssigned: (record) => {
-        if (!options.notificationService) notifications!.notifyTrainingAssigned(record);
-        options.trainingNotificationHook?.(record, "assign");
       },
     }));
   }
@@ -2478,15 +2450,6 @@ export function createDemoRouter(options: {
   }));
 
   router.get("/dashboard", incidentPermissionGate("session:read", activeSessionId, true), (req, res) => res.json(dashboard(req, activeSessionId(req))));
-  if (!options.disableLegacyReadiness) {
-    router.get("/readiness/me", requirePermission("readiness:read-own"), directoryRoute((req) => readiness!.me(req.query, directoryActor(req))));
-    router.get("/readiness/members", requireAnyPermission(["readiness:read-all", "readiness:read-group"]), directoryRoute((req) => readiness!.members(req.query, directoryActor(req))));
-    router.get("/readiness/members/:memberProfileId", requireAnyPermission(["readiness:read-own", "readiness:read-all", "readiness:read-group"]), directoryRoute((req) => readiness!.member(String(req.params.memberProfileId), req.query, directoryActor(req))));
-    router.get("/readiness/groups", requireAnyPermission(["readiness:read-all", "readiness:read-group"]), directoryRoute((req) => readiness!.groups(req.query, directoryActor(req))));
-    router.get("/readiness/groups/:groupId", requireAnyPermission(["readiness:read-all", "readiness:read-group"]), directoryRoute((req) => readiness!.group(String(req.params.groupId), req.query, directoryActor(req))));
-    router.get("/readiness/summary", requireAnyPermission(["readiness:read-summary", "readiness:read-all", "readiness:read-group"]), directoryRoute((req) => readiness!.summary(req.query, directoryActor(req))));
-    router.get("/readiness/policy", requireAnyPermission(["readiness:policy:read", "readiness:policy:manage"]), directoryRoute((req) => readiness!.policy(directoryActor(req))));
-  }
 
   if (!foundationMemberDirectoryService) {
   router.get("/member-profiles", requirePermission("member:read"), directoryRoute((req) => memberDirectory.listMembers(req.query, directoryActor(req))));
@@ -2580,106 +2543,6 @@ export function createDemoRouter(options: {
   }));
   }
 
-  if (!foundationTrainingService) {
-  router.get("/training/courses", requireAnyPermission(["training:read-all", "training:read-own"]), directoryRoute((req) => training.listCourses(req.query, directoryActor(req))));
-  router.get("/training/courses/:id", requireAnyPermission(["training:read-all", "training:read-own"]), directoryRoute((req) => training.getCourse(String(req.params.id), directoryActor(req))));
-  router.post("/training/courses", requirePermission("training:course:manage"), directoryRoute((req) => {
-    const course = training.createCourse(req.body ?? {}, directoryActor(req));
-    addAudit(req, "create_training_course", "Course created", activeSessionId(req), { courseId: course.id, code: course.code, title: course.title }, "trainingCourse", course.id);
-    return course;
-  }, 201));
-  router.patch("/training/courses/:id", requirePermission("training:course:manage"), directoryRoute((req) => {
-    const before = training.getCourse(String(req.params.id), directoryActor(req));
-    const course = training.updateCourse(String(req.params.id), req.body ?? {}, directoryActor(req));
-    addAudit(req, "update_training_course", "Course updated", activeSessionId(req), { courseId: course.id, code: course.code, oldUpdatedAt: before.updatedAt, newUpdatedAt: course.updatedAt }, "trainingCourse", course.id);
-    return course;
-  }));
-  router.post("/training/courses/:id/deactivate", requirePermission("training:course:manage"), directoryRoute((req) => {
-    const course = training.deactivateCourse(String(req.params.id), req.body ?? {}, directoryActor(req));
-    addAudit(req, "deactivate_training_course", "Course deactivated", activeSessionId(req), { courseId: course.id, code: course.code }, "trainingCourse", course.id);
-    return course;
-  }));
-  router.post("/training/courses/:id/reactivate", requirePermission("training:course:manage"), directoryRoute((req) => {
-    const course = training.reactivateCourse(String(req.params.id), req.body ?? {}, directoryActor(req));
-    addAudit(req, "reactivate_training_course", "Course reactivated", activeSessionId(req), { courseId: course.id, code: course.code }, "trainingCourse", course.id);
-    return course;
-  }));
-
-  router.get("/training/requirements", requireAnyPermission(["training:read-all", "training:requirement:manage"]), directoryRoute((req) => training.listRequirements(req.query, directoryActor(req))));
-  router.get("/training/requirements/:id", requireAnyPermission(["training:read-all", "training:requirement:manage"]), directoryRoute((req) => training.getRequirement(String(req.params.id), directoryActor(req))));
-  router.post("/training/requirements", requirePermission("training:requirement:manage"), directoryRoute((req) => {
-    const requirement = training.createRequirement(req.body ?? {}, directoryActor(req));
-    addAudit(req, "create_training_requirement", "Requirement added", activeSessionId(req), { requirementId: requirement.id, courseId: requirement.courseId, targetType: requirement.targetType }, "trainingRequirement", requirement.id);
-    return requirement;
-  }, 201));
-  router.patch("/training/requirements/:id", requirePermission("training:requirement:manage"), directoryRoute((req) => {
-    const before = training.getRequirement(String(req.params.id), directoryActor(req));
-    const requirement = training.updateRequirement(String(req.params.id), req.body ?? {}, directoryActor(req));
-    addAudit(req, "update_training_requirement", "Requirement updated", activeSessionId(req), { requirementId: requirement.id, oldUpdatedAt: before.updatedAt, newUpdatedAt: requirement.updatedAt }, "trainingRequirement", requirement.id);
-    return requirement;
-  }));
-  router.post("/training/requirements/:id/end", requirePermission("training:requirement:manage"), directoryRoute((req) => {
-    const requirement = training.endRequirement(String(req.params.id), req.body ?? {}, directoryActor(req));
-    addAudit(req, "end_training_requirement", "Requirement ended", activeSessionId(req), { requirementId: requirement.id, courseId: requirement.courseId }, "trainingRequirement", requirement.id);
-    return requirement;
-  }));
-
-  router.get("/training/records", requireAnyPermission(["training:read-all", "training:read-own"]), directoryRoute((req) => training.listRecords(req.query, directoryActor(req))));
-  router.get("/training/records/:id", requireAnyPermission(["training:read-all", "training:read-own"]), directoryRoute((req) => training.getRecord(String(req.params.id), directoryActor(req))));
-  router.post("/training/records/assign", requirePermission("training:assign"), directoryRoute((req) => {
-    const result = training.assignRecord(req.body ?? {}, directoryActor(req));
-    if ("records" in result) {
-      addAudit(req, "assign_training", "Training assigned to group", activeSessionId(req), {
-        groupId: result.group.id,
-        groupName: result.group.name,
-        courseId: result.course.id,
-        assignedCount: result.assignedCount,
-        skippedCount: result.skippedCount,
-        recordIds: result.records.map((record) => record.id)
-      }, "trainingGroup", result.group.id);
-      notifySafely(() => result.records.forEach((record) => notifications!.notifyTrainingAssigned(record)));
-      return result;
-    }
-    addAudit(req, "assign_training", "Training assigned", activeSessionId(req), { recordId: result.id, operationalId: result.operationalId, memberProfileId: result.memberProfileId, courseId: result.courseId }, "trainingRecord", result.id);
-    notifySafely(() => notifications!.notifyTrainingAssigned(result));
-    return result;
-  }, 201));
-  router.patch("/training/records/:id", requireAnyPermission(["training:assign", "training:complete-all"]), directoryRoute((req) => {
-    const before = training.getRecord(String(req.params.id), directoryActor(req));
-    const record = training.updateRecord(String(req.params.id), req.body ?? {}, directoryActor(req));
-    addAudit(req, "update_training_record", "Training updated", activeSessionId(req), { recordId: record.id, oldUpdatedAt: before.updatedAt, newUpdatedAt: record.updatedAt }, "trainingRecord", record.id);
-    return record;
-  }));
-  router.post("/training/records/:id/start", requireAnyPermission(["training:complete-own", "training:complete-all"]), directoryRoute((req) => {
-    const before = training.getRecord(String(req.params.id), directoryActor(req));
-    const record = training.startRecord(String(req.params.id), req.body ?? {}, directoryActor(req));
-    addAudit(req, "start_training", "Training started", activeSessionId(req), { recordId: record.id, oldStatus: before.status, newStatus: record.status }, "trainingRecord", record.id);
-    return record;
-  }));
-  router.post("/training/records/:id/complete", requireAnyPermission(["training:complete-own", "training:complete-all"]), directoryRoute((req) => {
-    const before = training.getRecord(String(req.params.id), directoryActor(req));
-    const record = training.completeRecord(String(req.params.id), req.body ?? {}, directoryActor(req));
-    addAudit(req, "complete_training", "Completion recorded", activeSessionId(req), { recordId: record.id, oldStatus: before.status, newStatus: record.status, expiryAt: record.expiryAt }, "trainingRecord", record.id);
-    return record;
-  }));
-  router.post("/training/records/:id/verify", requirePermission("training:verify"), directoryRoute((req) => {
-    const record = training.verifyRecord(String(req.params.id), req.body ?? {}, directoryActor(req));
-    addAudit(req, "verify_training", "Completion verified", activeSessionId(req), { recordId: record.id, verifiedAt: record.verifiedAt }, "trainingRecord", record.id);
-    return record;
-  }));
-  router.post("/training/records/:id/waive", requirePermission("training:waive"), directoryRoute((req) => {
-    const before = training.getRecord(String(req.params.id), directoryActor(req));
-    const record = training.waiveRecord(String(req.params.id), req.body ?? {}, directoryActor(req));
-    addAudit(req, "waive_training", "Training waived", activeSessionId(req), { recordId: record.id, oldStatus: before.status, newStatus: record.status }, "trainingRecord", record.id);
-    return record;
-  }));
-  router.post("/training/records/:id/cancel", requirePermission("training:assign"), directoryRoute((req) => {
-    const before = training.getRecord(String(req.params.id), directoryActor(req));
-    const record = training.cancelRecord(String(req.params.id), req.body ?? {}, directoryActor(req));
-    addAudit(req, "cancel_training", "Training cancelled", activeSessionId(req), { recordId: record.id, oldStatus: before.status, newStatus: record.status }, "trainingRecord", record.id);
-    return record;
-  }));
-  }
 
   if (!foundationDocumentService) {
   router.get("/documents", requireAnyPermission(["document:read-own", "document:read-all"]), directoryRoute((req) => documentsRepository.listDocuments(req.query, directoryActor(req))));
@@ -2828,11 +2691,7 @@ export function createDemoRouter(options: {
   }
 
   const demoResourceRoutes = [
-    ...(options.importService ? [] : [{ resource: "files", read: "import:create", create: "import:create", update: "import:create" }]),
-    ...(options.exerciseService ? [] : [
-      { resource: "exercise/injects", read: "exercise:manage", create: "exercise:manage", update: "exercise:manage" },
-      { resource: "exercise/observations", read: "exercise:manage", create: "exercise:manage", update: "exercise:manage" }
-    ])
+    ...(options.importService ? [] : [{ resource: "files", read: "import:create", create: "import:create", update: "import:create" }])
   ];
 
   const incidentForResource = (resource: string, id: string) => {
@@ -2880,11 +2739,6 @@ export function createDemoRouter(options: {
     res.status(201).json(withActorMetadata("timeline", row, req));
   });
   router.get("/audit-logs", incidentPermissionGate("audit:read", activeSessionId), (req, res) => res.json(listRows("audit-logs", req, activeSessionId(req))));
-
-  if (!options.exerciseService) {
-    router.post("/exercise/injects/:id/release", incidentPermissionGate("exercise:manage", (req) => incidentForResource("exercise/injects", String(req.params.id)), false, true), (req, res) => res.json(updateRow("exercise/injects", String(req.params.id), { status: "Released", releasedAt: now() }, req)));
-    router.post("/exercise/injects/:id/complete", incidentPermissionGate("exercise:manage", (req) => incidentForResource("exercise/injects", String(req.params.id)), false, true), (req, res) => res.json(updateRow("exercise/injects", String(req.params.id), { status: "Completed" }, req)));
-  }
 
   if (!options.importService) {
     const importPermissions = (req: Request): Permission[] => [

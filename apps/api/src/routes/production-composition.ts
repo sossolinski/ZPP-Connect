@@ -16,8 +16,6 @@ import { createDocumentService } from "../modules/documents/document-service.js"
 import type { EnquiryRepository } from "../modules/enquiries/enquiry-repository.js";
 import { createEnquiryRouter } from "../modules/enquiries/enquiry-router.js";
 import { createEnquiryService } from "../modules/enquiries/enquiry-service.js";
-import { createExerciseRouter } from "../modules/exercise/exercise-router.js";
-import type { PrismaExerciseService } from "../modules/exercise/prisma-exercise-service.js";
 import { createExportRouter } from "../modules/exports/export-router.js";
 import type { PrismaExportService } from "../modules/exports/prisma-export-service.js";
 import type { FamilyRepository } from "../modules/families/family-repository.js";
@@ -47,8 +45,6 @@ import type { createPersistentNotificationService } from "../modules/notificatio
 import type { PassengerRepository } from "../modules/passengers/passenger-repository.js";
 import { createPassengerRouter } from "../modules/passengers/passenger-router.js";
 import { createPassengerService } from "../modules/passengers/passenger-service.js";
-import { createReadinessRouter } from "../modules/readiness/readiness-router.js";
-import type { ReadinessProjectionService } from "../modules/readiness/prisma-readiness-service.js";
 import type { ReleaseRepository } from "../modules/releases/release-repository.js";
 import { createReleaseRouter } from "../modules/releases/release-router.js";
 import { createReleaseService } from "../modules/releases/release-service.js";
@@ -58,9 +54,6 @@ import { createRequestService } from "../modules/requests/request-service.js";
 import type { FoundationRosteringRepository } from "../modules/rostering/rostering-repository.js";
 import { createRosteringRouter } from "../modules/rostering/rostering-router.js";
 import { createRosteringService } from "../modules/rostering/rostering-service.js";
-import type { FoundationTrainingRepository } from "../modules/training/training-repository.js";
-import { createTrainingRouter } from "../modules/training/training-router.js";
-import { createTrainingService } from "../modules/training/training-service.js";
 import { createProductionRouteRegistry } from "./production-route-registry.js";
 import { createProductionSharedRouter, createPublicProductionRouter, createTechnicalReadinessRouter } from "./production-shared-router.js";
 
@@ -81,21 +74,16 @@ export type ProductionCompositionOptions = {
   assignmentRepository: AssignmentRepository;
   memberDirectoryRepository: FoundationMemberDirectoryRepository;
   rosteringRepository: FoundationRosteringRepository;
-  trainingRepository: FoundationTrainingRepository;
   documentRepository: FoundationDocumentRepository;
   notificationService: NotificationService;
   operationalBriefingService: PrismaOperationalBriefingService;
   importService: PrismaImportService;
   exportService: PrismaExportService;
-  exerciseService: PrismaExerciseService;
-  readinessService: ReadinessProjectionService;
   dictionaryService: DictionaryConfigurationService;
-  trainingClock?: { now(): Date };
   documentClock?: { now(): Date };
   documentNotificationHook?: (record: Record<string, unknown>) => void;
   assignmentNotificationHook?: (record: Record<string, unknown>, command: string) => void;
   rosteringNotificationHook?: (record: Record<string, unknown>, command: string) => void;
-  trainingNotificationHook?: (record: Record<string, unknown>, command: string) => void;
 };
 
 export function createProductionComposition(options: ProductionCompositionOptions) {
@@ -147,9 +135,6 @@ export function createProductionComposition(options: ProductionCompositionOption
     requireIncidentPermission,
     onShiftCommitted: (record, command) => options.rosteringNotificationHook?.(record, command),
   }));
-  mount("training", "A", "postgres", createTrainingRouter(createTrainingService(options.trainingRepository, incidentAccess, options.trainingClock), {
-    onAssigned: (record) => options.trainingNotificationHook?.(record, "assign"),
-  }));
   mount("documents", "A", "postgres", createDocumentRouter(createDocumentService(options.documentRepository, incidentAccess, options.documentClock), {
     onPublished: (record) => options.documentNotificationHook?.(record),
   }));
@@ -157,8 +142,6 @@ export function createProductionComposition(options: ProductionCompositionOption
   mount("operational-briefings", "A", "postgres", createOperationalBriefingRouter(options.operationalBriefingService, requireIncidentPermission));
   mount("imports", "A", "postgres", createImportRouter(options.importService, requireIncidentPermission));
   mount("exports-reports", "A", "postgres", createExportRouter(options.exportService, requireIncidentPermission));
-  mount("exercise", "A", "postgres", createExerciseRouter(options.exerciseService, requireIncidentPermission));
-  mount("readiness", "A", "postgres", createReadinessRouter(options.readinessService));
   mount("after-action-reports", "A", "postgres", createAfterActionReportRouter(options.afterActionReportService ?? createPrismaAfterActionReportService(options.db), requireIncidentPermission));
 
   return { router, manifest: registry.manifest() };

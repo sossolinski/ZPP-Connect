@@ -346,29 +346,6 @@ export const openApiDocument = {
     "/reports/session-summary": {
       get: { summary: "Read a permission-filtered PostgreSQL session-summary projection" },
     },
-    "/exercise/injects": {
-      get: { summary: "Page authorized durable Exercise Inject evidence" },
-      post: { summary: "Idempotently create a Planned Inject in an Exercise Incident" },
-    },
-    "/exercise/injects/{id}": {
-      patch: { summary: "Optimistically update a Planned Inject" },
-    },
-    "/exercise/injects/{id}/release": {
-      post: { summary: "Idempotently release and seal an Inject" },
-    },
-    "/exercise/injects/{id}/complete": {
-      post: { summary: "Idempotently complete a Released Inject" },
-    },
-    "/exercise/observations": {
-      get: { summary: "Page authorized durable Evaluator Observations" },
-      post: { summary: "Idempotently create an Observation and immutable revision" },
-    },
-    "/exercise/observations/{id}": {
-      patch: { summary: "Optimistically update an Observation and append its revision" },
-    },
-    "/exercise/observations/{id}/history": {
-      get: { summary: "Page immutable authorized Observation revision evidence" },
-    },
     "/audit-logs": { get: { summary: "Read append-only audit log" } },
     "/admin/users": { get: { summary: "List users" } },
     "/dictionaries": {

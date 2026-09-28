@@ -1,11 +1,27 @@
 # PostgreSQL Restore and Recovery Verification Runbook
 
-Use this runbook to restore a Stage 23 backup into a new database. The repository command
+Use this runbook to restore a Stage 23-or-later compatible backup into a new database. The repository command
 does not drop, clean, truncate or overwrite a database. It refuses a nonempty target and,
 by default, requires a name beginning `zpp_stage23_restore_`.
 
 Run from the matching production image. In a source checkout, first run
 `npm run build -w @zpp/api` so the compiled operational entry points match the checkout.
+
+## Version compatibility policy
+
+The supported general recovery pattern is:
+
+1. restore with the application release that created the backup;
+2. verify that restored release and its exact migration checksums;
+3. upgrade the isolated restored database through the normal forward-only migration chain;
+4. rerun current integrity and application acceptance checks before cutover.
+
+Do not assume arbitrary cross-version restore compatibility. Foundation Stage 24 is a
+deliberately tested exception: it adds no migration, preserves all 23 migration files and
+retains the Training/Exercise compatibility schema. A real pre-Stage-24 Stage 23 backup was
+verified and restored successfully with Stage 24 tooling, then passed current integrity and
+product-boundary tests with its legacy rows intact. Future schema-changing releases must
+repeat this assessment; otherwise use the matching-release procedure above.
 
 ## 1. Incident preparation
 

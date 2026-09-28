@@ -67,10 +67,7 @@ export const navigationItems: NavigationItem[] = [
   { key: "groups", to: "/groups", label: "Groups", group: "People", icon: UsersRound },
   { key: "rostering", to: "/rostering", label: "Rostering", group: "People", icon: CalendarDays },
   { key: "assignments", to: "/assignments", label: "Assignments", group: "People", icon: ClipboardList },
-  { key: "training", to: "/training", label: "Training", group: "Readiness", icon: BookOpenCheck },
-  { key: "documents", to: "/documents", label: "Documents", group: "Readiness", icon: FileText },
-  { key: "readiness", to: "/readiness", label: "Readiness", group: "Readiness", icon: Gauge },
-  { key: "exercise", to: "/exercise", label: "Exercise", group: "Readiness", icon: ClipboardList },
+  { key: "documents", to: "/documents", label: "Documents", group: "Operations", icon: FileText },
   { key: "files-import", to: "/files-import", label: "Files / Import", group: "Admin", icon: FileText },
   { key: "reports", to: "/reports", label: "Reports", group: "Admin", icon: BookOpenCheck },
   { key: "users-access", to: "/users-access", label: "Users & Access", group: "Admin", icon: UserCog },
@@ -79,7 +76,7 @@ export const navigationItems: NavigationItem[] = [
   { key: "settings", to: "/settings", label: "Settings", group: "Account", icon: Settings }
 ];
 
-const navGroups = ["Command", "Case Work", "People", "Readiness", "Account", "Admin"];
+const navGroups = ["Command", "Case Work", "People", "Operations", "Account", "Admin"];
 const defaultOpenNavGroups = ["Command"];
 
 function visibleGroupsFor(visibleNav: NavigationItem[]) {

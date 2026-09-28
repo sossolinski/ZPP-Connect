@@ -36,11 +36,11 @@ postgresDescribe("Foundation Stage 11 PostgreSQL Training", () => {
     const factory = notificationHook ? createApp : createSharedApp;
     return factory({
       incidentAccessRepository: createPrismaIncidentAccessRepository(prisma!),
-      memberDirectoryRepository: createPrismaMemberDirectoryRepository(prisma!, (memberId) => training.memberTrainingStatus(memberId, clock.now())),
+      memberDirectoryRepository: createPrismaMemberDirectoryRepository(prisma!),
       trainingRepository: training,
       trainingClock: clock,
       trainingNotificationHook: notificationHook,
-    });
+    } as any);
   }
 
   async function actor(key: string, permissions: string[], incidents: string[] = [], linked = false, scopedGroupId?: string) {

@@ -38,14 +38,12 @@ export type MemberProfileRecord = {
   status: MemberProfileStatus;
   version: number;
   availability: string;
-  trainingStatus: string;
   rosterStatus: string;
   availabilitySummary?: { id: string; operationalId: string; type: string; startAt: Date | string; endAt: Date | string } | null;
   rosterSummary?: { id: string; operationalId: string; status: string; startAt: Date | string; endAt: Date | string } | null;
   assignedLeader?: string | null;
   derivedFields: {
     availability: "postgres-projection";
-    trainingStatus: "legacy-compatibility" | "postgres-projection";
     rosterStatus: "postgres-projection";
     assignedLeader: "legacy-compatibility";
   };

@@ -32,6 +32,7 @@ export function createIncidentService(repository: IncidentRepository, access: In
     },
 
     async create(input: IncidentCreateInput, actor: IncidentActor) {
+      if (input.mode !== "REAL") throw new HttpError(400, "New sessions must use REAL mode");
       if (terminalStatuses.has(input.status)) {
         throw new HttpError(400, "A session cannot be created in a terminal state");
       }
@@ -43,6 +44,8 @@ export function createIncidentService(repository: IncidentRepository, access: In
       await access.authorize(actor, id);
       const existing = await repository.findById(id);
       if (!existing) throw new HttpError(404, "Session not found");
+      if (existing.mode !== "REAL") throw new HttpError(409, "Historical exercise and training sessions are read-only");
+      if (input.mode !== undefined && input.mode !== "REAL") throw new HttpError(400, "Session mode must remain REAL");
       if (terminalStatuses.has(existing.status)) throw new HttpError(409, "Closed or archived sessions are read-only");
       if (input.status && terminalStatuses.has(input.status)) {
         throw new HttpError(400, "Use the dedicated close session action for terminal state changes");
@@ -57,6 +60,7 @@ export function createIncidentService(repository: IncidentRepository, access: In
       await access.authorize(actor, id);
       const existing = await repository.findById(id);
       if (!existing) throw new HttpError(404, "Session not found");
+      if (existing.mode !== "REAL") throw new HttpError(409, "Historical exercise and training sessions are read-only");
       if (terminalStatuses.has(existing.status)) throw new HttpError(409, "Session is already closed or archived");
       const closed = await repository.close(id, notes, actor);
       if (!closed) throw new HttpError(409, "Session changed while it was being closed");

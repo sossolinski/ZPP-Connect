@@ -16,9 +16,7 @@ import { VolunteersPage } from "./pages/VolunteersPage";
 import { GroupsPage } from "./pages/GroupsPage";
 import { RosteringPage } from "./pages/RosteringPage";
 import { AssignmentsPage } from "./pages/AssignmentsPage";
-import { TrainingPage } from "./pages/TrainingPage";
 import { DocumentsPage } from "./pages/DocumentsPage";
-import { ReadinessPage } from "./pages/ReadinessPage";
 import { SettingsPage } from "./pages/SettingsPage";
 import { SessionsPage } from "./pages/SessionsPage";
 import { RecordsPage } from "./pages/RecordsPage";
@@ -29,7 +27,6 @@ import { TimelinePage } from "./pages/TimelinePage";
 import { FilesPage } from "./pages/FilesPage";
 import { ReportsPage } from "./pages/ReportsPage";
 import { AfterActionReportsPage } from "./pages/AfterActionReportsPage";
-import { ExercisePage } from "./pages/ExercisePage";
 import { AuditPage } from "./pages/AuditPage";
 import { AdminPage } from "./pages/AdminPage";
 
@@ -50,14 +47,11 @@ const routePermissions: Record<PortalRouteKey, string[]> = {
   groups: ["group:read"],
   rostering: ["roster:read", "roster:read-own"],
   assignments: ["assignment:read"],
-  training: ["training:read-all", "training:read-own"],
   documents: ["document:read-own", "document:read-all"],
-  readiness: ["readiness:read-own", "readiness:read-group", "readiness:read-all", "readiness:read-summary"],
   "files-import": ["import:create"],
   reports: ["reports:read", "aar:read"],
   "users-access": ["admin:manage"],
   "roles-permissions": ["admin:manage"],
-  exercise: ["exercise:manage"],
   audit: ["audit:read"],
   settings: ["session:read"]
 };
@@ -284,7 +278,7 @@ export function App() {
         path="/sessions"
         element={protect(
           "sessions",
-          <WorkflowPage eyebrow="Session control" title="Sessions" description="Next: confirm the active exercise or real event before creating or editing records.">
+          <WorkflowPage eyebrow="Session control" title="Sessions" description="Next: confirm the active real event before creating or editing records.">
             <SessionsPage />
           </WorkflowPage>
         )}
@@ -358,9 +352,7 @@ export function App() {
       <Route path="/groups" element={protect("groups", <SessionDependentPage><GroupsPage /></SessionDependentPage>)} />
       <Route path="/rostering" element={protect("rostering", user ? <RosteringPage user={user} /> : null)} />
       <Route path="/assignments" element={protect("assignments", <SessionDependentPage><AssignmentsPage /></SessionDependentPage>)} />
-      <Route path="/training" element={protect("training", <TrainingPage />)} />
       <Route path="/documents" element={protect("documents", <DocumentsPage />)} />
-      <Route path="/readiness" element={protect("readiness", <ReadinessPage />)} />
       <Route
         path="/files-import"
         element={protect(
@@ -398,15 +390,6 @@ export function App() {
           "roles-permissions",
           <WorkflowPage eyebrow="Administration" title="Roles & Permissions" description="Next: review protected roles or create a custom role from existing capabilities.">
             <AdminPage initialTab="roles" />
-          </WorkflowPage>
-        )}
-      />
-      <Route
-        path="/exercise"
-        element={protect(
-          "exercise",
-          <WorkflowPage eyebrow="Exercise control" title="Exercise" description="Next: run the current inject, record observations, then brief the next action.">
-            <SessionDependentPage><ExercisePage /></SessionDependentPage>
           </WorkflowPage>
         )}
       />

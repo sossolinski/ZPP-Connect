@@ -25,9 +25,9 @@ async function ensureSession(page: Page, flightNumber: string) {
   const response = await page.request.post(`${apiUrl}/sessions`, {
     headers: coordinatorHeaders,
     data: {
-      mode: "EXERCISE",
-      status: "Active",
-      eventType: "Exercise",
+      mode: "REAL",
+      status: "Draft",
+      eventType: "Incident",
       flightNumber,
       route: "WAW-TEST",
       airportLocation: "Stage 2A browser test",
@@ -71,7 +71,7 @@ async function useSession(page: Page, session: TestSession) {
     await expect(action).toBeVisible();
     await action.click();
   }
-  await expect(page.locator(`[aria-label*="Current session EXERCISE ${session.operationalId}"]:visible`)).toHaveCount(1);
+  await expect(page.locator(`[aria-label*="Current session REAL ${session.operationalId}"]:visible`)).toHaveCount(1);
 }
 
 test.describe.serial("Stage 2A session integrity", () => {
@@ -87,7 +87,7 @@ test.describe.serial("Stage 2A session integrity", () => {
     await expect(page.getByRole("row").filter({ hasText: first.operationalId }).getByRole("button", { name: "Use this session" })).toHaveCount(0);
     await expect.poll(() => page.evaluate(() => localStorage.getItem("zpp:activeSessionId"))).toBe(first.id);
     await page.reload();
-    await expect(page.locator(`[aria-label*="Current session EXERCISE ${first.operationalId}"]:visible`)).toHaveCount(1);
+    await expect(page.locator(`[aria-label*="Current session REAL ${first.operationalId}"]:visible`)).toHaveCount(1);
 
     for (const [email, maySelect] of [
       ["admin@lot.pl", true],
@@ -106,7 +106,7 @@ test.describe.serial("Stage 2A session integrity", () => {
     await page.setViewportSize({ width: 390, height: 844 });
     await login(page);
     await useSession(page, second);
-    await expect(page.locator(`[aria-label*="Current session EXERCISE ${second.operationalId}"]:visible`)).toHaveCount(1);
+    await expect(page.locator(`[aria-label*="Current session REAL ${second.operationalId}"]:visible`)).toHaveCount(1);
     expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(391);
   });
 
@@ -169,10 +169,6 @@ test.describe.serial("Stage 2A session integrity", () => {
     await expect(page.getByRole("button", { name: "Generate suggestions" })).toBeVisible();
     await expect(page.getByRole("button", { name: "New" })).toHaveCount(0);
 
-    await page.goto("/exercise");
-    await expect(page.getByText("Initial status")).toBeVisible();
-    await expect(page.getByLabel("Status")).toHaveCount(0);
-    await expect(page.getByRole("button", { name: "Create inject" })).toBeEnabled();
   });
 
   test("blocks stale drawer writes and reconciles active-session closure with and without a fallback", async ({ page }) => {
@@ -191,7 +187,7 @@ test.describe.serial("Stage 2A session integrity", () => {
     });
     await closeSessionViaApi(page, first.id, "Closed externally during stale drawer test");
     await drawer.getByRole("button", { name: "Save enquiry" }).click();
-    await expect(page.locator(`[aria-label*="Current session EXERCISE ${second.operationalId}"]:visible`)).toHaveCount(1);
+    await expect(page.locator(`[aria-label*="Current session REAL ${second.operationalId}"]:visible`)).toHaveCount(1);
     expect(createRequests).toBe(0);
     const staleRows = await page.request.get(`${apiUrl}/enquiries?sessionId=${encodeURIComponent(first.id)}`, { headers: coordinatorHeaders });
     expect(((await staleRows.json()).data as unknown[]).length).toBe(0);
@@ -202,7 +198,7 @@ test.describe.serial("Stage 2A session integrity", () => {
     await page.getByLabel("Closure note").fill("Second session closed with fallback available");
     await page.getByRole("button", { name: "Close session" }).last().click();
     await expect(page.getByText(new RegExp(`${second.operationalId} was closed.*SES-2026-001 is now the active session`))).toBeVisible();
-    await expect(page.locator('[aria-label*="Current session EXERCISE SES-2026-001"]:visible')).toHaveCount(1);
+    await expect(page.locator('[aria-label*="Current session REAL SES-2026-001"]:visible')).toHaveCount(1);
 
     const originalRow = page.getByRole("row").filter({ hasText: "SES-2026-001" });
     await originalRow.getByRole("button", { name: "Close session" }).click();
@@ -227,6 +223,6 @@ test.describe.serial("Stage 2A session integrity", () => {
     const recovery = await ensureSession(page, "S2A-RECOVERY");
     await page.goto("/sessions");
     await useSession(page, recovery);
-    await expect(page.locator(`[aria-label*="Current session EXERCISE ${recovery.operationalId}"]:visible`)).toHaveCount(1);
+    await expect(page.locator(`[aria-label*="Current session REAL ${recovery.operationalId}"]:visible`)).toHaveCount(1);
   });
 });

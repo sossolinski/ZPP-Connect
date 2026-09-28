@@ -29,7 +29,6 @@ export function createAfterActionReportRouter(service: PrismaAfterActionReportSe
   }
   router.post("/after-action-reports/:id/revisions", gate("report", ["aar:create", "aar:update-draft"]), command(req => service.revision(String(req.params.id), req.body, actor(req)), true));
   router.post("/after-action-reports/:id/archive", gate("report", ["aar:archive"]), command(req => service.archive(String(req.params.id), req.body, actor(req))));
-  router.get("/sessions/:sessionId/aar-source-observations", requireIncidentPermission(["session:read", "aar:create", "exercise:manage"], req => uuid.parse(req.params.sessionId)), route(req => service.sourceObservations(String(req.params.sessionId), req.query, actor(req))));
   router.post("/after-action-report-versions/:id/pdf-artifacts", gate("version", ["aar:read", "aar:pdf:generate"]), command(req => service.generatePdf(String(req.params.id), req.body, actor(req)), true));
   router.get("/after-action-report-versions/:id/pdf-artifacts", gate("version", ["aar:read"]), route(req => service.artifacts(String(req.params.id), req.query, actor(req))));
   router.get("/after-action-pdf-artifacts/:id", gate("artifact", ["aar:read"]), route(req => service.artifact(String(req.params.id), actor(req))));

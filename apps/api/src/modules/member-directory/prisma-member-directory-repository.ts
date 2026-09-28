@@ -29,7 +29,6 @@ type GroupRow = Prisma.OperationalGroupGetPayload<{
 
 const derivedFields = {
   availability: "postgres-projection",
-  trainingStatus: "postgres-projection",
   rosterStatus: "postgres-projection",
   assignedLeader: "legacy-compatibility",
 } as const;
@@ -44,7 +43,7 @@ function canSeeContact(actor: DirectoryActor) {
     actor.permissions.includes("admin:manage");
 }
 
-function memberRecord(member: MemberRow, actor: DirectoryActor, trainingStatus?: string): MemberProfileRecord {
+function memberRecord(member: MemberRow, actor: DirectoryActor): MemberProfileRecord {
   const contact = canSeeContact(actor);
   const projected = member as MemberRow & { availabilityRecords?: Array<{ id: string; operationalId: string; type: string; startAt: Date; endAt: Date }>; rosterShifts?: Array<{ id: string; operationalId: string; status: string; startAt: Date; endAt: Date }> };
   const availability = projected.availabilityRecords?.[0] ?? null;
@@ -66,7 +65,6 @@ function memberRecord(member: MemberRow, actor: DirectoryActor, trainingStatus?:
     status: member.status as MemberProfileRecord["status"],
     version: member.version,
     availability: availability ? `${availability.type} ${availability.startAt.toISOString()}–${availability.endAt.toISOString()}` : "Managed in Availability",
-    trainingStatus: trainingStatus ?? member.legacyTrainingStatus ?? "Managed in Training",
     rosterStatus: roster ? `${roster.status} ${roster.operationalId}` : "Managed in Rostering",
     availabilitySummary: availability,
     rosterSummary: roster,
@@ -217,8 +215,8 @@ function roleAssignmentRecord(input: { id: string; userId: string; groupId: stri
   };
 }
 
-export function createPrismaMemberDirectoryRepository(client: PrismaClient, trainingStatus?: (memberProfileId: string) => Promise<string>): FoundationMemberDirectoryRepository {
-  const projectMember = async (row: MemberRow, actor: DirectoryActor) => memberRecord(row, actor, trainingStatus ? await trainingStatus(row.id) : undefined);
+export function createPrismaMemberDirectoryRepository(client: PrismaClient): FoundationMemberDirectoryRepository {
+  const projectMember = async (row: MemberRow, actor: DirectoryActor) => memberRecord(row, actor);
   async function mutateGroup(
     incidentId: string,
     groupId: string,

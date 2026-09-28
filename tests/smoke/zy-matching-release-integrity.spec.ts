@@ -18,8 +18,8 @@ async function apiGet(page: Page, path: string, query: Row) {
   return { response, body: await response.json() };
 }
 
-async function createSession(page: Page, token: string, mode = "EXERCISE", status = "Active") {
-  const result = await apiPost(page, "/sessions", { mode, status, eventType: "Exercise", flightNumber: token, route: "WAW-TEST", description: "Foundation browser fixture" });
+async function createSession(page: Page, token: string, mode = "REAL", status = "Draft") {
+  const result = await apiPost(page, "/sessions", { mode, status, eventType: "Incident", flightNumber: token, route: "WAW-TEST", description: "Foundation browser fixture" });
   expect(result.response.status()).toBe(201);
   cleanupSessionIds.push(result.body.id);
   return result.body;

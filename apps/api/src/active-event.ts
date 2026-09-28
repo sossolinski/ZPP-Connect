@@ -246,12 +246,12 @@ function seededBriefings(): OperationalBriefing[] {
     revision: 1,
     status: "Published",
     title: "Current operational briefing",
-    situationSummary: "EXERCISE session is active for ZPP coordination training. Telephone enquiry intake, family support, matching review and roster coverage are operating under exercise conditions.",
-    overview: "Training scenario for flight LO3924 KRK-WAW. No passenger or casualty status may be disclosed from TEC intake or family support workflows.",
+    situationSummary: "A REAL session is active for ZPP coordination. Telephone enquiry intake, family support, matching review and roster coverage are operating under incident conditions.",
+    overview: "Operational scenario for flight LO3924 KRK-WAW. No passenger or casualty status may be disclosed from TEC intake or family support workflows.",
     confirmedFacts: [
       {
         id: "brf-ses-demo-1-r1-fact-01",
-        statement: "Session SES-2026-001 is active in EXERCISE mode.",
+        statement: "Session SES-2026-001 is active in REAL mode.",
         source: "Session control",
         sourceResourceType: "session",
         sourceResourceId: "ses-demo-1",
@@ -261,7 +261,7 @@ function seededBriefings(): OperationalBriefing[] {
       },
       {
         id: "brf-ses-demo-1-r1-fact-02",
-        statement: "TEC enquiry intake is open for the exercise and must not confirm protected passenger status.",
+        statement: "TEC enquiry intake is open and must not confirm protected passenger status.",
         source: "TEC operating rule",
         sourceResourceType: "enquiry",
         sourceResourceId: "enq-demo-1",

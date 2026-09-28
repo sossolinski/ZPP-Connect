@@ -20,23 +20,6 @@ type MemberSummary = {
   status?: string;
 };
 
-type ReadinessStatus = "Ready" | "Ready with attention" | "Not ready" | "Unknown" | "Not applicable";
-type ReadinessIssue = {
-  title?: string;
-  category?: string;
-};
-type MemberReadiness = {
-  member?: {
-    id?: string;
-    memberId?: string;
-    displayName?: string;
-  };
-  calculatedAt?: string;
-  overallStatus: ReadinessStatus;
-  blockers?: ReadinessIssue[];
-  warnings?: ReadinessIssue[];
-};
-
 type GroupSummary = {
   id: string;
   operationalId: string;
@@ -154,38 +137,6 @@ function errorMessage(error: unknown) {
   return error instanceof Error ? error.message : "Action could not be completed.";
 }
 
-function normalizeReadinessStatus(value: unknown): ReadinessStatus {
-  if (value === "Ready" || value === "Ready with attention" || value === "Not ready" || value === "Not applicable") return value;
-  return "Unknown";
-}
-
-function normalizeReadiness(input: Record<string, any>): MemberReadiness {
-  const primary = input.primaryIssue && typeof input.primaryIssue === "object" ? input.primaryIssue : null;
-  return {
-    member: input.member,
-    calculatedAt: typeof input.calculatedAt === "string" ? input.calculatedAt : undefined,
-    overallStatus: normalizeReadinessStatus(input.overallStatus),
-    blockers: Array.isArray(input.blockers) ? input.blockers : primary?.severity === "blocker" ? [primary] : [],
-    warnings: Array.isArray(input.warnings) ? input.warnings : primary?.severity === "warning" ? [primary] : []
-  };
-}
-
-function readinessLabel(status: ReadinessStatus) {
-  return status === "Unknown" ? "Unable to determine" : status;
-}
-
-function readinessTone(status: ReadinessStatus) {
-  if (status === "Ready") return "success";
-  if (status === "Ready with attention") return "warning";
-  if (status === "Not ready") return "danger";
-  if (status === "Not applicable") return "neutral";
-  return "info";
-}
-
-function primaryReadinessIssue(readiness?: MemberReadiness) {
-  return readiness?.blockers?.[0] ?? readiness?.warnings?.[0] ?? null;
-}
-
 function shiftFormFromRecord(shift?: RosterShift): ShiftForm {
   return {
     title: shift?.title ?? "",
@@ -236,11 +187,9 @@ export function RosteringPage({ user }: { user: DemoUser }) {
   const [availability, setAvailability] = useState<AvailabilityRecord[]>([]);
   const [members, setMembers] = useState<MemberSummary[]>([]);
   const [groups, setGroups] = useState<GroupSummary[]>([]);
-  const [readinessRows, setReadinessRows] = useState<MemberReadiness[]>([]);
   const [linkedMember, setLinkedMember] = useState<MemberSummary | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
-  const [readinessError, setReadinessError] = useState("");
   const [success, setSuccess] = useState("");
   const [searchFilter, setSearchFilter] = useState("");
   const [functionFilter, setFunctionFilter] = useState("");
@@ -274,19 +223,16 @@ export function RosteringPage({ user }: { user: DemoUser }) {
   const canManageAllAvailability = can("availability:manage-all");
   const canUpdateOwnAvailability = can("availability:update-own");
   const canEditAvailability = canManageAllAvailability || canUpdateOwnAvailability;
-  const canReadRosterReadiness = can("readiness:read-all") || can("readiness:read-group");
   const sessionId = activeSession?.id;
 
   const loadData = useCallback(async () => {
     setLoading(true);
     setError("");
-    setReadinessError("");
     if (!sessionId) {
       setShifts([]);
       setAvailability([]);
       setMembers([]);
       setGroups([]);
-      setReadinessRows([]);
       setLoading(false);
       return;
     }
@@ -306,16 +252,6 @@ export function RosteringPage({ user }: { user: DemoUser }) {
       const membersPromise = canCreateShift || canUpdateShift || canManageAllAvailability ? api.memberProfiles({ status: "Active" }) : Promise.resolve({ total: 0, data: [] });
       const groupsPromise = canCreateShift || canUpdateShift ? api.groups({ sessionId }) : Promise.resolve({ total: 0, data: [] });
       const [rosterResult, availabilityResult, memberResult, groupResult] = await Promise.all([rosterPromise, availabilityPromise, membersPromise, groupsPromise]);
-      const readinessMemberIds = [...new Set([
-        ...rosterResult.data.map((shift) => String(shift.assignedMemberProfileId ?? "")),
-        ...(memberResult.data ?? []).map((member) => String(member.id)),
-      ].filter(Boolean))].slice(0, 200);
-      const readinessResult = canReadRosterReadiness && readinessMemberIds.length
-        ? await api.readinessMembersPage({ memberProfileIds: readinessMemberIds.join(","), limit: readinessMemberIds.length, offset: 0 }).catch((nextError) => {
-            setReadinessError(errorMessage(nextError));
-            return null;
-          })
-        : null;
       setShifts(rosterResult.data);
       setRosterTotal(rosterResult.total);
       setAvailability(availabilityResult.data);
@@ -323,14 +259,12 @@ export function RosteringPage({ user }: { user: DemoUser }) {
       setLinkedMember((rosterResult.linkedMemberProfile ?? availabilityResult.linkedMemberProfile ?? null) as MemberSummary | null);
       setMembers((memberResult.data ?? []) as MemberSummary[]);
       setGroups((groupResult.data ?? []) as GroupSummary[]);
-      setReadinessRows(readinessResult?.data.map(normalizeReadiness) ?? []);
     } catch (nextError) {
       setError(errorMessage(nextError));
-      setReadinessRows([]);
     } finally {
       setLoading(false);
     }
-  }, [availabilityOffset, can, canCreateShift, canReadAllRoster, canReadAvailability, canManageAllAvailability, canReadRosterReadiness, canUpdateShift, fromFilter, functionFilter, groupFilter, memberFilter, rosterOffset, searchFilter, sessionId, statusFilter, toFilter]);
+  }, [availabilityOffset, can, canCreateShift, canReadAllRoster, canReadAvailability, canManageAllAvailability, canUpdateShift, fromFilter, functionFilter, groupFilter, memberFilter, rosterOffset, searchFilter, sessionId, statusFilter, toFilter]);
 
   useEffect(() => {
     void loadData();
@@ -346,33 +280,9 @@ export function RosteringPage({ user }: { user: DemoUser }) {
   const warningCount = shifts.filter((shift) => (shift.conflictWarnings ?? []).length > 0).length;
   const confirmed = shifts.filter((shift) => shift.status === "Confirmed").length;
   const readOnly = !canCreateShift && !canUpdateShift;
-  const readinessByMember = useMemo(() => {
-    const entries: Array<[string, MemberReadiness]> = [];
-    for (const row of readinessRows) {
-      const id = String(row.member?.id ?? "");
-      if (id) entries.push([id, row]);
-    }
-    return new Map(entries);
-  }, [readinessRows]);
   const pageDescription = readOnly
     ? "Review your roster and confirm your own shifts when action is available."
     : "Create, publish and manage roster coverage for the selected operating period.";
-
-  const readinessSummaryForMember = (member?: MemberSummary | null) => {
-    if (!canReadRosterReadiness || !member) return null;
-    const readiness = readinessByMember.get(member.id);
-    const status = readinessError || !readiness ? "Unknown" : readiness.overallStatus;
-    const issue = primaryReadinessIssue(readiness);
-    const detail = readinessError
-      ? "Readiness status could not be loaded."
-      : issue?.title ?? (status === "Ready" ? "No immediate blocker" : "No readiness issue detail available");
-    return (
-      <div className="mt-2">
-        <Badge tone={readinessTone(status)}>{readinessLabel(status)}</Badge>
-        <p className="mt-1 line-clamp-2 text-xs font-semibold text-muted-foreground">{detail}</p>
-      </div>
-    );
-  };
 
   const openShiftDrawer = (mode: "create" | "edit" | "view", shift?: RosterShift) => {
     const nextForm = shiftFormFromRecord(shift);
@@ -559,7 +469,6 @@ export function RosteringPage({ user }: { user: DemoUser }) {
           <div className="min-w-44">
             <p className="font-bold text-foreground">{shift.assignedMember?.displayName ?? "Unassigned"}</p>
             <p className="mt-1 text-xs font-bold text-muted-foreground">{shift.group?.name ?? "No group"}</p>
-            {readinessSummaryForMember(shift.assignedMember)}
           </div>
         );
       }
@@ -608,7 +517,6 @@ export function RosteringPage({ user }: { user: DemoUser }) {
 
       {success ? <div className="mb-3"><AlertBox tone="success" dismissible>{success}</AlertBox></div> : null}
       {error ? <div className="mb-3"><AlertBox tone="danger" dismissible>{error}</AlertBox></div> : null}
-      {readinessError && canReadRosterReadiness ? <div className="mb-3"><AlertBox tone="warning" dismissible>Readiness status could not be loaded. Roster shifts remain available.</AlertBox></div> : null}
 
       <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
         {metricCard(canReadAllRoster ? "Active shifts" : "My active shifts", activeShifts.length, "Not cancelled, declined or completed")}

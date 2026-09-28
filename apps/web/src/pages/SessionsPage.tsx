@@ -10,7 +10,7 @@ import { DialogSurface } from "../components/DialogSurface";
 
 function emptySession(dictionaries: ReturnType<typeof useApp>["dictionaries"]): AnyRecord {
   return {
-    mode: dictionaries.sessionModes?.[0]?.label ?? "REAL",
+    mode: "REAL",
     status: "Draft",
     eventType: dictionaries.eventTypes?.[0]?.label ?? "Aircraft accident",
     flightNumber: "",
@@ -252,7 +252,7 @@ export function SessionsPage() {
                 canEditSessions
                   ? (row) => (
                       <div className="grid w-[4.5rem] grid-cols-2 gap-1.5">
-                        {canUpdateSession ? (
+                        {canUpdateSession && row.mode === "REAL" ? (
                           <Button
                             icon={Pencil}
                             size="icon"
@@ -267,7 +267,7 @@ export function SessionsPage() {
                             }}
                           />
                         ) : null}
-                        {canCloseSession && row.status !== "Closed" ? <Button icon={XCircle} size="icon" variant="danger" title="Close session" aria-label="Close session" onClick={() => openCloseSession(row as SessionRecord)} /> : null}
+                        {canCloseSession && row.mode === "REAL" && row.status !== "Closed" ? <Button icon={XCircle} size="icon" variant="danger" title="Close session" aria-label="Close session" onClick={() => openCloseSession(row as SessionRecord)} /> : null}
                       </div>
                     )
                   : undefined
@@ -301,9 +301,8 @@ export function SessionsPage() {
             <div className="scrollbar-soft grid flex-1 gap-3 overflow-y-auto p-5">
             <ErrorSummary title="Session could not be saved" errors={editorError ? [{ message: editorError, fieldId: "session-event-type" }] : []} />
             <Field label="Session type" required>
-              <Select value={editing.mode ?? ""} onChange={(event) => setEditing((current) => ({ ...current, mode: event.target.value }))}>
-                {(dictionaries.sessionModes ?? []).map((item) => <option key={item.key} value={item.label}>{item.label}</option>)}
-              </Select>
+              <Input value={editing.mode ?? "REAL"} disabled />
+              <p className="mt-1 text-xs font-semibold text-muted-foreground">New and editable operational Sessions use REAL mode. Historical modes remain available for read-only review.</p>
             </Field>
             <Field label="Status" required>
               <Select

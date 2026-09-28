@@ -104,7 +104,7 @@ describe("Stage 3G1 security containment", () => {
     expect((await apiGet(app, "/api/member-profiles/mem-2026-000002")).status).toBe(200);
   });
 
-  it("applies the same group boundary to Rostering, Availability, Training, Documents, Readiness and Assignments", async () => {
+  it("applies the same group boundary to Rostering, Availability, Documents and Assignments", async () => {
     const app = createApp();
     const groupOneMembers = new Set([
       "mem-2026-000001",
@@ -127,15 +127,6 @@ describe("Stage 3G1 security containment", () => {
     expect(availability.status).toBe(200);
     expect(availability.body.data.every((item: { memberProfileId: string }) => groupOneMembers.has(item.memberProfileId))).toBe(true);
 
-    const training = await apiGet(app, "/api/training/records", "zpp@lot.pl").query({ limit: 200 });
-    expect(training.status).toBe(200);
-    expect(ids(training)).toContain("trn-2026-000003");
-    expect(ids(training)).not.toContain("trn-2026-000004");
-    expect((await apiGet(app, "/api/training/records/trn-2026-000004", "zpp@lot.pl")).status).toBe(403);
-
-    expect((await apiGet(app, "/api/readiness/groups/grp-2026-000001", "zpp@lot.pl")).status).toBe(200);
-    expect((await apiGet(app, "/api/readiness/groups/grp-2026-000002", "zpp@lot.pl")).status).toBe(403);
-
     const documentRequirements = await apiGet(app, "/api/document-requirements", "zpp@lot.pl").query({ groupId: "grp-2026-000002", limit: 200 });
     expect(documentRequirements.status).toBe(200);
     expect(documentRequirements.body.data.length).toBeGreaterThan(0);
@@ -151,8 +142,6 @@ describe("Stage 3G1 security containment", () => {
     expect((await apiPatch(app, "/api/assignments/asn-demo-2", "zpp@lot.pl").send({ sessionId: "ses-demo-1", expectedVersion: 1, details: "Incident-scoped management" })).status).toBe(200);
 
     expect((await apiGet(app, "/api/roster-shifts/rst-2026-000003")).status).toBe(200);
-    expect((await apiGet(app, "/api/training/records/trn-2026-000004")).status).toBe(200);
-    expect((await apiGet(app, "/api/readiness/groups/grp-2026-000002")).status).toBe(200);
     const coordinatorAssignments = await apiGet(app, "/api/assignments").query({ sessionId: "ses-demo-1", limit: 200 });
     expect(ids(coordinatorAssignments)).toContain("asn-demo-2");
   });
@@ -194,9 +183,9 @@ describe("Stage 3G1 security containment", () => {
 
     const token = `SESSION-B-${Date.now()}`;
     const session = await apiPost(app, "/api/sessions", "admin@lot.pl").send({
-      mode: "EXERCISE",
-      status: "Active",
-      eventType: "Exercise",
+      mode: "REAL",
+      status: "Draft",
+      eventType: "Incident",
       flightNumber: token,
       route: "WAW-TEST",
       startAt: "2026-07-23T08:00:00.000Z"
@@ -288,9 +277,9 @@ describe("Stage 3G1 security containment", () => {
     expect((await apiPost(app, "/api/roster-shifts").send({ ...shiftBody, sessionId: "unknown-session" })).status).toBe(404);
 
     const activeSession = await apiPost(app, "/api/sessions", "admin@lot.pl").send({
-      mode: "TRAINING",
-      status: "Active",
-      eventType: "Training",
+      mode: "REAL",
+      status: "Draft",
+      eventType: "Incident",
       flightNumber: `ROSTER-${Date.now()}`,
       route: "WAW-TEST",
       startAt: "2026-08-20T07:00:00.000Z"

@@ -20,7 +20,7 @@ postgresDescribe("Foundation Stage 18 PostgreSQL Exercise evidence integrity", (
 
   const application = (service?: ReturnType<typeof createPrismaExerciseService>) => {
     const options = { exerciseService: service ?? createPrismaExerciseService(prisma!) };
-    return service ? createApp(options) : createSharedApp(options);
+    return service ? createApp(options as any) : createSharedApp(options as any);
   };
   const actor = () => ({ ...coordinator, requestId: randomUUID() });
 

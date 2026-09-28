@@ -11,7 +11,6 @@ import type { FoundationDocumentRepository } from "../modules/documents/document
 import { createPrismaDocumentRepository } from "../modules/documents/prisma-document-repository.js";
 import type { EnquiryRepository } from "../modules/enquiries/enquiry-repository.js";
 import { createPrismaEnquiryRepository } from "../modules/enquiries/prisma-enquiry-repository.js";
-import { createPrismaExerciseService, type PrismaExerciseService } from "../modules/exercise/prisma-exercise-service.js";
 import { createPrismaExportService, type PrismaExportService } from "../modules/exports/prisma-export-service.js";
 import type { FamilyRepository } from "../modules/families/family-repository.js";
 import { createPrismaFamilyRepository } from "../modules/families/prisma-family-repository.js";
@@ -34,15 +33,12 @@ import { createNotificationRuntime } from "../modules/notifications/notification
 import { createPersistentNotificationService } from "../modules/notifications/notification-service.js";
 import type { PassengerRepository } from "../modules/passengers/passenger-repository.js";
 import { createPrismaPassengerRepository } from "../modules/passengers/prisma-passenger-repository.js";
-import { createPrismaReadinessProjectionService, type ReadinessProjectionService } from "../modules/readiness/prisma-readiness-service.js";
 import type { ReleaseRepository } from "../modules/releases/release-repository.js";
 import { createPrismaReleaseRepository } from "../modules/releases/prisma-release-repository.js";
 import type { RequestRepository } from "../modules/requests/request-repository.js";
 import { createPrismaRequestRepository } from "../modules/requests/prisma-request-repository.js";
 import type { FoundationRosteringRepository } from "../modules/rostering/rostering-repository.js";
 import { createPrismaRosteringRepository } from "../modules/rostering/prisma-rostering-repository.js";
-import type { FoundationTrainingRepository } from "../modules/training/training-repository.js";
-import { createPrismaTrainingRepository } from "../modules/training/prisma-training-repository.js";
 import { prisma } from "../prisma.js";
 import { createProductionComposition } from "./production-composition.js";
 
@@ -64,21 +60,16 @@ export type RouteOptions = {
   assignmentRepository?: AssignmentRepository;
   memberDirectoryRepository?: FoundationMemberDirectoryRepository;
   rosteringRepository?: FoundationRosteringRepository;
-  trainingRepository?: FoundationTrainingRepository;
-  trainingClock?: { now(): Date };
   documentRepository?: FoundationDocumentRepository;
   notificationRepository?: NotificationRepository;
   operationalBriefingService?: PrismaOperationalBriefingService;
   importService?: PrismaImportService;
   exportService?: PrismaExportService;
-  exerciseService?: PrismaExerciseService;
-  readinessService?: ReadinessProjectionService;
   dictionaryService?: DictionaryConfigurationService;
   documentClock?: { now(): Date };
   documentNotificationHook?: (record: Record<string, unknown>) => void;
   assignmentNotificationHook?: (record: Record<string, unknown>, command: string) => void;
   rosteringNotificationHook?: (record: Record<string, unknown>, command: string) => void;
-  trainingNotificationHook?: (record: Record<string, unknown>, command: string) => void;
 };
 
 function requestsPostgres(options: RouteOptions) {
@@ -87,9 +78,8 @@ function requestsPostgres(options: RouteOptions) {
     options.incidentAssignmentRepository, options.passengerRepository, options.familyRepository,
     options.matchingRepository, options.releaseRepository, options.requestRepository,
     options.assignmentRepository, options.memberDirectoryRepository, options.rosteringRepository,
-    options.trainingRepository, options.documentRepository, options.notificationRepository,
+    options.documentRepository, options.notificationRepository,
     options.operationalBriefingService, options.importService, options.exportService,
-    options.exerciseService, options.readinessService,
     options.dictionaryService, options.afterActionReportService,
   ].some((candidate) => candidate && "kind" in candidate && candidate.kind === "postgres");
 }
@@ -117,11 +107,7 @@ export function registerRoutes(app: Express, options: RouteOptions = {}) {
   const releaseRepository = options.releaseRepository ?? createPrismaReleaseRepository(prisma);
   const requestRepository = options.requestRepository ?? createPrismaRequestRepository(prisma);
   const assignmentRepository = options.assignmentRepository ?? createPrismaAssignmentRepository(prisma);
-  const trainingRepository = options.trainingRepository ?? createPrismaTrainingRepository(prisma, options.trainingClock);
-  const memberDirectoryRepository = options.memberDirectoryRepository ?? createPrismaMemberDirectoryRepository(
-    prisma,
-    (memberProfileId) => trainingRepository.memberTrainingStatus(memberProfileId, options.trainingClock?.now() ?? new Date()),
-  );
+  const memberDirectoryRepository = options.memberDirectoryRepository ?? createPrismaMemberDirectoryRepository(prisma);
   const rosteringRepository = options.rosteringRepository ?? createPrismaRosteringRepository(prisma);
   const documentRepository = options.documentRepository ?? createPrismaDocumentRepository(prisma, options.documentClock);
   const notificationRepository = options.notificationRepository ?? createPrismaNotificationRepository(prisma);
@@ -129,23 +115,19 @@ export function registerRoutes(app: Express, options: RouteOptions = {}) {
   const operationalBriefingService = options.operationalBriefingService ?? createPrismaOperationalBriefingService(prisma);
   const importService = options.importService ?? createPrismaImportService(prisma);
   const exportService = options.exportService ?? createPrismaExportService(prisma);
-  const exerciseService = options.exerciseService ?? createPrismaExerciseService(prisma);
-  const readinessService = options.readinessService ?? createPrismaReadinessProjectionService(prisma, options.trainingClock);
   const dictionaryService = options.dictionaryService ?? createPrismaDictionaryService(prisma);
   const composition = createProductionComposition({
     afterActionReportService: options.afterActionReportService,
     db: prisma,
     incidentRepository, enquiryRepository, incidentAccessRepository, incidentAssignmentRepository,
     passengerRepository, familyRepository, matchingRepository, releaseRepository, requestRepository,
-    assignmentRepository, memberDirectoryRepository, rosteringRepository, trainingRepository,
+    assignmentRepository, memberDirectoryRepository, rosteringRepository,
     documentRepository, notificationService, operationalBriefingService, importService, exportService,
-    exerciseService, readinessService, dictionaryService,
-    trainingClock: options.trainingClock,
+    dictionaryService,
     documentClock: options.documentClock,
     documentNotificationHook: options.documentNotificationHook,
     assignmentNotificationHook: options.assignmentNotificationHook,
     rosteringNotificationHook: options.rosteringNotificationHook,
-    trainingNotificationHook: options.trainingNotificationHook,
   });
   app.locals.productionComposition = "postgres-explicit";
   app.locals.legacyMemoryModuleLoaded = Boolean(createMemoryTestRouter);
@@ -155,7 +137,7 @@ export function registerRoutes(app: Express, options: RouteOptions = {}) {
 
   if (notificationRepository.kind === "postgres") {
     const dispatcher = createNotificationDispatcher(prisma, notificationRepository, { batchSize: config.notificationDispatchBatchSize, logger });
-    const projector = createNotificationProjector(prisma, notificationRepository, { training: trainingRepository, documents: documentRepository, batchSize: config.notificationProjectBatchSize, maxRows: config.notificationProjectMaxRows });
+    const projector = createNotificationProjector(prisma, notificationRepository, { documents: documentRepository, batchSize: config.notificationProjectBatchSize, maxRows: config.notificationProjectMaxRows });
     app.locals.notificationRuntime = createNotificationRuntime({ dispatcher, projector, logger, dispatchIntervalMs: config.notificationDispatchIntervalMs, projectIntervalMs: config.notificationProjectIntervalMs });
     app.locals.notificationDispatcher = dispatcher;
     app.locals.notificationProjector = projector;

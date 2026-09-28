@@ -80,7 +80,7 @@ postgresDescribe("Foundation Stage 9 PostgreSQL Member Profiles and Groups", () 
     await prisma!.$connect();
     adminId = (await prisma!.user.findUniqueOrThrow({ where: { email: "admin@lot.pl" } })).id;
     const incidents = await Promise.all([
-      prisma!.session.create({ data: { operationalId: `${marker}-A`, mode: "EXERCISE", status: "Active", eventType: marker, createdById: adminId } }),
+      prisma!.session.create({ data: { operationalId: `${marker}-A`, mode: "REAL", status: "Draft", eventType: marker, createdById: adminId } }),
       prisma!.session.create({ data: { operationalId: `${marker}-B`, mode: "REAL", status: "Draft", eventType: marker, createdById: adminId } }),
       prisma!.session.create({ data: { operationalId: `${marker}-CLOSED`, mode: "TRAINING", status: "Closed", eventType: marker, createdById: adminId } }),
     ]);
@@ -334,9 +334,12 @@ postgresDescribe("Foundation Stage 9 PostgreSQL Member Profiles and Groups", () 
     const app = application();
     expect((await request(app).get("/api/member-profiles").set(as(actors.manager!.email)).query({ limit: 50 })).status).toBe(200);
     expect((await request(app).get("/api/groups").set(as(actors.manager!.email)).query({ sessionId: incidentA, limit: 50 })).status).toBe(200);
-    for (const path of ["/api/roster-shifts", "/api/training/records", "/api/documents", "/api/readiness/members"]) {
+    for (const path of ["/api/roster-shifts", "/api/documents"]) {
       const response = await request(app).get(path).set(as(actors.manager!.email));
       expect([200, 403]).toContain(response.status);
+    }
+    for (const path of ["/api/training/records", "/api/readiness/members"]) {
+      expect((await request(app).get(path).set(as(actors.manager!.email))).status).toBe(404);
     }
     const after = await prisma!.memberProfile.findUniqueOrThrow({ where: { id: memberA.id } });
     expect(after.version).toBe(before.version);

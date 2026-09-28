@@ -3,7 +3,7 @@ import type { SessionRecord } from "./types";
 const nonWritableSessionStatuses = new Set(["closed", "archived"]);
 
 export function isSessionWritable(session?: SessionRecord) {
-  return Boolean(session && !nonWritableSessionStatuses.has(String(session.status ?? "").trim().toLowerCase()));
+  return Boolean(session && session.mode === "REAL" && !nonWritableSessionStatuses.has(String(session.status ?? "").trim().toLowerCase()));
 }
 
 export function isSessionWriteContextCurrent(session: SessionRecord | undefined, expectedSessionId?: string | null) {

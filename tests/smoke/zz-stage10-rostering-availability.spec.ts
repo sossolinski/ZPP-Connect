@@ -8,7 +8,7 @@ async function json(route: Route, status: number, body: unknown) {
 async function stableSession(page: Parameters<typeof login>[0]) {
   await page.route("**/api/sessions**", async (route) => {
     if (route.request().method() === "GET") {
-      await json(route, 200, { total: 1, limit: 50, offset: 0, data: [{ id: "ses-demo-1", operationalId: "SES-2026-001", mode: "EXERCISE", status: "Active", eventType: "Stage 10 browser", updatedAt: "2026-08-10T08:00:00.000Z" }] });
+      await json(route, 200, { total: 1, limit: 50, offset: 0, data: [{ id: "ses-demo-1", operationalId: "SES-2026-001", mode: "REAL", status: "Active", eventType: "Stage 10 browser", updatedAt: "2026-08-10T08:00:00.000Z" }] });
     } else await route.continue();
   });
 }

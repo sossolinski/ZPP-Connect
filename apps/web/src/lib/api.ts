@@ -1,5 +1,5 @@
 import type { ApiList, AnyRecord, AppOrganization, AppProfile, DictionaryMap, SessionRecord, UserContext } from "./types";
-import type { AarReport, AarVersion, AarArtifact, AarResult, AarPage, AarSource } from "./aar-types";
+import type { AarReport, AarVersion, AarArtifact, AarResult, AarPage } from "./aar-types";
 
 export const API_URL = import.meta.env.VITE_API_URL ?? "http://localhost:4000/api";
 export const API_PAGE_LIMIT = 200;
@@ -217,32 +217,6 @@ export const api = {
   createAvailability: (body: AnyRecord) => request<AnyRecord>("/availability", { method: "POST", body: JSON.stringify(body) }),
   updateAvailability: (id: string, body: AnyRecord) => request<AnyRecord>(`/availability/${id}`, { method: "PATCH", body: JSON.stringify(body) }),
   removeAvailability: (id: string, body: AnyRecord = {}) => request<AnyRecord>(`/availability/${id}/remove`, { method: "POST", body: JSON.stringify(body) }),
-  trainingCourses: (query?: AnyRecord, options?: ListAllOptions) =>
-    listAllPages<AnyRecord>((pageQuery) => request<ApiList<AnyRecord>>(`/training/courses${queryString(pageQuery)}`), query, options),
-  trainingCoursesPage: (query?: AnyRecord) => request<ApiList<AnyRecord>>(`/training/courses${queryString(query)}`),
-  trainingCourse: (id: string) => request<AnyRecord>(`/training/courses/${id}`),
-  createTrainingCourse: (body: AnyRecord) => request<AnyRecord>("/training/courses", { method: "POST", body: JSON.stringify(body) }),
-  updateTrainingCourse: (id: string, body: AnyRecord) => request<AnyRecord>(`/training/courses/${id}`, { method: "PATCH", body: JSON.stringify(body) }),
-  deactivateTrainingCourse: (id: string, body?: AnyRecord) => request<AnyRecord>(`/training/courses/${id}/deactivate`, { method: "POST", body: JSON.stringify(body ?? {}) }),
-  reactivateTrainingCourse: (id: string, body?: AnyRecord) => request<AnyRecord>(`/training/courses/${id}/reactivate`, { method: "POST", body: JSON.stringify(body ?? {}) }),
-  trainingRequirements: (query?: AnyRecord, options?: ListAllOptions) =>
-    listAllPages<AnyRecord>((pageQuery) => request<ApiList<AnyRecord>>(`/training/requirements${queryString(pageQuery)}`), query, options),
-  trainingRequirementsPage: (query?: AnyRecord) => request<ApiList<AnyRecord>>(`/training/requirements${queryString(query)}`),
-  trainingRequirement: (id: string) => request<AnyRecord>(`/training/requirements/${id}`),
-  createTrainingRequirement: (body: AnyRecord) => request<AnyRecord>("/training/requirements", { method: "POST", body: JSON.stringify(body) }),
-  updateTrainingRequirement: (id: string, body: AnyRecord) => request<AnyRecord>(`/training/requirements/${id}`, { method: "PATCH", body: JSON.stringify(body) }),
-  endTrainingRequirement: (id: string, body?: AnyRecord) => request<AnyRecord>(`/training/requirements/${id}/end`, { method: "POST", body: JSON.stringify(body ?? {}) }),
-  trainingRecords: (query?: AnyRecord, options?: ListAllOptions) =>
-    listAllPages<AnyRecord>((pageQuery) => request<ApiList<AnyRecord>>(`/training/records${queryString(pageQuery)}`), query, options),
-  trainingRecordsPage: (query?: AnyRecord) => request<ApiList<AnyRecord>>(`/training/records${queryString(query)}`),
-  trainingRecord: (id: string) => request<AnyRecord>(`/training/records/${id}`),
-  assignTrainingRecord: (body: AnyRecord) => request<AnyRecord>("/training/records/assign", { method: "POST", body: JSON.stringify(body) }),
-  updateTrainingRecord: (id: string, body: AnyRecord) => request<AnyRecord>(`/training/records/${id}`, { method: "PATCH", body: JSON.stringify(body) }),
-  startTrainingRecord: (id: string, body?: AnyRecord) => request<AnyRecord>(`/training/records/${id}/start`, { method: "POST", body: JSON.stringify(body ?? {}) }),
-  completeTrainingRecord: (id: string, body: AnyRecord) => request<AnyRecord>(`/training/records/${id}/complete`, { method: "POST", body: JSON.stringify(body) }),
-  verifyTrainingRecord: (id: string, body?: AnyRecord) => request<AnyRecord>(`/training/records/${id}/verify`, { method: "POST", body: JSON.stringify(body ?? {}) }),
-  waiveTrainingRecord: (id: string, body: AnyRecord) => request<AnyRecord>(`/training/records/${id}/waive`, { method: "POST", body: JSON.stringify(body) }),
-  cancelTrainingRecord: (id: string, body: AnyRecord) => request<AnyRecord>(`/training/records/${id}/cancel`, { method: "POST", body: JSON.stringify(body) }),
   documents: (query?: AnyRecord, options?: ListAllOptions) =>
     listAllPages<AnyRecord>((pageQuery) => request<ApiList<AnyRecord>>(`/documents${queryString(pageQuery)}`), query, options),
   documentsPage: (query?: AnyRecord) => request<ApiList<AnyRecord>>(`/documents${queryString(query)}`),
@@ -270,15 +244,6 @@ export const api = {
     listAllPages<AnyRecord>((pageQuery) => request<ApiList<AnyRecord>>(`/document-acknowledgements${queryString(pageQuery)}`), query, options),
   documentAcknowledgementsPage: (query?: AnyRecord) => request<ApiList<AnyRecord>>(`/document-acknowledgements${queryString(query)}`),
   acknowledgeDocumentVersion: (id: string, body?: AnyRecord) => request<AnyRecord>(`/document-versions/${id}/acknowledge`, { method: "POST", body: JSON.stringify(body ?? {}) }),
-  readinessMe: (query?: AnyRecord) => request<AnyRecord>(`/readiness/me${queryString(query)}`),
-  readinessMeRequest: (query?: AnyRecord, signal?: AbortSignal) => request<AnyRecord>(`/readiness/me${queryString(query)}`, { signal }),
-  readinessMembersPage: (query?: AnyRecord, signal?: AbortSignal) => request<ApiList<AnyRecord>>(`/readiness/members${queryString(query)}`, { signal }),
-  readinessMember: (id: string, query?: AnyRecord) => request<AnyRecord>(`/readiness/members/${id}${queryString(query)}`),
-  readinessMemberRequest: (id: string, query?: AnyRecord, signal?: AbortSignal) => request<AnyRecord>(`/readiness/members/${id}${queryString(query)}`, { signal }),
-  readinessGroupsPage: (query?: AnyRecord, signal?: AbortSignal) => request<ApiList<AnyRecord>>(`/readiness/groups${queryString(query)}`, { signal }),
-  readinessGroup: (id: string, query?: AnyRecord) => request<AnyRecord>(`/readiness/groups/${id}${queryString(query)}`),
-  readinessSummary: (query?: AnyRecord) => request<AnyRecord>(`/readiness/summary${queryString(query)}`),
-  readinessSummaryRequest: (query?: AnyRecord, signal?: AbortSignal) => request<AnyRecord>(`/readiness/summary${queryString(query)}`, { signal }),
   activeEvent: (sessionId: string) => request<AnyRecord>(`/sessions/${sessionId}/active-event`),
   briefingHistory: (sessionId: string) => request<ApiList<AnyRecord>>(`/sessions/${sessionId}/briefings`),
   currentBriefing: (sessionId: string) => request<AnyRecord>(`/sessions/${sessionId}/briefings/current`),
@@ -318,17 +283,6 @@ export const api = {
   getImport: (id: string) => request<AnyRecord>(`/imports/${id}`),
   importRows: (id: string, query: AnyRecord = {}) => request<ApiList<AnyRecord>>(`/imports/${id}/rows${queryString(query)}`),
   confirmImport: (id: string) => request<AnyRecord>(`/imports/${id}/confirm`, { method: "POST", body: JSON.stringify({}) }),
-  listInjects: (query: AnyRecord, options?: ListAllOptions) =>
-    listAllPages<AnyRecord>((pageQuery) => request<ApiList<AnyRecord>>(`/exercise/injects${queryString(pageQuery)}`), query, options),
-  createInject: (body: AnyRecord) => request<AnyRecord>("/exercise/injects", { method: "POST", body: JSON.stringify({ ...body, operationId: body.operationId ?? crypto.randomUUID() }) }),
-  updateInject: (id: string, body: AnyRecord) => request<AnyRecord>(`/exercise/injects/${id}`, { method: "PATCH", body: JSON.stringify(body) }),
-  releaseInject: (id: string, expectedVersion: number) => request<AnyRecord>(`/exercise/injects/${id}/release`, { method: "POST", body: JSON.stringify({ expectedVersion }) }),
-  completeInject: (id: string, expectedVersion: number) => request<AnyRecord>(`/exercise/injects/${id}/complete`, { method: "POST", body: JSON.stringify({ expectedVersion }) }),
-  listObservations: (query: AnyRecord, options?: ListAllOptions) =>
-    listAllPages<AnyRecord>((pageQuery) => request<ApiList<AnyRecord>>(`/exercise/observations${queryString(pageQuery)}`), query, options),
-  createObservation: (body: AnyRecord) => request<AnyRecord>("/exercise/observations", { method: "POST", body: JSON.stringify({ ...body, operationId: body.operationId ?? crypto.randomUUID() }) }),
-  updateObservation: (id: string, body: AnyRecord) => request<AnyRecord>(`/exercise/observations/${id}`, { method: "PATCH", body: JSON.stringify(body) }),
-  observationHistory: (id: string, query?: AnyRecord) => request<ApiList<AnyRecord>>(`/exercise/observations/${id}/history${queryString(query)}`),
   downloadExport: async (type: string, sessionId: string) => {
     const response = await fetch(`${API_URL}/exports/${type}`, {
       method: "POST",
@@ -352,7 +306,7 @@ export const api = {
     URL.revokeObjectURL(objectUrl);
     return { fileName, generationId };
   },
-  aarList: (sessionId: string) => request<AarPage<AarReport> & { capabilities: { create: boolean; sourceObservations: boolean } }>(`/after-action-reports${queryString({ sessionId })}`),
+  aarList: (sessionId: string) => request<AarPage<AarReport> & { capabilities: { create: boolean } }>(`/after-action-reports${queryString({ sessionId })}`),
   aarReport: (id: string) => request<AarReport>(`/after-action-reports/${id}`),
   aarVersion: (id: string) => request<AarVersion>(`/after-action-report-versions/${id}`),
   aarCreate: (body: AnyRecord) => request<AarResult>("/after-action-reports", { method: "POST", body: JSON.stringify(body) }),
@@ -360,7 +314,6 @@ export const api = {
   aarCommand: (id: string, action: string, body: AnyRecord, report = false) => request<AarResult>(`/${report ? "after-action-reports" : "after-action-report-versions"}/${id}/${action}`, { method: "POST", body: JSON.stringify(body) }),
   aarHistory: (id: string, offset = 0) => request<AarPage<AarVersion>>(`/after-action-reports/${id}/versions${queryString({ limit: 20, offset })}`),
   aarArtifacts: (id: string, offset = 0) => request<AarPage<AarArtifact>>(`/after-action-report-versions/${id}/pdf-artifacts${queryString({ limit: 20, offset })}`),
-  aarSources: (sessionId: string, offset = 0) => request<AarPage<AarSource>>(`/sessions/${sessionId}/aar-source-observations${queryString({ limit: 20, offset })}`),
   aarDownload: async (id: string) => {
     const response = await fetch(`${API_URL}/after-action-pdf-artifacts/${id}/download`, { headers: authHeaders() });
     if (!response.ok) { const e = await response.json().catch(() => null); throw new ApiRequestError(e?.error ?? "Download failed", response.status); }

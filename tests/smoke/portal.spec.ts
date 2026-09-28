@@ -11,9 +11,9 @@ async function createSession(page: Page, token: string) {
   const response = await page.request.post(`${apiUrl}/sessions`, {
     headers: coordinatorHeaders,
     data: {
-      mode: "EXERCISE",
-      status: "Active",
-      eventType: "Exercise",
+      mode: "REAL",
+      status: "Draft",
+      eventType: "Aircraft accident",
       flightNumber: token,
       route: "WAW-S2E",
       airportLocation: "Stage 2E browser smoke",
@@ -33,7 +33,7 @@ async function useSession(page: Page, session: TestSession) {
   await expect(row).toBeVisible();
   const action = row.getByRole("button", { name: "Use this session" });
   if (await action.count()) await action.click();
-  await expect(page.locator(`[aria-label*="Current session EXERCISE ${session.operationalId}"]:visible`)).toHaveCount(1);
+  await expect(page.locator(`[aria-label*="Current session REAL ${session.operationalId}"]:visible`)).toHaveCount(1);
 }
 
 async function expectNoTechnicalStorageCopy(page: Page) {
@@ -97,11 +97,11 @@ test.describe("ZPP Connect portal", () => {
 
   test("restores a permitted route after login and clears access on logout", async ({ page }) => {
     await clearAuthSession(page);
-    await page.goto("/training");
+    await page.goto("/documents");
     await expect(page).toHaveURL(/\/login\?returnTo=/);
-    await completeDevelopmentLogin(page, "volunteer@lot.pl", /\/training$/);
+    await completeDevelopmentLogin(page, "volunteer@lot.pl", /\/documents$/);
 
-    await expect(page.getByRole("heading", { name: "Training", exact: true })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Documents", exact: true })).toBeVisible();
     await expect(page.locator("header select")).toHaveCount(0);
     const accountButton = page.getByRole("button", { name: "Account menu" });
     await expect(accountButton).toContainText("ZPP Member 01");
@@ -112,7 +112,7 @@ test.describe("ZPP Connect portal", () => {
     await menu.getByRole("menuitem", { name: "Sign out" }).click();
     await expect(page).toHaveURL(/\/login$/);
 
-    await page.goto("/training");
+    await page.goto("/documents");
     await expect(page).toHaveURL(/\/login\?returnTo=/);
     await expect(page.getByText("Adam Dabrowski · ZPP-221")).toHaveCount(0);
   });
@@ -135,13 +135,13 @@ test.describe("ZPP Connect portal", () => {
     await login(page, "zpp@lot.pl");
 
     await expect(page.locator('[aria-label^="Data source:"]:visible')).toHaveCount(0);
-    await expect(page.locator('[aria-label^="Current session EXERCISE"]:visible')).toHaveCount(1);
+    await expect(page.locator('[aria-label^="Current session REAL"]:visible')).toHaveCount(1);
     await expectNoTechnicalStorageCopy(page);
 
     await page.setViewportSize({ width: 390, height: 844 });
     await page.reload();
     await expect(page.locator('[aria-label^="Data source:"]:visible')).toHaveCount(0);
-    await expect(page.locator('[aria-label^="Current session EXERCISE"]:visible')).toHaveCount(1);
+    await expect(page.locator('[aria-label^="Current session REAL"]:visible')).toHaveCount(1);
     await expectNoTechnicalStorageCopy(page);
   });
 
@@ -162,7 +162,7 @@ test.describe("ZPP Connect portal", () => {
     await login(page, "volunteer@lot.pl");
     await page.getByRole("button", { name: /unread notifications|Notifications/ }).click();
     let panel = page.getByRole("dialog", { name: "Notification center" });
-    let durableRow = panel.locator("article").filter({ hasText: "Training overdue" });
+    let durableRow = panel.locator("article").filter({ hasText: "Assignment assigned to you" });
     await durableRow.getByRole("button", { name: "Mark read" }).click();
     await expect(durableRow.getByRole("button", { name: "Mark unread" })).toBeVisible();
     await page.keyboard.press("Escape");
@@ -171,7 +171,7 @@ test.describe("ZPP Connect portal", () => {
     await page.reload();
     await page.getByRole("button", { name: /unread notifications|Notifications/ }).click();
     panel = page.getByRole("dialog", { name: "Notification center" });
-    durableRow = panel.locator("article").filter({ hasText: "Training overdue" });
+    durableRow = panel.locator("article").filter({ hasText: "Assignment assigned to you" });
     await expect(durableRow.getByRole("button", { name: "Mark unread" })).toBeVisible();
     await durableRow.getByRole("button", { name: "Mark unread" }).click();
     await expect(durableRow.getByRole("button", { name: "Mark read" })).toBeVisible();
@@ -207,8 +207,9 @@ test.describe("ZPP Connect portal", () => {
     await page.getByRole("button", { name: "Open navigation" }).click();
     await expect(page.getByRole("button", { name: /Case Work/ })).toBeVisible();
     await page.getByRole("button", { name: /Case Work/ }).click();
-    await page.getByRole("link", { name: /TEC Intake/ }).click();
-    await expect(page).toHaveURL(/\/tec-intake$/);
+    await page.getByRole("button", { name: /People/ }).click();
+    await page.getByRole("link", { name: "Assignments", exact: true }).click();
+    await expect(page).toHaveURL(/\/assignments/);
   });
 
   test("renders all required System Admin routes", async ({ page }) => {
@@ -228,12 +229,9 @@ test.describe("ZPP Connect portal", () => {
       ["/members", "Members"],
       ["/rostering", "Rostering"],
       ["/assignments", "Assignments"],
-      ["/training", "Training"],
       ["/documents", "Documents"],
-      ["/readiness", "Readiness"],
       ["/files-import", "Files / Import"],
       ["/reports", "Reports"],
-      ["/exercise", "Exercise"],
       ["/users-access", "Users & Access"],
       ["/roles-permissions", "Roles & Permissions"],
       ["/audit", "Audit"],
@@ -383,7 +381,7 @@ test.describe("ZPP Connect portal", () => {
     await dialog.getByRole("button", { name: "Save draft" }).click();
     await expect(dialog.getByRole("button", { name: "Publish briefing" })).toBeEnabled();
 
-    await dialog.getByLabel("Incident or exercise overview").fill("A stale editor must reload before saving.");
+    await dialog.getByLabel("Incident overview").fill("A stale editor must reload before saving.");
     await page.route("**/api/briefings/*", async (route) => {
       if (route.request().method() === "PATCH") {
         await route.fulfill({ status: 409, contentType: "application/json", body: JSON.stringify({ error: "Briefing has changed. Reload before saving." }) });
@@ -521,29 +519,6 @@ test.describe("ZPP Connect portal", () => {
     await expect(drawer.getByText("Stage 2E forced save failure")).toBeVisible();
   });
 
-  test("shows Groups readiness distribution without averaged ready percentages", async ({ page }) => {
-    let readinessRequests = 0;
-    await page.route("**/api/readiness/groups**", async (route) => {
-      if (route.request().method() === "GET") readinessRequests += 1;
-      await route.continue();
-    });
-
-    await login(page, "admin@lot.pl");
-    await page.goto("/groups");
-
-    await expect(page.getByRole("heading", { name: "Groups", exact: true })).toBeVisible();
-    await expect(page.getByText("Family Assistance Alpha")).toBeVisible();
-    await expect(page.locator("body")).toContainText(/Ready with attention|Not ready|Ready|Unable to determine|Not applicable/);
-    await expect(page.locator("body")).not.toContainText(/% ready|\d+%|readiness score/i);
-    expect(readinessRequests).toBeLessThanOrEqual(2);
-
-    await page.getByRole("button", { name: /Edit Family Assistance Alpha/ }).click();
-    const drawer = page.getByRole("dialog", { name: "Edit Group" });
-    await expect(drawer).toBeVisible();
-    await expect(drawer).not.toContainText(/% ready|\d+%|readiness score/i);
-    await expectNoTechnicalStorageCopy(page);
-  });
-
   test("labels imports and unsupported report formats without technical storage copy", async ({ page }) => {
     await login(page, "admin@lot.pl");
 
@@ -608,45 +583,6 @@ test.describe("ZPP Connect portal", () => {
     await expectNoTechnicalStorageCopy(page);
   });
 
-  test("shows Rostering readiness as informational status without legacy scores", async ({ page }) => {
-    let readinessRequests = 0;
-    await page.route("**/api/readiness/members**", async (route) => {
-      if (route.request().method() === "GET") readinessRequests += 1;
-      await route.continue();
-    });
-
-    await login(page, "admin@lot.pl");
-    await page.goto("/rostering");
-
-    await expect(page.getByRole("heading", { name: "Rostering" })).toBeVisible();
-    await expect(page.getByText("Family Assistance Centre morning support")).toBeVisible();
-    await expect(page.locator("main")).toContainText(/Ready with attention|Not ready|Ready|Unable to determine|Not applicable/);
-    await expect(page.locator("body")).not.toContainText(/readiness score|\d+%|% ready|restricted-ready|Ready for restricted|Risk first/i);
-    await page.getByRole("button", { name: "New shift" }).click();
-    await expect(page.getByRole("dialog", { name: "New roster shift" }).getByLabel("Assigned member")).toContainText("Magdalena Jankowska");
-    expect(readinessRequests).toBeLessThan(5);
-    await expectNoTechnicalStorageCopy(page);
-  });
-
-  test("keeps Rostering usable when Readiness status is unavailable", async ({ page }) => {
-    await page.route("**/api/readiness/members**", async (route) => {
-      if (route.request().method() === "GET") {
-        await route.fulfill({ status: 500, contentType: "application/json", body: JSON.stringify({ error: "Readiness status unavailable" }) });
-        return;
-      }
-      await route.continue();
-    });
-
-    await login(page, "admin@lot.pl");
-    await page.goto("/rostering");
-
-    await expect(page.getByText("Readiness status could not be loaded. Roster shifts remain available.")).toBeVisible();
-    await expect(page.getByText("Family Assistance Centre morning support")).toBeVisible();
-    await expect(page.locator("main")).toContainText("Unable to determine");
-    await expect(page.locator("body")).not.toContainText(/readiness score|\d+%|% ready|restricted-ready/i);
-    await expectNoTechnicalStorageCopy(page);
-  });
-
   test("keeps Rostering on API errors without showing fallback shifts", async ({ page }) => {
     await page.route("**/api/roster-shifts**", async (route) => {
       if (route.request().method() === "GET") {
@@ -694,42 +630,6 @@ test.describe("ZPP Connect portal", () => {
     await page.reload();
     await expect(page.getByText(`Marta ${lastName}`)).toBeVisible();
     await expect(page.locator("body")).not.toContainText(/readiness score|\d+%|restricted-ready|Ready for restricted|Risk first/i);
-    await expectNoTechnicalStorageCopy(page);
-  });
-
-  test("shows Members readiness from the Readiness API without legacy percentages", async ({ page }) => {
-    let readinessRequests = 0;
-    await page.route("**/api/readiness/members**", async (route) => {
-      if (route.request().method() === "GET") readinessRequests += 1;
-      await route.continue();
-    });
-
-    await login(page, "admin@lot.pl");
-    await page.goto("/members");
-
-    await expect(page.getByRole("heading", { name: "Members", exact: true })).toBeVisible();
-    await expect(page.getByText("Readiness attention", { exact: true })).toBeVisible();
-    await expect(page.locator("body")).toContainText(/Ready with attention|Not ready|Ready|Unable to determine|Not applicable/);
-    await expect(page.locator("body")).not.toContainText(/readiness score|\d+%|restricted-ready|Ready for restricted|Risk first/i);
-    expect(readinessRequests).toBeLessThanOrEqual(2);
-    await expectNoTechnicalStorageCopy(page);
-  });
-
-  test("keeps Members readable when Readiness status is unavailable", async ({ page }) => {
-    await page.route("**/api/readiness/members**", async (route) => {
-      if (route.request().method() === "GET") {
-        await route.fulfill({ status: 500, contentType: "application/json", body: JSON.stringify({ error: "Readiness status unavailable" }) });
-        return;
-      }
-      await route.continue();
-    });
-
-    await login(page, "admin@lot.pl");
-    await page.goto("/members");
-
-    await expect(page.getByText("Readiness status could not be loaded. Member profiles remain available.")).toBeVisible();
-    await expect(page.getByText("Adam Dabrowski")).toBeVisible();
-    await expect(page.locator("body")).not.toContainText(/readiness score|\d+%|restricted-ready/i);
     await expectNoTechnicalStorageCopy(page);
   });
 
@@ -793,73 +693,6 @@ test.describe("ZPP Connect portal", () => {
     await expectNoTechnicalStorageCopy(page);
   });
 
-  test("shows personal training with real actions for a linked Member", async ({ page }) => {
-    await login(page, "volunteer@lot.pl");
-    await page.goto("/training");
-
-    await expect(page.getByRole("heading", { name: "Training", exact: true })).toBeVisible();
-    await expect(page.getByRole("heading", { name: "My training" })).toBeVisible();
-    await expect(page.getByText("Adam Dabrowski · ZPP-221")).toBeVisible();
-    await expect(page.getByText("Data Protection for Crisis Response")).toBeVisible();
-    await expect(page.getByRole("button", { name: "New course" })).toHaveCount(0);
-    await expect(page.getByRole("button", { name: "Assign training" })).toHaveCount(0);
-
-    await page.getByRole("button", { name: "Start" }).click();
-    await expect(page.getByText("Training started")).toBeVisible();
-    await page.getByRole("button", { name: "Complete" }).first().click();
-    const drawer = page.getByRole("dialog", { name: "Record completion" });
-    await expect(drawer).toBeVisible();
-    await drawer.getByRole("button", { name: "Record completion" }).click();
-    await expect(page.getByText("Completion recorded")).toBeVisible();
-    await expectNoTechnicalStorageCopy(page);
-  });
-
-  test("shows TEC-related personal training for TEC identity", async ({ page }) => {
-    await login(page, "tec@lot.pl");
-    await page.goto("/training");
-
-    await expect(page.getByText("Piotr Nowak · TEC-001")).toBeVisible();
-    await expect(page.getByText("Telephone Enquiry Center Procedures")).toBeVisible();
-    await expect(page.getByRole("button", { name: "New course" })).toHaveCount(0);
-    await expect(page.getByRole("button", { name: "Assign training" })).toHaveCount(0);
-    await expectNoTechnicalStorageCopy(page);
-  });
-
-  test("lets System Admin manage training courses through the API-backed page", async ({ page }) => {
-    await login(page, "admin@lot.pl");
-    await page.goto("/training");
-
-    await expect(page.getByRole("heading", { name: "Training", exact: true })).toBeVisible();
-    await expect(page.getByRole("heading", { name: "Training Records" })).toBeVisible();
-    await expect(page.getByRole("button", { name: "New course" })).toBeVisible();
-
-    const code = `SMOKE-${Date.now()}`;
-    await page.getByRole("button", { name: "New course" }).click();
-    const drawer = page.getByRole("dialog", { name: "New course" });
-    await expect(drawer).toBeVisible();
-    await drawer.getByLabel("Code").fill(code);
-    await drawer.getByLabel("Title").fill("Smoke Training Course");
-    await drawer.getByLabel("Category").fill("Coordination");
-    await drawer.getByLabel("Delivery type").selectOption("Briefing");
-    await drawer.getByRole("button", { name: "Save course" }).click();
-
-    await expect(page.getByText("Course created")).toBeVisible();
-    await expect(page.getByRole("row").filter({ hasText: "Smoke Training Course" })).toBeVisible();
-
-    await page.getByRole("button", { name: "Assign training" }).click();
-    const assignDrawer = page.getByRole("dialog", { name: "Assign training" });
-    await expect(assignDrawer).toBeVisible();
-    await assignDrawer.getByLabel("Assign to").selectOption("Group");
-    await assignDrawer.getByRole("combobox", { name: /^Group/ }).selectOption({ index: 1 });
-    await assignDrawer.getByLabel("Course").selectOption({ label: "Smoke Training Course" });
-    await assignDrawer.getByRole("button", { name: "Assign training" }).click();
-
-    await expect(page.getByText(/Training assigned to \d+ group member/)).toBeVisible();
-    await page.getByLabel("Search").fill("Smoke Training Course");
-    await expect(page.getByRole("row").filter({ hasText: "Smoke Training Course" }).first()).toBeVisible();
-    await expectNoTechnicalStorageCopy(page);
-  });
-
   test("shows personal documents from the API and records acknowledgement", async ({ page }) => {
     await login(page, "volunteer@lot.pl");
     await page.goto("/documents");
@@ -920,68 +753,9 @@ test.describe("ZPP Connect portal", () => {
     await expectNoTechnicalStorageCopy(page);
   });
 
-  test("keeps Training on API errors without showing static module fallback", async ({ page }) => {
-    await page.route("**/api/training/records**", async (route) => {
-      if (route.request().method() === "GET") {
-        await route.fulfill({ status: 500, contentType: "application/json", body: JSON.stringify({ error: "Training service unavailable" }) });
-        return;
-      }
-      await route.continue();
-    });
-
-    await login(page, "admin@lot.pl");
-    await page.goto("/training");
-
-    await expect(page.getByText("Training service unavailable")).toBeVisible();
-    await expect(page.getByRole("main").getByText("ERP Familiarization")).toHaveCount(0);
-    await expect(page.getByRole("main").getByText("Telephone Enquiry Center Procedures")).toHaveCount(0);
-    await expectNoTechnicalStorageCopy(page);
-  });
-
-  test("shows API-backed readiness without static scores or fallback records", async ({ page }) => {
-    await login(page, "volunteer@lot.pl");
-    await page.goto("/readiness");
-
-    await expect(page.getByRole("heading", { name: "Readiness", exact: true })).toBeVisible();
-    await expect(page.getByRole("heading", { name: "My readiness" })).toBeVisible();
-    await expect(page.getByText("Adam Dabrowski · ZPP-221")).toBeVisible();
-    await expect(page.getByText("Next actions")).toBeVisible();
-    await expect(page.locator("body")).not.toContainText(/readiness score|\d+% ready/i);
-    await expectNoTechnicalStorageCopy(page);
-
-    await clearAuthSession(page);
-    await login(page, "admin@lot.pl");
-    await page.goto("/readiness");
-    await expect(page.getByRole("heading", { name: "Readiness management" })).toBeVisible();
-    await expect(page.getByRole("main").getByText("Adam Dabrowski")).toBeVisible();
-    await page.getByRole("button", { name: "View" }).first().click();
-    const readinessDrawer = page.getByRole("dialog");
-    await expect(readinessDrawer).toBeVisible();
-    await expect(readinessDrawer.getByText("Calculated")).toBeVisible();
-    await expectNoTechnicalStorageCopy(page);
-  });
-
-  test("keeps Readiness on API errors without showing static module fallback", async ({ page }) => {
-    await page.route("**/api/readiness/members**", async (route) => {
-      if (route.request().method() === "GET") {
-        await route.fulfill({ status: 500, contentType: "application/json", body: JSON.stringify({ error: "Readiness service unavailable" }) });
-        return;
-      }
-      await route.continue();
-    });
-
-    await login(page, "admin@lot.pl");
-    await page.goto("/readiness");
-
-    await expect(page.getByText("Readiness service unavailable")).toBeVisible();
-    await expect(page.getByRole("main").getByText("Adam Dabrowski")).toHaveCount(0);
-    await expect(page.getByRole("main").getByText("Anna Kowalska")).toHaveCount(0);
-    await expectNoTechnicalStorageCopy(page);
-  });
-
   test("keeps technical storage wording out of production-facing modules", async ({ page }) => {
     await login(page, "admin@lot.pl");
-    for (const route of ["/dashboard", "/members", "/groups", "/rostering", "/training", "/readiness", "/active-event", "/settings"]) {
+    for (const route of ["/dashboard", "/members", "/groups", "/rostering", "/active-event", "/settings"]) {
       await page.goto(route);
       await expectNoTechnicalStorageCopy(page);
     }

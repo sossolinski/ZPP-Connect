@@ -5,7 +5,6 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { createApp, createSharedApp } from "./test-support/listening-test-app.js";
 import { createPrismaAfterActionReportService } from "./modules/after-action-reports/prisma-after-action-report-service.js";
 import { contentDigest, sha256, versionInclude, aarPdfLimit } from "./modules/after-action-reports/after-action-report-types.js";
-import { createPrismaExerciseService } from "./modules/exercise/prisma-exercise-service.js";
 
 const databaseUrl = process.env.TEST_DATABASE_URL;
 const pg = databaseUrl ? describe : describe.skip;
@@ -20,6 +19,9 @@ pg("Foundation Stage 22 retained AAR evidence", () => {
   const headers = (email = coordinator.email) => ({ "x-user-email": email });
   const command = (version: number) => ({ operationId: randomUUID(), expectedVersion: version });
   async function incident(mode = "REAL", status = "Closed") {
+    if (mode === "REAL" && status === "Active") {
+      return db!.session.findFirstOrThrow({ where: { mode: "REAL", status: "Active" } });
+    }
     const s = await db!.session.create({ data: { operationalId: marker + "-" + randomUUID(), mode, status, eventType: "AAR test", createdById: coordinator.id } });
     await db!.incidentAssignment.create({ data: { incidentId: s.id, userId: coordinator.id, function: marker, createdById: coordinator.id } });
     return s;
@@ -28,6 +30,37 @@ pg("Foundation Stage 22 retained AAR evidence", () => {
     const s = await incident(mode);
     const r = await service().create({ sessionId: s.id, title: "Evidence " + marker, operationId: randomUUID() }, actor());
     return { s, r };
+  }
+  async function historicalObservation(sessionId: string, observation: string, recommendation: string) {
+    return db!.$transaction(async tx => {
+      const record = await tx.exerciseObservation.create({ data: {
+        operationalId: `${marker}-OBS-${randomUUID()}`,
+        sessionId,
+        area: "Intake",
+        observation,
+        recommendation,
+        severity: "Low",
+        status: "Open",
+        includeInAar: true,
+        createdById: coordinator.id,
+        updatedById: coordinator.id
+      } });
+      await tx.exerciseObservationRevision.create({ data: {
+        observationId: record.id,
+        version: 1,
+        area: record.area,
+        severity: record.severity,
+        observation: record.observation,
+        recommendation: record.recommendation,
+        owner: record.owner,
+        includeInAar: record.includeInAar,
+        status: record.status,
+        changedFields: ["created"],
+        changedById: coordinator.id,
+        source: "Seed"
+      } });
+      return record;
+    });
   }
   function editBody(v: { version: number }, summary = "Executive evidence") {
     return { expectedVersion: v.version, title: marker + " report", eventDate: "2026-09-21T12:00:00.000Z", executiveSummary: summary,
@@ -48,7 +81,17 @@ pg("Foundation Stage 22 retained AAR evidence", () => {
     await db!.user.create({ data: { email: adminOnlyEmail, normalizedEmail: adminOnlyEmail, displayName: "AAR admin only", roles: { create: { roleId: role.id, scopeType: "GLOBAL", assignedBy: coordinator.id } } } });
   });
   // Approved evidence is intentionally not deleted. Every gate uses a disposable DB.
-  afterAll(async () => { await db?.$disconnect(); });
+  // The temporary admin identity is not evidence and must not affect the Stage 14
+  // last-system-admin invariant when Vitest reorders files by cached duration.
+  afterAll(async () => {
+    if (!db) return;
+    const temporaryAdmin = await db.user.findUnique({ where: { normalizedEmail: adminOnlyEmail } });
+    if (temporaryAdmin) {
+      await db.userRole.deleteMany({ where: { userId: temporaryAdmin.id } });
+      await db.user.delete({ where: { id: temporaryAdmin.id } });
+    }
+    await db.$disconnect();
+  });
 
   it("deploys 23 migrations, normalized tables, coordinator-only defaults and immutable guards", async () => {
     const migrations = await db!.$queryRaw<Array<{ count: bigint }>>`SELECT count(*) AS count FROM "_prisma_migrations" WHERE finished_at IS NOT NULL AND rolled_back_at IS NULL`;
@@ -58,7 +101,8 @@ pg("Foundation Stage 22 retained AAR evidence", () => {
     const admin = await db!.role.findUniqueOrThrow({ where: { normalizedName: "system-admin" } });
     expect(admin.permissions).not.toContain("aar:read");
   });
-  it.each(["REAL", "EXERCISE", "TRAINING"])("creates one report for a Closed %s Session with durable replay", async mode => {
+  it("creates one report for a Closed REAL Session with durable replay", async () => {
+    const mode = "REAL";
     const s = await incident(mode);
     const body = { sessionId: s.id, title: marker, operationId: randomUUID() };
     const first = await request(app()).post("/api/after-action-reports").set(headers()).send(body);
@@ -68,10 +112,14 @@ pg("Foundation Stage 22 retained AAR evidence", () => {
     expect((await request(app()).post("/api/after-action-reports").set(headers()).send({ ...body, operationId: randomUUID() })).status).toBe(409);
     expect((await request(app()).post("/api/after-action-reports").set(headers()).send({ ...body, title: "Different" })).status).toBe(409);
   });
+  it.each(["EXERCISE", "TRAINING"])("keeps historical %s Sessions read-only for AAR authoring", async mode => {
+    const s = await incident(mode);
+    const response = await request(app()).post("/api/after-action-reports").set(headers()).send({ sessionId: s.id, title: marker, operationId: randomUUID() });
+    expect(response.status).toBe(409);
+  });
   it.each(["Active", "Draft", "Archived"])("rejects new content on %s Sessions", async status => {
-    const s = await incident("EXERCISE", status);
+    const s = await incident("REAL", status);
     expect((await request(app()).post("/api/after-action-reports").set(headers()).send({ sessionId: s.id, title: marker, operationId: randomUUID() })).status).toBe(409);
-    if (status === "Active") await db!.session.update({ where: { id: s.id }, data: { status: "Closed" } });
   });
   it("requires authentication, denies admin content and makes inaccessible IDs indistinguishable", async () => {
     const { s, r } = await draft();
@@ -135,17 +183,13 @@ pg("Foundation Stage 22 retained AAR evidence", () => {
     expect((await service().getVersion(before.id, actor())).contentSha256).toBe(before.contentSha256);
     expect(await service().history(r.reportId, { limit: 1, offset: 1 }, actor())).toMatchObject({ total: 2, data: [{ id: before.id }] });
   });
-  it("snapshots eligible same-Session observations and retains exact source revisions", async () => {
+  it("removes Exercise Observation sourcing from the active AAR contract", async () => {
     const s = await incident("EXERCISE", "Active");
-    const exercise = createPrismaExerciseService(db!);
-    const observation = await exercise.createObservation({ sessionId: s.id, operationId: randomUUID(), area: "Intake", observation: "Original evidence", recommendation: "Original recommendation", severity: "Low", owner: null, status: "Open", includeInAar: true }, actor());
+    const observation = await historicalObservation(s.id, "Original evidence", "Original recommendation");
     await db!.session.update({ where: { id: s.id }, data: { status: "Closed" } });
-    const r = await service().create({ sessionId: s.id, operationId: randomUUID(), title: marker, sourceObservationIds: [observation.record.id] }, actor());
-    const v = await service().getVersion(r.reportVersionId!, actor());
-    expect(v.findings[0]).toMatchObject({ summary: "Original evidence", detail: "Original recommendation", sourceObservationVersion: 1 });
-    const other = await incident("EXERCISE");
-    await expect(service().create({ sessionId: other.id, operationId: randomUUID(), title: marker, sourceObservationIds: [observation.record.id] }, actor())).rejects.toMatchObject({ status: 400 });
-    expect(await service().sourceObservations(s.id, { limit: 1 }, actor())).toMatchObject({ total: 1 });
+    await expect(service().create({ sessionId: s.id, operationId: randomUUID(), title: marker }, actor())).rejects.toMatchObject({ status: 409 });
+    expect(observation.id).toBeTruthy();
+    expect((await request(app()).get(`/api/sessions/${s.id}/aar-source-observations`).set(headers())).status).toBe(404);
   });
   it("rolls entity and operation back on audit failure without leaking report text", async () => {
     const s = await incident(), operationId = randomUUID();
@@ -299,19 +343,34 @@ pg("Foundation Stage 22 retained AAR evidence", () => {
     await expect(service().generatePdf(r.reportVersionId!, { ...cmd, expectedVersion: 999 }, actor())).rejects.toMatchObject({ status: 409 });
   });
   it("keeps approved Observation and actor/event snapshots stable after later source changes", async () => {
-    const s = await incident("EXERCISE", "Active"), exercise = createPrismaExerciseService(db!);
-    const original = await exercise.createObservation({ sessionId: s.id, operationId: randomUUID(), area: "Intake", observation: "Historical source", recommendation: "Original advice", severity: "Low", owner: null, status: "Open", includeInAar: true }, actor());
-    await db!.session.update({ where: { id: s.id }, data: { status: "Closed" } });
-    const r = await service().create({ sessionId: s.id, title: marker, operationId: randomUUID(), sourceObservationIds: [original.record.id] }, actor());
-    let v = await service().getVersion(r.reportVersionId!, actor());
-    const edited = await service().edit(v.id, { ...editBody(v), findings: v.findings.map(f => ({ id: f.id, area: f.area, summary: f.summary, detail: f.detail })) }, actor());
+    const { s, r } = await draft();
+    const original = await historicalObservation(s.id, "Historical source", "Original advice");
+    const edited = await service().edit(r.reportVersionId!, editBody(r), actor());
+    const finding = await db!.afterActionFinding.findFirstOrThrow({ where: { reportVersionId: r.reportVersionId } });
+    await db!.afterActionFinding.update({ where: { id: finding.id }, data: { summary: "Historical source", detail: "Original advice", sourceObservationId: original.id, sourceObservationVersion: 1, sourceObservationOperationalId: original.operationalId } });
+    const v = await service().getVersion(r.reportVersionId!, actor());
     const review = await service().transition(v.id, "submit", command(edited.version), actor());
     const approvedResult = await service().transition(v.id, "approve", command(review.version), actor());
     const before = await db!.afterActionReportVersion.findUniqueOrThrow({ where: { id: v.id }, include: versionInclude });
     // Simulate later source evolution on an administratively reopened TEST fixture.
-    await db!.session.update({ where: { id: s.id }, data: { status: "Active", eventType: "Changed event description" } });
-    await exercise.updateObservation(original.record.id, { expectedVersion: 1, observation: "Later source", recommendation: "Later advice" }, actor());
-    await db!.session.update({ where: { id: s.id }, data: { status: "Closed" } });
+    await db!.session.update({ where: { id: s.id }, data: { eventType: "Changed event description" } });
+    await db!.$transaction(async tx => {
+      const updated = await tx.exerciseObservation.update({ where: { id: original.id }, data: { observation: "Later source", recommendation: "Later advice", version: 2, updatedById: coordinator.id } });
+      await tx.exerciseObservationRevision.create({ data: {
+        observationId: updated.id,
+        version: 2,
+        area: updated.area,
+        severity: updated.severity,
+        observation: updated.observation,
+        recommendation: updated.recommendation,
+        owner: updated.owner,
+        includeInAar: updated.includeInAar,
+        status: updated.status,
+        changedFields: ["observation", "recommendation"],
+        changedById: coordinator.id,
+        source: "Mutation"
+      } });
+    });
     const after = await db!.afterActionReportVersion.findUniqueOrThrow({ where: { id: v.id }, include: versionInclude });
     expect(after.findings[0]).toMatchObject({ summary: "Historical source", sourceObservationVersion: 1 });
     expect(after.contextSnapshot).toEqual(before.contextSnapshot);

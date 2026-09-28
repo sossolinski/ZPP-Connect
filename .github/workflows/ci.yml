@@ -94,14 +94,8 @@ jobs:
           kill "$api_pid"
           wait "$api_pid" || true
 
-      - name: PostgreSQL Foundation Stage 1 through 22 integration tests (zero skipped)
+      - name: PostgreSQL Foundation Stage 1 through 24 integration tests (zero skipped)
         run: npm run test:postgres
-
-      - name: Dedicated Foundation Stage 18 PostgreSQL tests
-        run: npm exec -w @zpp/api vitest run -- --no-file-parallelism --maxWorkers=1 src/foundation-stage18-postgres.integration.test.ts
-
-      - name: Dedicated Foundation Stage 19 PostgreSQL tests
-        run: npm exec -w @zpp/api vitest run -- --no-file-parallelism --maxWorkers=1 src/foundation-stage19-postgres.integration.test.ts
 
       - name: Dedicated Foundation Stage 20 PostgreSQL tests
         run: npm exec -w @zpp/api vitest run -- --no-file-parallelism --maxWorkers=1 src/foundation-stage20-postgres.integration.test.ts
@@ -112,13 +106,16 @@ jobs:
       - name: Dedicated Foundation Stage 23 PostgreSQL integrity tests
         run: npm exec -w @zpp/api vitest run -- --no-file-parallelism --maxWorkers=1 src/foundation-stage23-postgres.integration.test.ts
 
+      - name: Dedicated Foundation Stage 24 product boundary tests
+        run: npm exec -w @zpp/api vitest run -- --no-file-parallelism --maxWorkers=1 src/foundation-stage24-postgres.integration.test.ts
+
       - name: Foundation Stage 23 backup, restore and corruption gate
         env:
           STAGE23_ALLOW_RECOVERY: "true"
           STAGE23_ADMIN_DATABASE_URL: postgresql://zpp:zpp@127.0.0.1:5432/postgres?schema=public
         run: npm run test:recovery
 
-      - name: Install Chromium for Stage 16 through 21 workflow coverage
+      - name: Install Chromium for retained operational workflow coverage
         run: npx playwright install --with-deps chromium
 
       - name: Stage 16 PostgreSQL browser workflow
@@ -131,15 +128,10 @@ jobs:
           PLAYWRIGHT_PERSISTENCE_MODE: postgres
         run: npx playwright test tests/smoke/zz-stage17-exports.spec.ts
 
-      - name: Stage 18 PostgreSQL browser workflow
+      - name: Stage 24 PostgreSQL product-scope workflow
         env:
           PLAYWRIGHT_PERSISTENCE_MODE: postgres
-        run: npx playwright test tests/smoke/zz-stage18-exercise.spec.ts
-
-      - name: Stage 19 PostgreSQL browser workflow
-        env:
-          PLAYWRIGHT_PERSISTENCE_MODE: postgres
-        run: npx playwright test tests/smoke/zz-stage19-readiness.spec.ts
+        run: npx playwright test tests/smoke/zz-stage24-product-scope.spec.ts
 
       - name: Stage 21 PostgreSQL browser workflow
         env:
@@ -426,7 +418,6 @@ jobs:
           test "$(psql "$BACKFILL_PSQL_URL" --tuples-only --no-align --command='SELECT count(*) FROM "OperationalBriefing";')" = "$pre_stage18_briefings"
           test "$(psql "$BACKFILL_PSQL_URL" --tuples-only --no-align --command='SELECT count(*) FROM "ExportGeneration";')" = "$pre_stage18_exports"
           test "$(psql "$BACKFILL_PSQL_URL" --tuples-only --no-align --command='SELECT count(*) FROM "ExportGeneration" WHERE "id" = '\''a0000000-0000-4000-8000-000000000001'\'' AND "contentSha256" = repeat('\''b'\'', 64);')" = "1"
-          TEST_DATABASE_URL="$BACKFILL_DATABASE_URL" DATABASE_URL="$BACKFILL_DATABASE_URL" npm exec -w @zpp/api vitest run -- --no-file-parallelism --maxWorkers=1 src/foundation-stage18-postgres.integration.test.ts
           pre_stage19_users=$(psql "$BACKFILL_PSQL_URL" --tuples-only --no-align --command='SELECT count(*) FROM "User";')
           pre_stage19_members=$(psql "$BACKFILL_PSQL_URL" --tuples-only --no-align --command='SELECT count(*) FROM "MemberProfile";')
           pre_stage19_groups=$(psql "$BACKFILL_PSQL_URL" --tuples-only --no-align --command='SELECT count(*) FROM "OperationalGroup";')
@@ -439,7 +430,6 @@ jobs:
           test "$(psql "$BACKFILL_PSQL_URL" --tuples-only --no-align --command='SELECT count(*) FROM "OperationalGroup";')" = "$pre_stage19_groups"
           test "$(psql "$BACKFILL_PSQL_URL" --tuples-only --no-align --command='SELECT count(*) FROM "MemberTrainingRecord";')" = "$pre_stage19_training"
           test "$(psql "$BACKFILL_PSQL_URL" --tuples-only --no-align --command='SELECT count(*) FROM "DocumentAcknowledgement";')" = "$pre_stage19_documents"
-          TEST_DATABASE_URL="$BACKFILL_DATABASE_URL" DATABASE_URL="$BACKFILL_DATABASE_URL" npm exec -w @zpp/api vitest run -- --no-file-parallelism --maxWorkers=1 src/foundation-stage19-postgres.integration.test.ts
           TEST_DATABASE_URL="$BACKFILL_DATABASE_URL" DATABASE_URL="$BACKFILL_DATABASE_URL" npm exec -w @zpp/api vitest run -- --no-file-parallelism --maxWorkers=1 src/foundation-stage20-postgres.integration.test.ts
           git show 8ffe714482642b9fa06e3da1831504a171c36cd5:apps/api/prisma/seed.ts > apps/api/prisma/stage20-rehearsal-seed.ts
           git show 8ffe714482642b9fa06e3da1831504a171c36cd5:apps/api/prisma/schema.prisma > apps/api/prisma/stage20-rehearsal-schema.prisma

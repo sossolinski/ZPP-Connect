@@ -79,9 +79,9 @@ postgresDescribe("Foundation Stage 6 PostgreSQL release safety", () => {
     adminId = admin.id;
     coordinatorId = coordinator.id;
     const [exercise, training, closedTarget] = await Promise.all([
-      prisma!.session.create({ data: { operationalId: `${marker}-EX`, mode: "EXERCISE", status: "Active", eventType: marker, createdById: admin.id } }),
-      prisma!.session.create({ data: { operationalId: `${marker}-TR`, mode: "TRAINING", status: "Draft", eventType: marker, createdById: admin.id } }),
-      prisma!.session.create({ data: { operationalId: `${marker}-CLOSED`, mode: "TRAINING", status: "Active", eventType: marker, createdById: admin.id } })
+      prisma!.session.create({ data: { operationalId: `${marker}-A`, mode: "REAL", status: "Draft", eventType: marker, createdById: admin.id } }),
+      prisma!.session.create({ data: { operationalId: `${marker}-B`, mode: "REAL", status: "Draft", eventType: marker, createdById: admin.id } }),
+      prisma!.session.create({ data: { operationalId: `${marker}-C`, mode: "REAL", status: "Draft", eventType: marker, createdById: admin.id } })
     ]);
     incidentA = exercise.id;
     incidentB = training.id;

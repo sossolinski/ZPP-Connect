@@ -67,8 +67,7 @@ const fallbackFunctions = [
   "Matching",
   "Release Control",
   "Rostering",
-  "Documentation",
-  "Training"
+  "Documentation"
 ];
 const ownerMine = "__mine__";
 const ownerUnassigned = "__unassigned__";

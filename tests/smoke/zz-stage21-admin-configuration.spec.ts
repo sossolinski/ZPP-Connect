@@ -101,7 +101,8 @@ test("manages durable values truthfully while protecting protocol vocabularies a
   await page.getByRole("button", { name: "New", exact: true }).click();
   const sessionEditor = page.getByRole("dialog", { name: "New Session" });
   await expect(sessionEditor.getByLabel("Event type").locator("option", { hasText: `${marker} Event Updated` })).toHaveCount(1);
-  await sessionEditor.getByLabel("Session type").selectOption("TRAINING");
+  await expect(sessionEditor.getByLabel("Session type")).toHaveValue("REAL");
+  await expect(sessionEditor.getByLabel("Session type")).toBeDisabled();
   await sessionEditor.getByLabel("Event type").selectOption({ label: `${marker} Event Updated` });
   await sessionEditor.getByLabel("Description").fill(`${marker} historical Session`);
   const sessionCreateResponse = page.waitForResponse((response) => response.url().endsWith("/api/sessions") && response.request().method() === "POST");
@@ -135,7 +136,7 @@ test("manages durable values truthfully while protecting protocol vocabularies a
   const inactiveSessionEditor = page.getByRole("dialog", { name: "New Session" });
   await expect(inactiveSessionEditor.getByLabel("Event type").locator("option", { hasText: `${marker} Event Updated` })).toHaveCount(0);
   await inactiveSessionEditor.getByRole("button", { name: "Close" }).click();
-  const inactiveSessionWrite = await page.request.post(`${apiUrl}/sessions`, { headers: adminHeaders, data: { mode: "TRAINING", status: "Draft", eventType: `${marker} Event Updated`, description: `${marker} inactive Session must fail` } });
+  const inactiveSessionWrite = await page.request.post(`${apiUrl}/sessions`, { headers: adminHeaders, data: { mode: "REAL", status: "Draft", eventType: `${marker} Event Updated`, description: `${marker} inactive Session must fail` } });
   expect(inactiveSessionWrite.status()).toBe(400);
   await expect(page.getByRole("row").filter({ hasText: createdSession.operationalId })).toContainText(`${marker} Event Updated`);
 

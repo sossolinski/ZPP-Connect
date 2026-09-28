@@ -1,13 +1,12 @@
 import type { PrismaClient } from "@prisma/client";
-import type { FoundationTrainingRepository } from "../training/training-repository.js";
 import type { FoundationDocumentRepository } from "../documents/document-repository.js";
 import type { NotificationRepository } from "./notification-repository.js";
 import type { NotificationClock, NotificationInput } from "./notification-types.js";
 
-const systemActor = { id: "00000000-0000-0000-0000-000000000000", email: "notification-projector@internal", displayName: "Notification projector", roles: [], permissions: ["training:read-all", "document:read-all"] };
+const systemActor = { id: "00000000-0000-0000-0000-000000000000", email: "notification-projector@internal", displayName: "Notification projector", roles: [], permissions: ["document:read-all"] };
 const date = (value?: Date | string | null) => value ? new Date(value).toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" }) : null;
 
-export function createNotificationProjector(client: PrismaClient, repository: NotificationRepository, dependencies: { training: FoundationTrainingRepository; documents: FoundationDocumentRepository; clock?: NotificationClock; batchSize?: number; maxRows?: number }) {
+export function createNotificationProjector(client: PrismaClient, repository: NotificationRepository, dependencies: { documents: FoundationDocumentRepository; clock?: NotificationClock; batchSize?: number; maxRows?: number }) {
   const clock = dependencies.clock ?? { now: () => new Date() };
   const batchSize = dependencies.batchSize ?? 200;
   const maxRows = dependencies.maxRows ?? 10_000;
@@ -27,7 +26,7 @@ export function createNotificationProjector(client: PrismaClient, repository: No
   return {
     async runOnce() {
       const now = clock.now();
-      const keys: Record<string, string[]> = { assignment: [], rosterConfirmation: [], training: [], document: [] };
+      const keys: Record<string, string[]> = { assignment: [], rosterConfirmation: [], document: [] };
       const upsert = async (conditionType: string, input: NotificationInput) => { keys[conditionType]!.push(input.deduplicationKey); await repository.upsertCondition({ ...input, createdAt: now }); };
       const assignment = await paged(
         (cursor) => client.assignmentTask.findMany({ where: { assignedUserId: { not: null }, status: { notIn: ["Completed", "Cancelled"] }, ...(cursor ? { id: { gt: cursor } } : {}) }, include: { assignedUser: true, session: true }, orderBy: { id: "asc" }, take: batchSize }),
@@ -41,15 +40,13 @@ export function createNotificationProjector(client: PrismaClient, repository: No
         (cursor) => client.memberProfile.findMany({ where: { linkedUserId: { not: null }, status: { not: "Archived" }, linkedUser: { status: "Active" }, ...(cursor ? { id: { gt: cursor } } : {}) }, include: { linkedUser: true }, orderBy: { id: "asc" }, take: batchSize }),
         async (member) => {
           const recipientUserId = member.linkedUserId!;
-          const training = await dependencies.training.evaluateMemberCompliance(member.id, systemActor, now, 45);
-          for (const entry of training?.items ?? []) { const record = entry.record; if (!record || !(record.status === "Expired" || record.isOverdue)) continue; const title = record.status === "Expired" ? "Training expired" : "Training overdue"; await upsert("training", { recipientUserId, deduplicationKey: `condition:trainingRecord:${record.id}:training:${recipientUserId}`, kind: "Action required", severity: "Attention", category: "Training", title, message: `${record.operationalId}${record.dueAt ? ` needs attention by ${date(record.dueAt)}.` : " needs attention."}`, sourceType: "trainingRecord", sourceId: record.id, sourceLabel: record.operationalId, conditionType: "training", actionDestination: "/training", actionLabel: "Open training", metadata: { condition: true, conditionType: "training", status: record.status } }); }
           const documents = await dependencies.documents.evaluateMemberCompliance(member.id, systemActor, now);
           for (const entry of documents?.items ?? []) { if (!entry.acknowledgementRequired || entry.status === "Acknowledged") continue; await upsert("document", { recipientUserId, deduplicationKey: `condition:documentVersion:${entry.documentVersionId}:document:${recipientUserId}`, kind: "Action required", severity: entry.status === "Overdue" ? "Attention" : "Information", category: "Documents", title: entry.status === "Overdue" ? "Document acknowledgement overdue" : "Document acknowledgement needed", message: "A published document needs your acknowledgement.", sourceType: "documentVersion", sourceId: entry.documentVersionId, sourceLabel: entry.versionLabel, conditionType: "document", actionDestination: "/documents", actionLabel: "Open documents", metadata: { condition: true, conditionType: "document", status: entry.status } }); }
         },
       );
       if (assignment.complete) await repository.resolveMissingConditions("assignment", keys.assignment!, now);
       if (roster.complete) await repository.resolveMissingConditions("rosterConfirmation", keys.rosterConfirmation!, now);
-      if (members.complete) { await repository.resolveMissingConditions("training", keys.training!, now); await repository.resolveMissingConditions("document", keys.document!, now); }
+      if (members.complete) await repository.resolveMissingConditions("document", keys.document!, now);
       return { assignment, roster, members, active: Object.values(keys).reduce((sum, list) => sum + list.length, 0) };
     },
   };

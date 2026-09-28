@@ -87,7 +87,6 @@ type NotificationSources = {
   assignments?: AnyRow[];
   directory?: AnyRow;
   rostering?: AnyRow;
-  training?: AnyRow;
   documents?: AnyRow;
   activeEvent?: AnyRow;
   permissionsForRoleNames?: (roles: string[]) => string[];
@@ -106,7 +105,6 @@ type CreateNotificationInput = Omit<NotificationRecord, "id" | "createdAt" | "up
 const defaultNow = () => new Date().toISOString();
 const terminalAssignmentStatuses = new Set(["Completed", "Cancelled"]);
 const terminalRosterStatuses = new Set(["Confirmed", "Declined", "Cancelled", "Completed"]);
-const terminalTrainingStatuses = new Set(["Completed", "Verified", "Waived", "Cancelled"]);
 const technicalWordPattern = /demo|in-memory|reset on restart|database not connected|source not connected|temporary storage|local development/i;
 
 function stableNotificationId(key: string) {
@@ -244,7 +242,7 @@ function routeForSource(sourceType: NotificationSourceType, sourceId: string) {
   if (sourceType === "briefing") return "/active-event";
   if (sourceType === "session") return "/sessions";
   if (sourceType === "rosterShift") return "/rostering";
-  if (sourceType === "trainingRecord") return "/training";
+  if (sourceType === "trainingRecord") return null;
   if (sourceType === "documentVersion" || sourceType === "documentRequirement") return "/documents";
   if (sourceType === "access") return "/settings";
   return "/";
@@ -487,28 +485,6 @@ export function createNotificationService(sources: NotificationSources = {}) {
     });
   }
 
-  function notifyTrainingCondition(record: AnyRow, recipientUserId: string) {
-    const title = record.status === "Expired" ? "Training expired" : "Training overdue";
-    const due = dateOnly(record.dueAt ?? record.validUntil ?? record.expiryAt);
-    return create({
-      deduplicationKey: `condition:trainingRecord:${record.id}:${title}:${recipientUserId}`,
-      recipientUserId,
-      kind: "Action required",
-      severity: "Attention",
-      category: "Training",
-      title,
-      message: `${safeCopyText(record.courseTitle ?? record.course?.title ?? record.title, "Required training")}${due ? ` needs attention by ${due}.` : " needs attention."}`,
-      sessionId: record.sessionId ?? null,
-      sessionLabel: sessionLabel(sources.sessions, record.sessionId),
-      sourceType: "trainingRecord",
-      sourceId: record.id,
-      sourceLabel: record.operationalId ?? null,
-      actionDestination: routeForSource("trainingRecord", record.id),
-      actionLabel: "Open training",
-      reopenResolved: true,
-      metadata: { condition: true, conditionType: "training", status: record.status ?? null }
-    });
-  }
 
   function notifyDocumentCondition(document: AnyRow, recipientUserId: string) {
     return create({
@@ -669,29 +645,6 @@ export function createNotificationService(sources: NotificationSources = {}) {
             activeKeys.add(key);
             notifyRosterCondition(shift, recipientUserId, repository.get(recipientUserId, stableNotificationId(key))?.readAt ?? null);
           } else if (terminalRosterStatuses.has(String(shift.status))) {
-            repository.resolveByDeduplicationKey(key, "Source resolved");
-          }
-        }
-      }
-    } catch {
-      canResolve = false;
-    }
-
-    try {
-      const actor = actorFor(user, sources.permissionsForRoleNames);
-      if (sources.training?.listRecords) {
-        const personal = sources.training.listRecords({ mine: true, limit: 200 }, actor);
-        const nowMs = Date.now();
-        for (const record of personal?.data ?? []) {
-          const status = String(record.status ?? "");
-          const dueMs = record.dueAt ? new Date(String(record.dueAt)).getTime() : NaN;
-          const expired = status === "Expired";
-          const overdue = Number.isFinite(dueMs) && dueMs < nowMs && !terminalTrainingStatuses.has(status);
-          const key = `condition:trainingRecord:${record.id}:${expired ? "Training expired" : "Training overdue"}:${recipientUserId}`;
-          if (expired || overdue) {
-            activeKeys.add(key);
-            notifyTrainingCondition(record, recipientUserId);
-          } else {
             repository.resolveByDeduplicationKey(key, "Source resolved");
           }
         }
@@ -873,25 +826,10 @@ export function createNotificationService(sources: NotificationSources = {}) {
       notifyRosterCondition(shift, recipientUserId);
     },
     notifyTrainingAssigned(record: AnyRow) {
-      const recipientUserId = linkedUserIdForMember(sources.directory, record.memberProfileId);
-      if (!recipientUserId) return;
-      create({
-        deduplicationKey: `event:trainingRecord:${record.id}:assigned:${record.updatedAt ?? defaultNow()}:${recipientUserId}`,
-        recipientUserId,
-        kind: "Information",
-        severity: "Information",
-        category: "Training",
-        title: "Training assigned",
-        message: `${safeCopyText(record.courseTitle ?? record.course?.title ?? record.title, "Training")} has been assigned to you.`,
-        sessionId: record.sessionId ?? null,
-        sessionLabel: sessionLabel(sources.sessions, record.sessionId),
-        sourceType: "trainingRecord",
-        sourceId: record.id,
-        sourceLabel: record.operationalId ?? null,
-        actionDestination: routeForSource("trainingRecord", record.id),
-        actionLabel: "Open training",
-        createdAt: asIso(record.assignedAt ?? record.updatedAt ?? record.createdAt)
-      });
+      // Historical method retained for callers compiled against the old memory API.
+      // Stage 24 makes it intentionally inert: no new Training notification is emitted.
+      void record;
+      return;
     },
     notifyDocumentVersionPublished(version: AnyRow) {
       for (const recipient of allUsersWith("document:read-own").filter((item) => !hasObserverRole(item))) {

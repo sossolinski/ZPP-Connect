@@ -22,14 +22,11 @@ import type { RequestRepository } from "./modules/requests/request-repository.js
 import type { AssignmentRepository } from "./modules/assignments/assignment-repository.js";
 import type { FoundationMemberDirectoryRepository } from "./modules/member-directory/member-directory-repository.js";
 import type { FoundationRosteringRepository } from "./modules/rostering/rostering-repository.js";
-import type { FoundationTrainingRepository } from "./modules/training/training-repository.js";
 import type { FoundationDocumentRepository } from "./modules/documents/document-repository.js";
 import type { NotificationRepository } from "./modules/notifications/notification-repository.js";
 import type { PrismaOperationalBriefingService } from "./modules/briefings/prisma-operational-briefing-service.js";
 import type { PrismaImportService } from "./modules/imports/prisma-import-service.js";
 import type { PrismaExportService } from "./modules/exports/prisma-export-service.js";
-import type { PrismaExerciseService } from "./modules/exercise/prisma-exercise-service.js";
-import type { ReadinessProjectionService } from "./modules/readiness/prisma-readiness-service.js";
 import type { DictionaryConfigurationService } from "./modules/configuration/configuration-types.js";
 
 export function createApp(options: {
@@ -46,21 +43,16 @@ export function createApp(options: {
   assignmentRepository?: AssignmentRepository;
   memberDirectoryRepository?: FoundationMemberDirectoryRepository;
   rosteringRepository?: FoundationRosteringRepository;
-  trainingRepository?: FoundationTrainingRepository;
-  trainingClock?: { now(): Date };
   documentRepository?: FoundationDocumentRepository;
   notificationRepository?: NotificationRepository;
   operationalBriefingService?: PrismaOperationalBriefingService;
   importService?: PrismaImportService;
   exportService?: PrismaExportService;
-  exerciseService?: PrismaExerciseService;
-  readinessService?: ReadinessProjectionService;
   dictionaryService?: DictionaryConfigurationService;
   documentClock?: { now(): Date };
   documentNotificationHook?: (record: Record<string, unknown>) => void;
   assignmentNotificationHook?: (record: Record<string, unknown>, command: string) => void;
   rosteringNotificationHook?: (record: Record<string, unknown>, command: string) => void;
-  trainingNotificationHook?: (record: Record<string, unknown>, command: string) => void;
   skipRuntimeValidation?: boolean;
 } = {}) {
   if (!options.skipRuntimeValidation) validateRuntimeConfig(config);
@@ -106,21 +98,16 @@ export function createApp(options: {
     assignmentRepository: options.assignmentRepository,
     memberDirectoryRepository: options.memberDirectoryRepository,
     rosteringRepository: options.rosteringRepository,
-    trainingRepository: options.trainingRepository,
-    trainingClock: options.trainingClock,
     documentRepository: options.documentRepository,
     notificationRepository: options.notificationRepository,
     operationalBriefingService: options.operationalBriefingService,
     importService: options.importService,
     exportService: options.exportService,
-    exerciseService: options.exerciseService,
-    readinessService: options.readinessService,
     dictionaryService: options.dictionaryService,
     documentClock: options.documentClock,
     documentNotificationHook: options.documentNotificationHook,
     assignmentNotificationHook: options.assignmentNotificationHook,
-    rosteringNotificationHook: options.rosteringNotificationHook,
-    trainingNotificationHook: options.trainingNotificationHook
+    rosteringNotificationHook: options.rosteringNotificationHook
   });
 
   app.use(notFound);

@@ -80,7 +80,7 @@ postgresDescribe("Foundation Stage 12 PostgreSQL Documents", () => {
   beforeAll(async () => {
     await prisma!.$connect();
     adminId = (await prisma!.user.findUniqueOrThrow({ where: { email: "admin@lot.pl" } })).id;
-    const incident = await prisma!.session.create({ data: { operationalId: `${marker}-INCIDENT`, mode: "EXERCISE", status: "Active", eventType: marker, createdById: adminId } });
+    const incident = await prisma!.session.create({ data: { operationalId: `${marker}-INCIDENT`, mode: "REAL", status: "Draft", eventType: marker, createdById: adminId } });
     incidentId = incident.id;
     groupId = `${marker.toLowerCase()}-group`;
     await prisma!.operationalGroup.create({ data: { id: groupId, operationalId: `${marker}-GROUP`, incidentId, name: `${marker} Group`, pool: "ZPP", functionName: "Family Assistance", createdById: adminId, updatedById: adminId } });

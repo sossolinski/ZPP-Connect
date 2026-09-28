@@ -33,9 +33,9 @@ postgresDescribe("Foundation Stage 1 PostgreSQL vertical slice", () => {
     const firstApp = createApp({ incidentRepository: createPrismaIncidentRepository(prisma!) });
     const marker = `F1-${Date.now()}`;
     const created = await asAdmin(request(firstApp).post("/api/sessions")).send({
-      mode: "EXERCISE",
-      status: "Active",
-      eventType: "Exercise",
+      mode: "REAL",
+      status: "Draft",
+      eventType: "Aircraft accident",
       flightNumber: marker,
       route: "WAW-F1",
       description: "Foundation PostgreSQL persistence test"
@@ -75,9 +75,9 @@ postgresDescribe("Foundation Stage 1 PostgreSQL vertical slice", () => {
     const marker = `F1-BURST-${Date.now()}`;
     const responses = await Promise.all(Array.from({ length: 20 }, (_, index) =>
       asAdmin(request(app).post("/api/sessions")).send({
-        mode: index % 2 ? "EXERCISE" : "TRAINING",
+        mode: "REAL",
         status: "Draft",
-        eventType: "Training session",
+        eventType: "Aircraft accident",
         flightNumber: `${marker}-${index}`,
         description: `${marker} Concurrent Session ${index}`
       })
@@ -98,7 +98,7 @@ postgresDescribe("Foundation Stage 1 PostgreSQL vertical slice", () => {
 
   it("enforces backend authorization for session mutations", async () => {
     const app = createApp({ incidentRepository: createPrismaIncidentRepository(prisma!) });
-    const payload = { mode: "TRAINING", status: "Draft", eventType: "Training session" };
+    const payload = { mode: "REAL", status: "Draft", eventType: "Aircraft accident" };
     expect((await request(app).post("/api/sessions").send(payload)).status).toBe(401);
     expect((await request(app).post("/api/sessions").set("x-user-email", "viewer@lot.pl").send(payload)).status).toBe(403);
   });

@@ -208,11 +208,11 @@ describe("Foundation Stage 5 matching contract (memory)", () => {
     const generic = await post(app, "/matching-records", { sessionId: "ses-demo-1" });
     expect(generic.status).toBe(404);
 
-    const realSession = (await post(app, "/sessions", { mode: "REAL", status: "Active", eventType: "Operational incident", flightNumber: `REAL-${randomUUID().slice(0, 6)}` })).body;
+    const realSession = (await post(app, "/sessions", { mode: "REAL", status: "Draft", eventType: "Operational incident", flightNumber: `REAL-${randomUUID().slice(0, 6)}` })).body;
     const passenger = (await post(app, "/passenger-records", { sessionId: realSession.id, personType: "Passenger", firstName: "Real", lastName: "Passenger", source: "Manual" })).body;
     const family = (await post(app, "/family-records", { sessionId: realSession.id, firstName: "Real", lastName: "NOK", passengerFirstName: "Real", passengerLastName: "Passenger" })).body;
-    const exerciseQueue = (await as(request(app).get("/api/matching/queue")).query({ sessionId: "ses-demo-1", search: family.operationalId })).body;
-    expect(exerciseQueue.total).toBe(0);
+    const otherIncidentQueue = (await as(request(app).get("/api/matching/queue")).query({ sessionId: "ses-demo-1", search: family.operationalId })).body;
+    expect(otherIncidentQueue.total).toBe(0);
     const crossPassenger = await post(app, `/matching/claims/${family.currentClaim.id}/confirm`, {
       sessionId: realSession.id,
       passengerRecordId: "pax-demo-1",

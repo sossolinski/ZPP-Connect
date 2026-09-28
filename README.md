@@ -1,6 +1,6 @@
 # ZPP Connect
 
-ZPP Connect is an internal emergency response portal under a controlled migration from its original in-memory prototype to a PostgreSQL-backed modular monolith.
+ZPP Connect is an internal PostgreSQL-backed emergency and crisis-response portal for real operational incidents.
 
 The current implementation uses fake, anonymized demo data only. It is not connected to real passenger, family, volunteer contact or company operational data.
 
@@ -8,8 +8,11 @@ The current implementation uses fake, anonymized demo data only. It is not conne
 controller/service/repository flows. In production they are persisted in
 PostgreSQL. Session and Enquiry access require a global domain permission and an
 active assignment to the selected incident; the named System Admin global
-override is centralized in `IncidentAccessService`. Remaining modules are
-migrated one vertical slice at a time and must still be treated as transitional.
+override is centralized in `IncidentAccessService`. Training Management, Exercise
+Management and organisational Readiness are outside the active product contract.
+Their historical database structures remain dormant so older records, audit evidence,
+approved post-incident reports and Stage 23 backups stay valid. Technical platform
+readiness remains available at `/api/health/readiness`.
 
 See [Foundation Stage 2.5 access boundary](docs/foundation-stage-2-5-access.md)
 for the lifecycle, endpoint and authorization semantics.
@@ -133,16 +136,16 @@ architecture, invitation workflow, persistence model and required test coverage.
 - Volunteers
 - Rostering
 - Assignments
-- Training
 - Documents
-- Readiness
 - Files / Import
 - Reports
-- Exercise
+- Post-Incident Reporting
 - Audit
 - Settings
 
-The UI includes frontend-level role behavior for System Admin, Crisis Coordinator, TEC Operator, ZPP Leader, Volunteer and Viewer / Observer. This prepares the product structure for future server-side access control, but it is not a security boundary.
+The UI adapts to System Admin, Crisis Coordinator, TEC Operator, ZPP Leader,
+Volunteer and Viewer / Observer roles. The API remains the security boundary and
+enforces effective permissions, account state and incident scope server-side.
 
 ## Demo Data and Privacy
 

@@ -111,11 +111,11 @@ export function LoginPage({ onLogin }: { onLogin: (user: UserContext) => void })
           <h1 className="mt-4 text-4xl font-black tracking-normal text-foreground sm:text-5xl">ZPP Connect</h1>
           <p className="mt-3 text-xl font-bold text-[#145C63] dark:text-[#8ED5D7]">Calm workspace for operational response teams</p>
           <p className="mt-5 max-w-2xl text-base font-medium leading-7 text-muted-foreground">
-            Sign in with your assigned account to open briefings, tasks, readiness records and authorized case work.
+            Sign in with your assigned account to open briefings, tasks, documents and authorized case work.
           </p>
           <div className="mt-6 grid max-w-xl gap-3 text-sm font-semibold text-muted-foreground">
             <div className="rounded-md border border-border bg-card px-4 py-3">Access follows your account configuration in Users & Access.</div>
-            <div className="rounded-md border border-border bg-card px-4 py-3">Training, exercise and real-event sessions stay clearly separated after sign-in.</div>
+            <div className="rounded-md border border-border bg-card px-4 py-3">Operational records and retained history stay clearly separated after sign-in.</div>
           </div>
         </section>
 

@@ -63,7 +63,7 @@ test.describe("Stage 3G1 security containment", () => {
     await expect(page.getByText("Family Assistance Centre morning support")).toBeVisible();
     await expect(page.getByText("Telephone Enquiry Center evening supervisor")).toHaveCount(0);
     await expect(page.getByText("Airport Reception Support cover")).toHaveCount(0);
-    await expect(page.locator('[aria-label^="Current session EXERCISE"]:visible')).toHaveCount(1);
+    await expect(page.locator('[aria-label^="Current session REAL"]:visible')).toHaveCount(1);
     await expect(page.locator("body")).not.toContainText(noTechnicalStorageCopy);
   });
 

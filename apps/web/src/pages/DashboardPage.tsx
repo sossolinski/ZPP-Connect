@@ -538,7 +538,6 @@ export function DashboardPage({ portalUser, canAccessRoute }: { portalUser: Demo
     ? [
         { title: "Check my assignments", detail: "Start with tasks assigned to you or waiting to be claimed.", to: "/assignments", icon: ListTodo, primary: true },
         { title: "Review my roster", detail: "Confirm where you are expected and what function you support.", to: "/rostering", icon: CalendarDays },
-        { title: "Open my training", detail: "Check required modules and due dates before taking tasks.", to: "/training", icon: BookOpenCheck },
         { title: "Read guidance", detail: "Use approved documents for procedures and handover notes.", to: "/documents", icon: FileText }
       ]
     : isTec
@@ -553,7 +552,7 @@ export function DashboardPage({ portalUser, canAccessRoute }: { portalUser: Demo
             { title: "Open active briefing", detail: "Start with the current event posture and latest updates.", to: "/active-event", icon: RadioTower, primary: true },
             { title: "Review roster coverage", detail: "See current coverage without changing assignments.", to: "/rostering", icon: CalendarDays },
             { title: "Read guidance", detail: "Open approved documents for the current response.", to: "/documents", icon: FileText },
-            { title: "Check readiness", detail: "Review open gaps across training and availability.", to: "/readiness", icon: BookOpenCheck }
+            { title: "Review reports", detail: "Open authorized operational reports and retained evidence.", to: "/reports", icon: PieChart }
           ]
         : isAdmin
           ? [
@@ -576,14 +575,12 @@ export function DashboardPage({ portalUser, canAccessRoute }: { portalUser: Demo
     ["/family-nok", "family-nok"],
     ["/matching", "matching"],
     ["/passenger-src", "passenger-src"],
-    ["/readiness", "readiness"],
     ["/reports", "reports"],
     ["/requests", "requests"],
     ["/rostering", "rostering"],
     ["/settings", "settings"],
     ["/tec-intake", "tec-intake"],
-    ["/timeline", "timeline"],
-    ["/training", "training"]
+    ["/timeline", "timeline"]
   ]);
   const quickActions = configuredQuickActions.filter((action) => {
     const routeKey = routeKeyByPath.get(action.to);
@@ -698,7 +695,7 @@ export function DashboardPage({ portalUser, canAccessRoute }: { portalUser: Demo
           </div>
         ) : (
           <div className="p-4">
-            <EmptyState title="No current attention items" detail="Urgent queues are clear. Continue with assignments, roster, training or current briefing as appropriate for your role." />
+            <EmptyState title="No current attention items" detail="Urgent queues are clear. Continue with assignments, roster, documents or the current briefing as appropriate for your role." />
           </div>
         )}
       </Card>

@@ -74,7 +74,7 @@ test.describe("Foundation Stage 9 Member and Group UX", () => {
     await page.getByRole("button", { name: "Edit" }).first().click();
     const editor = page.getByRole("dialog", { name: "Edit Member" });
     await expect(editor.getByLabel("Availability (derived)")).toBeDisabled();
-    await expect(editor.getByLabel("Training status (derived)")).toBeDisabled();
+    await expect(editor.getByLabel("Training status (derived)")).toHaveCount(0);
     await expect(editor.getByLabel("Roster status (derived)")).toBeDisabled();
     await editor.getByLabel("Last name").fill("Changed");
     await editor.getByRole("button", { name: "Save changes" }).click();
@@ -137,7 +137,7 @@ test.describe("Foundation Stage 9 Member and Group UX", () => {
 
     await page.route("**/api/sessions**", async (route) => {
       if (route.request().method() === "GET") {
-        await json(route, 200, { total: 1, data: [{ id: "ses-demo-1", operationalId: "ERP-STAGE9", mode: "EXERCISE", status: "Active", updatedAt: "2026-08-10T00:00:00.000Z" }] });
+        await json(route, 200, { total: 1, data: [{ id: "ses-demo-1", operationalId: "ERP-STAGE9", mode: "REAL", status: "Active", updatedAt: "2026-08-10T00:00:00.000Z" }] });
       } else await route.continue();
     });
     await page.route("**/api/member-profiles**", async (route) => {

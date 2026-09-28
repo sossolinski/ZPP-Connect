@@ -27,7 +27,7 @@ test.afterEach(async ({ page }) => {
 
 test("runs the controlled Request queue, ownership and lifecycle without linked-domain side effects", async ({ page }) => {
   const token = `F7-UI-${Date.now()}`;
-  const sessionResult = await post(page, "/sessions", { mode: "EXERCISE", status: "Active", eventType: "Exercise", flightNumber: token, route: "WAW-TEST" });
+  const sessionResult = await post(page, "/sessions", { mode: "REAL", status: "Draft", eventType: "Aircraft accident", flightNumber: token, route: "WAW-TEST" });
   expect(sessionResult.response.status()).toBe(201); const session = sessionResult.body; cleanupSessionIds.push(session.id);
   const passengerResult = await post(page, "/passenger-records", { sessionId: session.id, caseId: `CASE-${token}`, personType: "Passenger", firstName: "Linked", lastName: token, source: "Manual" });
   expect(passengerResult.response.status()).toBe(201); const passenger = passengerResult.body;

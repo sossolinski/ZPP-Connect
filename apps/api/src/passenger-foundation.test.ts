@@ -33,7 +33,7 @@ describe("Passenger foundation contract", () => {
 
   beforeEach(() => {
     incidents = [
-      { id: "incident-a", mode: "EXERCISE", status: "Active" },
+      { id: "incident-a", mode: "REAL", status: "Draft" },
       { id: "incident-b", mode: "REAL", status: "Active" },
       { id: "incident-closed", mode: "TRAINING", status: "Closed" }
     ];

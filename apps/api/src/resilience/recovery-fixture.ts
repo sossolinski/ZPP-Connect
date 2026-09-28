@@ -41,7 +41,7 @@ export async function createRecoveryFixture(db: PrismaClient) {
   const actor = { id: actorRow.id, email: actorRow.email, displayName: actorRow.displayName, requestId: `stage23-${marker}` };
   const service = createPrismaAfterActionReportService(db);
   const created = await service.create({
-    operationId: randomUUID(), sessionId: session.id, title: `Recovery report ${marker}`, eventDate: occurredAt.toISOString(), sourceObservationIds: [],
+    operationId: randomUUID(), sessionId: session.id, title: `Recovery report ${marker}`, eventDate: occurredAt.toISOString(),
   }, actor);
   const versionId = created.reportVersionId!;
   const edited = await service.edit(versionId, {
@@ -52,7 +52,6 @@ export async function createRecoveryFixture(db: PrismaClient) {
     findings: [{ area: "Platform resilience", summary: "Recovery must verify meaningful application records and retained bytes.", detail: "This fixture contains no production data." }],
     lessons: [{ statement: "A dump is useful only when a clean restore and application integrity verification succeed." }],
     correctiveActions: [{ recommendation: "Continue automated recovery rehearsals.", owner: "Platform operator", targetDate: null }],
-    sourceObservationIds: [],
   }, actor);
   const submitted = await service.transition(versionId, "submit", { operationId: randomUUID(), expectedVersion: edited.version }, actor);
   const approved = await service.transition(versionId, "approve", { operationId: randomUUID(), expectedVersion: submitted.version }, actor);

@@ -7,7 +7,7 @@ import type { ClaimedOutbox, NotificationClock, NotificationInput } from "./noti
 
 const activeStatus = "Active";
 function value(payload: Record<string, unknown>, key: string, fallback: string) { const text = String(payload[key] ?? "").trim(); return text || fallback; }
-function route(type: string, id: string) { return type === "session" ? "/sessions" : type === "assignment" ? `/assignments?assignmentId=${encodeURIComponent(id)}` : type === "rosterShift" ? "/rostering" : type === "trainingRecord" ? "/training" : type.startsWith("document") ? "/documents" : "/"; }
+function route(type: string, id: string) { return type === "session" ? "/sessions" : type === "assignment" ? `/assignments?assignmentId=${encodeURIComponent(id)}` : type === "rosterShift" ? "/rostering" : type.startsWith("document") ? "/documents" : "/"; }
 
 export function createNotificationDispatcher(client: PrismaClient, repository: NotificationRepository, options: { clock?: NotificationClock; workerId?: string; batchSize?: number; leaseMs?: number; retryBaseMs?: number; logger?: Logger } = {}) {
   const clock = options.clock ?? { now: () => new Date() };
@@ -57,7 +57,8 @@ export function createNotificationDispatcher(client: PrismaClient, repository: N
       if (!row.sessionId) throw new Error("BRIEFING_PUBLISHED requires an Incident");
       return { ids: await effectiveAccess.eligibleUsersForPermission("briefing:read", { incidentId: row.sessionId }), waiting: false };
     }
-    if (row.eventType === "ROSTER_PUBLISHED" || row.eventType === "TRAINING_ASSIGNED") return memberRecipient(value(row.payload, "memberProfileId", ""), row.sessionId);
+    if (row.eventType === "ROSTER_PUBLISHED") return memberRecipient(value(row.payload, "memberProfileId", ""), row.sessionId);
+    if (row.eventType === "TRAINING_ASSIGNED") return { ids: [], waiting: false };
     if (row.eventType.startsWith("DOCUMENT_REQUIREMENT_")) return { ids: await documentRecipients(value(row.payload, "requirementId", row.aggregateId), row.sessionId), waiting: false };
     return { ids: [], waiting: false };
   }
@@ -71,7 +72,6 @@ export function createNotificationDispatcher(client: PrismaClient, repository: N
     if (row.eventType === "ASSIGNMENT_ESCALATED") return { ...base, category: "Assignment", title: "Assignment escalated", message: `${value(p, "operationalId", "Assignment")} requires renewed attention.`, sourceType: "assignment", sourceLabel: value(p, "operationalId", "Assignment"), actionDestination: route("assignment", row.aggregateId), actionLabel: "Open assignment" };
     if (row.eventType === "ASSIGNMENT_ASSIGNED") return { ...base, category: "Assignment", title: "Assignment assigned to you", message: `${value(p, "operationalId", "Assignment")} is assigned to you.`, sourceType: "assignment", sourceLabel: value(p, "operationalId", "Assignment"), actionDestination: route("assignment", row.aggregateId), actionLabel: "Open assignment" };
     if (row.eventType === "ROSTER_PUBLISHED") return { ...base, category: "Rostering", title: "Roster shift published", message: `${value(p, "operationalId", "Roster shift")} is ready for confirmation.`, sourceType: "rosterShift", sourceLabel: value(p, "operationalId", "Roster shift"), actionDestination: route("rosterShift", row.aggregateId), actionLabel: "Review roster" };
-    if (row.eventType === "TRAINING_ASSIGNED") return { ...base, category: "Training", title: "Training assigned", message: `${value(p, "operationalId", "Training")} has been assigned to you.`, sourceType: "trainingRecord", sourceLabel: value(p, "operationalId", "Training"), actionDestination: route("trainingRecord", row.aggregateId), actionLabel: "Open training" };
     if (row.eventType === "ACCESS_CHANGED") return { ...base, category: "Admin", title: value(p, "title", "Account access changed"), message: value(p, "message", "Your account access was updated."), sourceType: "access", sourceLabel: "Account access", actionDestination: "/settings", actionLabel: "Review account" };
     return { ...base, category: "Documents", title: "Document acknowledgement required", message: "A published document requires your attention.", sourceType: "documentRequirement", sourceLabel: "Document requirement", actionDestination: route("documentRequirement", row.aggregateId), actionLabel: "Open documents" };
   }
