@@ -13,6 +13,9 @@ import { createDictionaryRouter } from "../modules/configuration/dictionary-rout
 import type { FoundationDocumentRepository } from "../modules/documents/document-repository.js";
 import { createDocumentRouter } from "../modules/documents/document-router.js";
 import { createDocumentService } from "../modules/documents/document-service.js";
+import { createEvidenceRouter } from "../modules/evidence/evidence-router.js";
+import { createPrismaEvidenceArtifactStore } from "../modules/evidence/evidence-storage.js";
+import { createPrismaEvidenceService, type PrismaEvidenceService } from "../modules/evidence/prisma-evidence-service.js";
 import type { EnquiryRepository } from "../modules/enquiries/enquiry-repository.js";
 import { createEnquiryRouter } from "../modules/enquiries/enquiry-router.js";
 import { createEnquiryService } from "../modules/enquiries/enquiry-service.js";
@@ -61,6 +64,7 @@ type NotificationService = ReturnType<typeof createPersistentNotificationService
 
 export type ProductionCompositionOptions = {
   afterActionReportService?: PrismaAfterActionReportService;
+  evidenceService?: PrismaEvidenceService;
   db: PrismaClient;
   incidentRepository: IncidentRepository;
   enquiryRepository: EnquiryRepository;
@@ -143,6 +147,10 @@ export function createProductionComposition(options: ProductionCompositionOption
   mount("imports", "A", "postgres", createImportRouter(options.importService, requireIncidentPermission));
   mount("exports-reports", "A", "postgres", createExportRouter(options.exportService, requireIncidentPermission));
   mount("after-action-reports", "A", "postgres", createAfterActionReportRouter(options.afterActionReportService ?? createPrismaAfterActionReportService(options.db), requireIncidentPermission));
+  mount("incident-evidence", "A", "postgres", createEvidenceRouter(
+    options.evidenceService ?? createPrismaEvidenceService(options.db, createPrismaEvidenceArtifactStore(options.db)),
+    requireIncidentPermission,
+  ));
 
   return { router, manifest: registry.manifest() };
 }
