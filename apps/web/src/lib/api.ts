@@ -1,5 +1,6 @@
 import type { ApiList, AnyRecord, AppOrganization, AppProfile, DictionaryMap, SessionRecord, UserContext } from "./types";
 import type { AarReport, AarVersion, AarArtifact, AarResult, AarPage } from "./aar-types";
+import type { EvidencePage, EvidenceRecord } from "./evidence-types";
 
 export const API_URL = import.meta.env.VITE_API_URL ?? "http://localhost:4000/api";
 export const API_PAGE_LIMIT = 200;
@@ -320,6 +321,30 @@ export const api = {
     const blob = await response.blob();
     const url = URL.createObjectURL(blob), link = document.createElement("a");
     link.href = url; link.download = response.headers.get("content-disposition")?.match(/filename="([^"]+)"/)?.[1] ?? "aar.pdf";
+    link.click(); URL.revokeObjectURL(url);
+  },
+  evidenceList: (sessionId: string, offset = 0, includeWithdrawn = true) =>
+    request<EvidencePage>(`/sessions/${sessionId}/evidence${queryString({ limit: 50, offset, includeWithdrawn })}`),
+  evidenceUpload: (sessionId: string, file: File, category: string, description: string, operationId: string) => {
+    const form = new FormData();
+    form.set("file", file);
+    form.set("category", category);
+    form.set("description", description);
+    form.set("operationId", operationId);
+    return request<EvidenceRecord>(`/sessions/${sessionId}/evidence`, { method: "POST", body: form });
+  },
+  evidenceWithdraw: (sessionId: string, evidenceId: string, expectedVersion: number, reason: string, operationId: string) =>
+    request<EvidenceRecord>(`/sessions/${sessionId}/evidence/${evidenceId}/withdraw`, {
+      method: "POST", body: JSON.stringify({ expectedVersion, reason, operationId })
+    }),
+  evidenceDownload: async (sessionId: string, record: EvidenceRecord) => {
+    const response = await fetch(`${API_URL}/sessions/${sessionId}/evidence/${record.id}/download`, { headers: authHeaders() });
+    if (!response.ok) { const e = await response.json().catch(() => null); throw new ApiRequestError(e?.error ?? "Download failed", response.status); }
+    const digest = response.headers.get("x-content-sha256");
+    if (digest !== record.contentSha256) throw new ApiRequestError("Downloaded evidence digest header does not match metadata", 500);
+    const blob = await response.blob();
+    const url = URL.createObjectURL(blob), link = document.createElement("a");
+    link.href = url; link.download = response.headers.get("content-disposition")?.match(/filename="([^"]+)"/)?.[1] ?? record.fileName;
     link.click(); URL.revokeObjectURL(url);
   },
   adminUsers: (query?: AnyRecord) => request<ApiList<AnyRecord>>(`/admin/users${queryString(query)}`),
