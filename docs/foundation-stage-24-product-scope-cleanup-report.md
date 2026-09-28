@@ -93,8 +93,13 @@ requirements into:
 - Stage 22 retained AAR provenance/hash/PDF tests;
 - Stage 23 full-schema integrity, backup and restore checks;
 - Stage 24 legacy-table, stored-grant, route, technical-readiness and historical-Session
-  compatibility tests;
+compatibility tests;
 - a real pre-Stage-24 backup restoration rehearsal described below.
+
+When an older restored fixture contains only active non-REAL Sessions, the retained Stage 21
+dictionary test creates and removes its own transient REAL incident for business-write
+assertions. This keeps the recovery gate meaningful without making historical Training or
+Exercise Sessions writable again.
 
 The old browser journeys that created Training/Exercise/Readiness state were removed, while
 incident and AAR coverage remains. Stage 24 browser assertions verify clean navigation,

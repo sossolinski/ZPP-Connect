@@ -24,7 +24,26 @@ postgresDescribe("Foundation Stage 21 PostgreSQL dictionary and configuration in
   let activeIncidentId: string;
 
   beforeAll(async () => {
-    activeIncidentId = (await prisma!.session.findFirstOrThrow({ where: { status: "Active" }, select: { id: true } })).id;
+    const writableIncident = await prisma!.session.findFirst({ where: { mode: "REAL", status: "Active" }, select: { id: true } });
+    if (writableIncident) {
+      activeIncidentId = writableIncident.id;
+      return;
+    }
+
+    const admin = await prisma!.user.findUniqueOrThrow({ where: { email: "admin@lot.pl" }, select: { id: true } });
+    const recoveryFixture = await prisma!.session.create({
+      data: {
+        operationalId: `${marker}-INCIDENT`,
+        mode: "REAL",
+        status: "Active",
+        eventType: "Incident",
+        description: "Stage 21 writable compatibility fixture",
+        createdById: admin.id,
+      },
+      select: { id: true },
+    });
+    activeIncidentId = recoveryFixture.id;
+    sessionIds.add(recoveryFixture.id);
   });
 
   afterAll(async () => {
