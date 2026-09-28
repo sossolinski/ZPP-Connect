@@ -22,6 +22,8 @@ retains the Training/Exercise compatibility schema. A real pre-Stage-24 Stage 23
 verified and restored successfully with Stage 24 tooling, then passed current integrity and
 product-boundary tests with its legacy rows intact. Future schema-changing releases must
 repeat this assessment; otherwise use the matching-release procedure above.
+Stage 25 adds migration 24 and therefore requires the matching-release procedure for older
+Stage 23/24 backups before applying forward migrations.
 
 ## 1. Incident preparation
 
@@ -75,7 +77,8 @@ empty-target, source-target, checksum or integrity checks.
 ## 5. Recover deployment configuration
 
 The PostgreSQL dump includes dictionaries, roles/permissions, notification state, Audit,
-Documents, incidents, AARs and persisted PDF bytes. It does **not** include:
+Documents, incidents, AARs, persisted PDF bytes, and Stage 25 incident-evidence metadata,
+operations and exact artifact bytes. It does **not** include:
 
 - `DATABASE_URL`, Entra issuer/audience/JWKS or other secrets;
 - application image/source, TLS keys, DNS, firewall/network or load-balancer settings;
@@ -96,7 +99,8 @@ derive or copy a credential from a manifest; it contains none.
 3. Confirm `/api/health` returns process liveness and `/api/health/readiness` returns 200,
    `ready: true`, `database: "reachable"`.
 4. Confirm Entra-only production auth and perform authorized read-only checks of a real
-   incident, Document, Audit entry, approved AAR and retained PDF download/hash.
+   incident, Document, Audit entry, approved AAR, retained PDF, and active incident-evidence
+   download/hash. A missing or mismatched artifact must block cutover.
 5. Record measured restore duration and recovered backup timestamp against the assumed
    four-hour RTO and 24-hour RPO.
 6. Cut over only through the deployment's approved process. Keep the previous database
@@ -117,6 +121,7 @@ npm run test:recovery
 ```
 
 This command creates two randomized `zpp_stage23_*` databases, migrates/seeds the source,
-adds synthetic recovery evidence, backs it up, restores it, checks meaningful data and
-corruption rejection, then drops only those exact databases and removes its temporary
+adds synthetic AAR and incident evidence, backs it up, restores exact metadata and bytes,
+checks meaningful data, intentionally corrupts evidence to prove rejection, restores the
+test bytes and rechecks integrity, then drops only those exact databases and removes its temporary
 directory. Never supply production administrative credentials.

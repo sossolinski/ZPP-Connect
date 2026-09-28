@@ -24,7 +24,7 @@ function manifest() {
     source: { databaseIdentitySha256: "b".repeat(64) },
     postgres: { serverVersion: "16.4", serverMajor: 16, pgDumpVersion: "pg_dump (PostgreSQL) 16.4", pgDumpMajor: 16 },
     migrations: [{ migrationName: "20260701000000_baseline", checksum: "checksum", finishedAt: "2026-09-23T09:00:00.000Z" }],
-    criticalCounts: { users: 1, roles: 1, sessions: 1, documents: 1, documentVersions: 1, auditLogs: 1, dictionaries: 1, afterActionReports: 1, afterActionReportVersions: 1, afterActionPdfArtifacts: 1 },
+    criticalCounts: { users: 1, roles: 1, sessions: 1, documents: 1, documentVersions: 1, auditLogs: 1, dictionaries: 1, afterActionReports: 1, afterActionReportVersions: 1, afterActionPdfArtifacts: 1, incidentEvidence: 1, storedArtifacts: 1, storedFileOperations: 1 },
   };
 }
 
@@ -32,6 +32,14 @@ describe("Stage 23 resilience tooling", () => {
   it("validates a strict secret-free backup manifest", () => {
     expect(backupManifestSchema.parse(manifest())).toEqual(manifest());
     expect(() => backupManifestSchema.parse({ ...manifest(), databaseUrl: "postgresql://secret" })).toThrow();
+  });
+
+  it("continues to verify pre-evidence Stage 23/24 v1 manifests", () => {
+    const older = manifest();
+    delete (older.criticalCounts as Partial<typeof older.criticalCounts>).incidentEvidence;
+    delete (older.criticalCounts as Partial<typeof older.criticalCounts>).storedArtifacts;
+    delete (older.criticalCounts as Partial<typeof older.criticalCounts>).storedFileOperations;
+    expect(backupManifestSchema.parse(older).criticalCounts).toMatchObject({ incidentEvidence: 0, storedArtifacts: 0, storedFileOperations: 0 });
   });
 
   it("calculates deterministic SHA-256 for exact artifact bytes", async () => {
