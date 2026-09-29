@@ -14,6 +14,11 @@ Their historical database structures remain dormant so older records, audit evid
 approved post-incident reports and Stage 23 backups stay valid. Technical platform
 readiness remains available at `/api/health/readiness`.
 
+Foundation Stage 25 adds incident-scoped evidence for `REAL` Sessions. Authoritative
+metadata and immutable artifact bytes are retained in PostgreSQL, downloads are rehashed
+before serving, and withdrawal preserves an audited tombstone. `DATA_DIR` remains a legacy
+development setting and is not production evidence authority.
+
 See [Foundation Stage 2.5 access boundary](docs/foundation-stage-2-5-access.md)
 for the lifecycle, endpoint and authorization semantics.
 
@@ -137,6 +142,7 @@ architecture, invitation workflow, persistence model and required test coverage.
 - Rostering
 - Assignments
 - Documents
+- Incident Evidence
 - Files / Import
 - Reports
 - Post-Incident Reporting
@@ -160,4 +166,9 @@ Do not use this demo to store:
 - real volunteer personal data
 - real operational company information
 
-Before any real crisis, Next of Kin or volunteer data is introduced, the product needs real authentication, authorization, audit logging, data retention rules and privacy controls enforced by the backend.
+The repository does not itself authorize processing real data. A production deployment
+must enable Entra authentication and the PostgreSQL-backed authorization, audit, evidence
+and recovery controls, and must receive the required privacy/security approval.
+Organizational retention periods, legal holds, off-host encrypted backup infrastructure
+and operational approval remain deployment and business-policy responsibilities; the
+application does not automatically purge evidence.
