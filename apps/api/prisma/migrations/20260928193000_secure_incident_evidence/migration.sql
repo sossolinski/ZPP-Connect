@@ -127,8 +127,11 @@ CREATE TRIGGER "StoredArtifact_immutable"
 
 CREATE FUNCTION "prevent_stored_file_evidence_rewrite"() RETURNS trigger AS $$
 BEGIN
-  IF TG_OP = 'DELETE' AND OLD."purpose" = 'INCIDENT_EVIDENCE' THEN
-    RAISE EXCEPTION 'Stored incident evidence metadata cannot be deleted';
+  IF TG_OP = 'DELETE' THEN
+    IF OLD."purpose" = 'INCIDENT_EVIDENCE' THEN
+      RAISE EXCEPTION 'Stored incident evidence metadata cannot be deleted';
+    END IF;
+    RETURN OLD;
   END IF;
   IF OLD."purpose" = 'INCIDENT_EVIDENCE' AND (
     NEW."id" IS DISTINCT FROM OLD."id"

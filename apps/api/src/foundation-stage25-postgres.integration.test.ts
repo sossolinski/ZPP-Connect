@@ -4,6 +4,9 @@ import request from "supertest";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { createSharedApp } from "./test-support/listening-test-app.js";
 import { runIntegrityCheck } from "./resilience/integrity-checker.js";
+import { createPrismaEvidenceArtifactStore } from "./modules/evidence/evidence-storage.js";
+import { sha256 } from "./modules/evidence/evidence-types.js";
+import { createPrismaEvidenceService } from "./modules/evidence/prisma-evidence-service.js";
 
 const databaseUrl = process.env.TEST_DATABASE_URL;
 const pg = databaseUrl ? describe : describe.skip;
@@ -112,6 +115,37 @@ pg("Foundation Stage 25 secure real-incident evidence", () => {
     expect(history.body.data.some((row: { id: string }) => row.id === retained.body.id)).toBe(true);
     expect(await db!.storedArtifact.findUnique({ where: { storageKey: `incident-evidence/${retained.body.id}` } })).not.toBeNull();
     expect(await db!.auditLog.count({ where: { entityId: retained.body.id, action: "incident_evidence_withdrawn" } })).toBe(1);
+  });
+
+  it("turns concurrent withdrawal into one commit and one explicit conflict, never a 500", async () => {
+    const retained = await upload(firstIncident.id);
+    const attempts = await Promise.all(["First reviewed reason", "Different reviewed reason"].map(reason =>
+      request(app()).post(`/api/sessions/${firstIncident.id}/evidence/${retained.body.id}/withdraw`).set(as())
+        .send({ operationId: randomUUID(), expectedVersion: 1, reason })
+    ));
+    expect(attempts.map(response => response.status).sort()).toEqual([200, 409]);
+    expect(await db!.auditLog.count({ where: { entityId: retained.body.id, action: "incident_evidence_withdrawn" } })).toBe(1);
+  });
+
+  it("rolls artifact bytes back atomically when evidence metadata cannot commit", async () => {
+    const operationId = randomUUID(), bytes = pdf("atomic rollback");
+    const service = createPrismaEvidenceService(db!, createPrismaEvidenceArtifactStore(db!));
+    await expect(service.upload({
+      operationId, sessionId: firstIncident.id, originalFileName: "atomic.pdf", fileName: "atomic.pdf",
+      mimeType: "application/pdf", declaredMimeType: "application/pdf", sizeBytes: bytes.length,
+      contentSha256: sha256(bytes), category: "Reference", description: null, bytes,
+    }, { id: randomUUID(), email: "missing-actor@example.test", displayName: "Missing actor" })).rejects.toThrow();
+    expect(await db!.storedArtifact.findUnique({ where: { storageKey: `incident-evidence/${operationId}` } })).toBeNull();
+    expect(await db!.storedFile.findUnique({ where: { uploadOperationId: operationId } })).toBeNull();
+  });
+
+  it("continues to delete legacy StoredFile rows while evidence deletion is blocked", async () => {
+    const legacy = await db!.storedFile.create({ data: {
+      operationalId: `${marker}-LEGACY-${randomUUID()}`, fileName: "legacy.csv",
+      storageProvider: "local", storageKey: `legacy/${randomUUID()}`,
+    } });
+    await db!.storedFile.delete({ where: { id: legacy.id } });
+    expect(await db!.storedFile.findUnique({ where: { id: legacy.id } })).toBeNull();
   });
 
   it("rejects MIME spoofing, executables, malformed payloads and configured-size excess", async () => {

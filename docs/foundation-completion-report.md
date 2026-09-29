@@ -51,8 +51,8 @@ backup, restore, integrity, retention boundaries and failure handling.
 
 - clean dependency install, Prisma generate/validate, lint/typecheck and production build;
 - 127/127 unit tests;
-- fresh 24-migration deploy/seed and 267/267 Foundation PostgreSQL tests;
-- 11/11 focused evidence PostgreSQL tests;
+- fresh 24-migration deploy/seed and 270/270 Foundation PostgreSQL tests;
+- 14/14 focused evidence PostgreSQL tests;
 - 62/62 baseline Playwright smoke tests plus 2/2 PostgreSQL evidence workflow tests;
 - backup/restore/evidence-corruption rehearsal PASS;
 - production PostgreSQL/Entra startup and readiness PASS;
@@ -73,4 +73,3 @@ disclosure rules. The application deliberately does not invent those decisions.
 Foundation completion means the product has a coherent, testable and recoverable base. It
 does not mean every future feature, infrastructure control or organizational policy is
 already delivered.
-

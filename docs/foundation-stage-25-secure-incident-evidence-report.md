@@ -64,7 +64,9 @@ permits it, but are not writable.
 Upload and withdrawal use UUID operation IDs, canonical command fingerprints and immutable
 operation results. Advisory transaction locks plus bounded serialization retry make the
 same concurrent upload resolve to one record and a durable replay. Reusing an operation ID
-for different content conflicts. Withdrawal uses an expected version and retains actor,
+for different content conflicts. PostgreSQL artifact insertion, metadata, operation, audit
+and timeline rows commit in the same transaction, so a rejected metadata write cannot leak
+artifact bytes. Withdrawal uses an expected version and retains actor,
 time and reason. A download that began while evidence was active may complete; a new
 download after committed withdrawal is rejected.
 
@@ -117,8 +119,8 @@ closed the incident, generated an approved AAR PDF, backed up 24 migrations, res
 an empty database and recovered both exact artifact types. It then changed one evidence
 byte under a privileged test-only trigger bypass, proved integrity rejection, restored the
 original byte, reran integrity successfully and detected a separately corrupted backup
-archive. Result: PASS; final rehearsal backup ID
-`991c13c7-c4a8-478d-addf-a21802e5be43`.
+archive. Result: PASS; final post-review rehearsal backup ID
+`58fa3025-cb73-45d7-99e7-eeb03e2bed02`.
 
 ## Validation evidence
 
@@ -129,8 +131,8 @@ archive. Result: PASS; final rehearsal backup ID
 | Fresh migration chain and seed | PASS — 24/24 migrations |
 | Lint/typecheck | PASS |
 | Unit suite | PASS — 127/127, PostgreSQL suites intentionally skipped |
-| Full Foundation PostgreSQL suite | PASS — 267/267, zero skipped |
-| Dedicated Stage 25 PostgreSQL | PASS — 11/11 |
+| Full Foundation PostgreSQL suite | PASS — 270/270, zero skipped |
+| Dedicated Stage 25 PostgreSQL | PASS — 14/14 |
 | Production build | PASS |
 | Baseline browser smoke | PASS — 62/62 |
 | Dedicated PostgreSQL evidence browser | PASS — 2/2 |
@@ -163,4 +165,3 @@ hygiene and the three final reports.
 
 Foundation exit assessment: **no unresolved FOUNDATION BLOCKER**. Foundation is complete;
 there is no Stage 26 recommendation.
-

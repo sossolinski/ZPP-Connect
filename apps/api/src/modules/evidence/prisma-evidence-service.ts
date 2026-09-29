@@ -79,13 +79,13 @@ export function createPrismaEvidenceService(
       contentSha256: input.contentSha256, category: input.category, description: input.description,
     });
     const storageKey = evidenceStorageKey(input.operationId);
-    let createdArtifact = false;
     try {
       return await db.$transaction(async tx => {
+        const transactionStore = store.inTransaction(tx);
         await advisoryLock(tx, input.operationId);
         const replay = await findOperation(tx, input.operationId, "upload", commandFingerprint);
         if (replay) {
-          const artifact = await store.read(storageKey);
+          const artifact = await transactionStore.read(storageKey);
           if (!artifact || artifact.sizeBytes !== input.sizeBytes || artifact.contentSha256 !== input.contentSha256 || sha256(artifact.bytes) !== input.contentSha256) {
             throw new HttpError(500, "Evidence integrity verification failed");
           }
@@ -93,8 +93,7 @@ export function createPrismaEvidenceService(
         }
 
         const scan = await scanner.scan({ bytes: input.bytes, mimeType: input.mimeType, contentSha256: input.contentSha256 });
-        const stored = await store.put({ storageKey, bytes: input.bytes, sizeBytes: input.sizeBytes, contentSha256: input.contentSha256 });
-        createdArtifact = stored.created;
+        await transactionStore.put({ storageKey, bytes: input.bytes, sizeBytes: input.sizeBytes, contentSha256: input.contentSha256 });
         const row = await tx.storedFile.create({ data: {
           id: input.operationId,
           operationalId: await nextOperationalId(tx),
@@ -138,7 +137,6 @@ export function createPrismaEvidenceService(
         return { ...result, replayed: false };
       }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable, maxWait: 10_000, timeout: 30_000 });
     } catch (error) {
-      if (createdArtifact) await store.removeIfUnreferenced(storageKey).catch(() => undefined);
       if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2034" && serializationRetry < 3) {
         return upload(input, actor, serializationRetry + 1);
       }
@@ -192,42 +190,49 @@ export function createPrismaEvidenceService(
     return { record: publicRecord(row), bytes: artifact.bytes };
   }
 
-  async function withdraw(input: { operationId: string; sessionId: string; evidenceId: string; expectedVersion: number; reason: string }, actor: EvidenceActor) {
+  async function withdraw(input: { operationId: string; sessionId: string; evidenceId: string; expectedVersion: number; reason: string }, actor: EvidenceActor, serializationRetry = 0) {
     await ensureRealIncident(input.sessionId, true);
     const reason = input.reason.trim();
     const commandFingerprint = fingerprint({ command: "withdraw", ...input, reason });
-    return db.$transaction(async tx => {
-      await advisoryLock(tx, input.operationId);
-      const replay = await findOperation(tx, input.operationId, "withdraw", commandFingerprint);
-      if (replay) return { ...publicRecord(replay), replayed: true };
-      const current = await tx.storedFile.findFirst({ where: { id: input.evidenceId, sessionId: input.sessionId, purpose: "INCIDENT_EVIDENCE" }, select: evidenceSelect });
-      if (!current) throw new HttpError(404, "Evidence not found");
-      if (current.status === "Withdrawn") {
-        if (current.withdrawalReason !== reason) throw new HttpError(409, "Evidence was already withdrawn with a different reason");
-        return { ...publicRecord(current), replayed: true };
+    try {
+      return await db.$transaction(async tx => {
+        await advisoryLock(tx, input.operationId);
+        const replay = await findOperation(tx, input.operationId, "withdraw", commandFingerprint);
+        if (replay) return { ...publicRecord(replay), replayed: true };
+        const current = await tx.storedFile.findFirst({ where: { id: input.evidenceId, sessionId: input.sessionId, purpose: "INCIDENT_EVIDENCE" }, select: evidenceSelect });
+        if (!current) throw new HttpError(404, "Evidence not found");
+        if (current.status === "Withdrawn") {
+          if (current.withdrawalReason !== reason) throw new HttpError(409, "Evidence was already withdrawn with a different reason");
+          return { ...publicRecord(current), replayed: true };
+        }
+        if (current.version !== input.expectedVersion) throw new HttpError(409, "Evidence version is stale");
+        const row = await tx.storedFile.update({ where: { id: current.id }, data: {
+          status: "Withdrawn", version: { increment: 1 }, withdrawnAt: new Date(), withdrawnById: actor.id, withdrawalReason: reason,
+        }, select: evidenceSelect });
+        const result = publicRecord(row);
+        await tx.storedFileOperation.create({ data: {
+          operationId: input.operationId, storedFileId: row.id, command: "withdraw", commandFingerprint,
+          resultVersion: row.version, result: jsonResult(row), requestId: actor.requestId ?? randomUUID(),
+        } });
+        await tx.auditLog.create({ data: {
+          action: "incident_evidence_withdrawn", entityType: "StoredFile", entityId: row.id,
+          sessionId: input.sessionId, actorId: actor.id, actorEmail: actor.email,
+          summary: `Incident evidence ${row.operationalId} withdrawn`,
+          metadata: { operationalId: row.operationalId, reason, operationId: input.operationId, requestId: actor.requestId, resultVersion: row.version },
+        } });
+        await tx.caseTimelineEvent.create({ data: {
+          sessionId: input.sessionId, eventType: "evidence", entityType: "StoredFile", entityId: row.id,
+          title: `Evidence ${row.operationalId} withdrawn`, body: reason,
+          metadata: { category: row.category, fileName: row.fileName }, createdById: actor.id,
+        } });
+        return { ...result, replayed: false };
+      }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable, maxWait: 10_000, timeout: 30_000 });
+    } catch (error) {
+      if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2034" && serializationRetry < 3) {
+        return withdraw(input, actor, serializationRetry + 1);
       }
-      if (current.version !== input.expectedVersion) throw new HttpError(409, "Evidence version is stale");
-      const row = await tx.storedFile.update({ where: { id: current.id }, data: {
-        status: "Withdrawn", version: { increment: 1 }, withdrawnAt: new Date(), withdrawnById: actor.id, withdrawalReason: reason,
-      }, select: evidenceSelect });
-      const result = publicRecord(row);
-      await tx.storedFileOperation.create({ data: {
-        operationId: input.operationId, storedFileId: row.id, command: "withdraw", commandFingerprint,
-        resultVersion: row.version, result: jsonResult(row), requestId: actor.requestId ?? randomUUID(),
-      } });
-      await tx.auditLog.create({ data: {
-        action: "incident_evidence_withdrawn", entityType: "StoredFile", entityId: row.id,
-        sessionId: input.sessionId, actorId: actor.id, actorEmail: actor.email,
-        summary: `Incident evidence ${row.operationalId} withdrawn`,
-        metadata: { operationalId: row.operationalId, reason, operationId: input.operationId, requestId: actor.requestId, resultVersion: row.version },
-      } });
-      await tx.caseTimelineEvent.create({ data: {
-        sessionId: input.sessionId, eventType: "evidence", entityType: "StoredFile", entityId: row.id,
-        title: `Evidence ${row.operationalId} withdrawn`, body: reason,
-        metadata: { category: row.category, fileName: row.fileName }, createdById: actor.id,
-      } });
-      return { ...result, replayed: false };
-    }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable, maxWait: 10_000, timeout: 30_000 });
+      throw error;
+    }
   }
 
   return { kind: "postgres" as const, categories: evidenceCategories, upload, list, get, download, withdraw };

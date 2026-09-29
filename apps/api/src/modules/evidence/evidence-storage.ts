@@ -8,12 +8,20 @@ export interface EvidenceArtifactStore {
   readonly provider: "postgres";
   put(input: StoredEvidenceBytes): Promise<{ created: boolean }>;
   read(storageKey: string): Promise<StoredEvidenceBytes | null>;
-  removeIfUnreferenced(storageKey: string): Promise<void>;
+  inTransaction(transaction: Prisma.TransactionClient): EvidenceArtifactStore;
 }
 
 export function createPrismaEvidenceArtifactStore(db: PrismaClient): EvidenceArtifactStore {
+  return createStore(db);
+}
+
+function createStore(db: PrismaClient | Prisma.TransactionClient): EvidenceArtifactStore {
   return {
     provider: "postgres",
+
+    inTransaction(transaction) {
+      return createStore(transaction);
+    },
 
     async put(input) {
       assertEvidenceStorageKey(input.storageKey);
@@ -44,14 +52,6 @@ export function createPrismaEvidenceArtifactStore(db: PrismaClient): EvidenceArt
       const row = await db.storedArtifact.findUnique({ where: { storageKey } });
       if (!row) return null;
       return { storageKey, bytes: Buffer.from(row.content), sizeBytes: Number(row.sizeBytes), contentSha256: row.contentSha256 };
-    },
-
-    async removeIfUnreferenced(storageKey) {
-      assertEvidenceStorageKey(storageKey);
-      await db.$transaction(async tx => {
-        if (await tx.storedFile.count({ where: { purpose: "INCIDENT_EVIDENCE", storageKey } })) return;
-        await tx.storedArtifact.deleteMany({ where: { storageKey } });
-      });
     },
   };
 }
