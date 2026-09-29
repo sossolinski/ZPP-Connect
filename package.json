@@ -28,7 +28,12 @@
     "integrity:check": "npm run integrity:check -w @zpp/api",
     "test:recovery": "npm run test:recovery -w @zpp/api",
     "test:postgres": "npm run test:postgres -w @zpp/api",
-    "test": "npm run test -w @zpp/api"
+    "test": "npm run test -w @zpp/api",
+    "preview:setup": "node scripts/preview.mjs setup",
+    "preview:api": "node scripts/preview.mjs api",
+    "preview:web": "node scripts/preview.mjs web",
+    "preview:reset": "node scripts/preview.mjs reset",
+    "db:seed:preview": "node scripts/preview.mjs seed"
   },
   "devDependencies": {
     "@playwright/test": "^1.61.1",
