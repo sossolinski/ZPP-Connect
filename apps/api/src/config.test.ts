@@ -51,5 +51,8 @@ describe("runtime configuration boundaries", () => {
     expect(() => resolveConfig({ NODE_ENV: "test", NOTIFICATION_DISPATCH_BATCH_SIZE: "NaN" })).toThrow(/NOTIFICATION_DISPATCH_BATCH_SIZE/);
     expect(() => resolveConfig({ NODE_ENV: "test", NOTIFICATION_PROJECT_BATCH_SIZE: "-1" })).toThrow(/NOTIFICATION_PROJECT_BATCH_SIZE/);
     expect(() => resolveConfig({ NODE_ENV: "test", NOTIFICATION_PROJECT_MAX_ROWS: "0" })).toThrow(/NOTIFICATION_PROJECT_MAX_ROWS/);
+    expect(() => resolveConfig({ NODE_ENV: "test", EVIDENCE_MAX_FILE_SIZE_BYTES: "0" })).toThrow(/EVIDENCE_MAX_FILE_SIZE_BYTES/);
+    const oversized = resolveConfig({ NODE_ENV: "test", EVIDENCE_MAX_FILE_SIZE_BYTES: String(20 * 1024 * 1024 + 1) });
+    expect(() => validateRuntimeConfig(oversized)).toThrow(/20 MiB/);
   });
 });

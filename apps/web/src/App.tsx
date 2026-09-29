@@ -29,6 +29,7 @@ import { ReportsPage } from "./pages/ReportsPage";
 import { AfterActionReportsPage } from "./pages/AfterActionReportsPage";
 import { AuditPage } from "./pages/AuditPage";
 import { AdminPage } from "./pages/AdminPage";
+import { EvidencePage } from "./pages/EvidencePage";
 
 const activeSessionStorageKey = "zpp:activeSessionId";
 
@@ -48,6 +49,7 @@ const routePermissions: Record<PortalRouteKey, string[]> = {
   rostering: ["roster:read", "roster:read-own"],
   assignments: ["assignment:read"],
   documents: ["document:read-own", "document:read-all"],
+  evidence: ["evidence:read"],
   "files-import": ["import:create"],
   reports: ["reports:read", "aar:read"],
   "users-access": ["admin:manage"],
@@ -353,6 +355,7 @@ export function App() {
       <Route path="/rostering" element={protect("rostering", user ? <RosteringPage user={user} /> : null)} />
       <Route path="/assignments" element={protect("assignments", <SessionDependentPage><AssignmentsPage /></SessionDependentPage>)} />
       <Route path="/documents" element={protect("documents", <DocumentsPage />)} />
+      <Route path="/evidence" element={protect("evidence", <WorkflowPage eyebrow="Operations" title="Incident Evidence" description="Retain, verify and audit source evidence for the selected real incident."><SessionDependentPage><EvidencePage /></SessionDependentPage></WorkflowPage>)} />
       <Route
         path="/files-import"
         element={protect(

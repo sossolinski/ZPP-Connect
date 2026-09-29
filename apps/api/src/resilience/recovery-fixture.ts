@@ -1,6 +1,9 @@
 import { randomUUID } from "node:crypto";
 import type { PrismaClient } from "@prisma/client";
 import { createPrismaAfterActionReportService } from "../modules/after-action-reports/prisma-after-action-report-service.js";
+import { createPrismaEvidenceArtifactStore } from "../modules/evidence/evidence-storage.js";
+import { validateEvidenceUpload } from "../modules/evidence/evidence-types.js";
+import { createPrismaEvidenceService } from "../modules/evidence/prisma-evidence-service.js";
 
 export async function createRecoveryFixture(db: PrismaClient) {
   if (process.env.NODE_ENV !== "test" || process.env.STAGE23_ALLOW_RECOVERY !== "true") {
@@ -13,32 +16,41 @@ export async function createRecoveryFixture(db: PrismaClient) {
   const session = await db.session.create({ data: {
     operationalId: `RECOVERY-${marker}`,
     mode: "REAL",
-    status: "Closed",
-    eventType: "Stage 23 recovery fixture",
+    status: "Draft",
+    eventType: "Stage 25 recovery fixture",
     description: "Synthetic recovery rehearsal incident",
     startAt: new Date("2026-09-23T10:00:00.000Z"),
-    endAt: occurredAt,
     createdById: actorRow.id,
-    closedById: actorRow.id,
   } });
   await db.incidentAssignment.create({ data: {
     incidentId: session.id,
     userId: actorRow.id,
-    function: "Stage 23 recovery operator",
+    function: "Stage 25 recovery operator",
     createdById: actorRow.id,
   } });
   await db.auditLog.create({ data: {
-    action: "stage23_recovery_fixture_created",
+    action: "stage25_recovery_fixture_created",
     entityType: "session",
     entityId: session.id,
     sessionId: session.id,
     actorId: actorRow.id,
     actorEmail: actorRow.email,
-    summary: "Synthetic Stage 23 recovery fixture created",
+    summary: "Synthetic Stage 25 recovery fixture created",
     metadata: { marker, synthetic: true },
   } });
 
-  const actor = { id: actorRow.id, email: actorRow.email, displayName: actorRow.displayName, requestId: `stage23-${marker}` };
+  const actor = { id: actorRow.id, email: actorRow.email, displayName: actorRow.displayName, requestId: `stage25-${marker}` };
+  const evidenceBytes = Buffer.from(`%PDF-1.4\n% ZPP Connect recovery evidence ${marker}\n%%EOF\n`, "utf8");
+  const evidenceInput = validateEvidenceUpload({
+    bytes: evidenceBytes, originalName: `recovery-evidence-${marker}.pdf`,
+    declaredMimeType: "application/pdf", maxBytes: 10 * 1024 * 1024,
+  });
+  const evidence = await createPrismaEvidenceService(db, createPrismaEvidenceArtifactStore(db)).upload({
+    operationId: randomUUID(), sessionId: session.id, category: "Operational evidence",
+    description: "Synthetic retained evidence used to prove metadata and byte recovery.",
+    bytes: evidenceBytes, ...evidenceInput,
+  }, actor);
+  await db.session.update({ where: { id: session.id }, data: { status: "Closed", endAt: occurredAt, closedById: actorRow.id } });
   const service = createPrismaAfterActionReportService(db);
   const created = await service.create({
     operationId: randomUUID(), sessionId: session.id, title: `Recovery report ${marker}`, eventDate: occurredAt.toISOString(),
@@ -65,5 +77,8 @@ export async function createRecoveryFixture(db: PrismaClient) {
     artifactId: artifact.id,
     artifactSha256: artifact.contentSha256,
     artifactSizeBytes: Number(artifact.contentSizeBytes),
+    evidenceId: evidence.id,
+    evidenceSha256: evidence.contentSha256,
+    evidenceSizeBytes: evidence.sizeBytes,
   };
 }

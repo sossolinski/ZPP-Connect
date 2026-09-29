@@ -572,6 +572,7 @@ export function DashboardPage({ portalUser, canAccessRoute }: { portalUser: Demo
     ["/assignments", "assignments"],
     ["/audit", "audit"],
     ["/documents", "documents"],
+    ["/evidence", "evidence"],
     ["/family-nok", "family-nok"],
     ["/matching", "matching"],
     ["/passenger-src", "passenger-src"],

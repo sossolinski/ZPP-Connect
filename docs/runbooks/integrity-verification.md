@@ -14,8 +14,8 @@ npm run integrity:check
 ```
 
 Choose a bound at least as high as every checked collection. The command deliberately fails
-instead of sampling when Approved AAR versions, PDF artifacts, published internal Documents
-or digest-bearing acknowledgements exceed the bound. This makes a successful result an
+instead of sampling when Approved AAR versions, PDF artifacts, published internal Documents,
+digest-bearing acknowledgements, incident-evidence rows or stored artifacts exceed the bound. This makes a successful result an
 explicit complete scan. The hard accepted range is 1–1,000,000.
 
 ## Checks
@@ -26,6 +26,9 @@ explicit complete scan. The hard accepted range is 1–1,000,000.
 - every persisted AAR PDF matches exact byte size/SHA-256 and its Approved source digest;
 - Published internal Document text matches its stored SHA-256;
 - digest-bearing Document acknowledgements match their referenced version snapshot.
+- every incident-evidence row has one retained artifact with matching byte size, artifact
+  metadata and recomputed SHA-256;
+- no unreferenced incident-evidence artifact is silently accepted.
 
 The checker reports only identifiers/categories/counts, never Document/AAR/PDF content or
 credentials. A pass emits one JSON `integrity_check` success event and exits 0. A violation,
@@ -56,5 +59,7 @@ CSV bytes. Import provenance hashes likewise describe input bytes that are not r
    silence the checker.
 5. Escalate to the product/data owner for any suspected authoritative-data corruption.
 
-The checker never mutates or purges records. AuditLog, historical Approved AARs and evidence
-remain outside automatic application-data retention in Stage 23.
+The checker never mutates, repairs or purges records. AuditLog, historical Approved AARs and
+incident evidence remain outside automatic application-data retention. On evidence failure,
+disable the affected download path operationally, preserve both database and logs, compare a
+separately verified recovery point and do not rewrite hashes merely to make the check pass.

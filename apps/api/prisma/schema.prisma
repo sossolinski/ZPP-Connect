@@ -252,6 +252,8 @@ model User {
   createdExerciseObservations     ExerciseObservation[]                 @relation("ExerciseObservationCreatedBy")
   updatedExerciseObservations     ExerciseObservation[]                 @relation("ExerciseObservationUpdatedBy")
   exerciseObservationRevisions    ExerciseObservationRevision[]         @relation("ExerciseObservationRevisionChangedBy")
+  createdStoredFiles              StoredFile[]                          @relation("StoredFileCreatedBy")
+  withdrawnStoredFiles            StoredFile[]                          @relation("StoredFileWithdrawnBy")
 
   @@index([organizationId])
   @@index([status, displayName, id])
@@ -1800,20 +1802,64 @@ model ExportGeneration {
 }
 
 model StoredFile {
-  id              String   @id @default(uuid()) @db.Uuid
-  operationalId   String   @unique
-  sessionId       String?  @db.Uuid
-  importBatchId   String?  @db.Uuid
-  fileName        String
-  mimeType        String?
-  sizeBytes       BigInt   @default(0)
-  storageProvider String   @default("local")
-  storageKey      String
-  entityType      String?
-  entityId        String?
-  createdById     String?  @db.Uuid
+  id                String                @id @default(uuid()) @db.Uuid
+  operationalId     String                @unique
+  sessionId         String?               @db.Uuid
+  importBatchId     String?               @db.Uuid
+  purpose           String                @default("LEGACY")
+  originalFileName  String?
+  fileName          String
+  mimeType          String?
+  declaredMimeType  String?
+  sizeBytes         BigInt                @default(0)
+  contentSha256     String?
+  storageProvider   String                @default("local")
+  storageKey        String
+  category          String?
+  description       String?
+  status            String                @default("Legacy")
+  scanStatus        String                @default("NOT_APPLICABLE")
+  version           Int                   @default(1)
+  uploadOperationId String?               @unique @db.Uuid
+  uploadFingerprint String?
+  requestId         String?
+  entityType        String?
+  entityId          String?
+  createdById       String?               @db.Uuid
+  createdAt         DateTime              @default(now())
+  withdrawnAt       DateTime?
+  withdrawnById     String?               @db.Uuid
+  withdrawalReason  String?
+  session           Session?              @relation(fields: [sessionId], references: [id], onDelete: Restrict)
+  createdBy         User?                 @relation("StoredFileCreatedBy", fields: [createdById], references: [id], onDelete: Restrict)
+  withdrawnBy       User?                 @relation("StoredFileWithdrawnBy", fields: [withdrawnById], references: [id], onDelete: Restrict)
+  operations        StoredFileOperation[]
+
+  @@index([sessionId, purpose, status, createdAt(sort: Desc), id])
+  @@index([contentSha256])
+}
+
+model StoredArtifact {
+  storageKey      String   @id
+  storageProvider String   @default("postgres")
+  sizeBytes       BigInt
+  contentSha256   String
+  content         Bytes
   createdAt       DateTime @default(now())
-  session         Session? @relation(fields: [sessionId], references: [id], onDelete: SetNull)
+}
+
+model StoredFileOperation {
+  operationId        String     @id @db.Uuid
+  storedFileId       String     @db.Uuid
+  command            String
+  commandFingerprint String
+  resultVersion      Int
+  result             Json
+  requestId          String
+  createdAt          DateTime   @default(now())
+  storedFile         StoredFile @relation(fields: [storedFileId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+
+  @@index([storedFileId, createdAt])
 }
 
 model ExerciseInject {

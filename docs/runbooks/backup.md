@@ -1,7 +1,8 @@
 # PostgreSQL Backup Runbook
 
 This runbook covers the Foundation Stage 23 logical backup supported by ZPP Connect. A
-backup contains sensitive crisis-response records and retained AAR PDFs. Store it only in
+backup contains sensitive crisis-response records, retained AAR PDFs and incident-evidence
+metadata plus exact artifact bytes. Store it only in
 an access-controlled, encrypted, durable destination outside the application host.
 
 ## Prerequisites
@@ -49,6 +50,12 @@ Verification checks the strict manifest, regular-file/path boundary, byte size, 
 matching `pg_restore` major and readable archive catalog. A non-zero exit means the pair
 must not be used as a verified recovery point.
 
+The manifest includes counts for incident evidence, artifact bytes and idempotency
+operations. The PostgreSQL snapshot keeps those records and bytes coherent. As evidence
+volume grows, operators must size database, staging space, transfer time and restore windows
+for retained BYTEA content; a successful count is not a substitute for the post-restore
+hash scan.
+
 After local verification, copy both files as one pair to the deployment's encrypted,
 off-host backup store. Verify again after transfer. Stage 23 does not implement cloud
 storage, scheduling, encryption or alert delivery.
@@ -88,6 +95,11 @@ npm run backup:retention
 The command only considers direct-child `*.backup.manifest.json` files whose declared
 archive is a valid direct-child file with the matching checksum. It cannot purge database
 or application records.
+
+Backup-pair retention is not incident-evidence retention. With no approved legal/business
+duration, ZPP Connect performs no automatic evidence purge; withdrawal retains bytes and
+metadata. Any future purge policy requires separate approval, legal-hold semantics and an
+auditable implementation.
 
 ## Failure response
 

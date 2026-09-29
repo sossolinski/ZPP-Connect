@@ -68,6 +68,7 @@ export const navigationItems: NavigationItem[] = [
   { key: "rostering", to: "/rostering", label: "Rostering", group: "People", icon: CalendarDays },
   { key: "assignments", to: "/assignments", label: "Assignments", group: "People", icon: ClipboardList },
   { key: "documents", to: "/documents", label: "Documents", group: "Operations", icon: FileText },
+  { key: "evidence", to: "/evidence", label: "Incident Evidence", group: "Operations", icon: ShieldCheck },
   { key: "files-import", to: "/files-import", label: "Files / Import", group: "Admin", icon: FileText },
   { key: "reports", to: "/reports", label: "Reports", group: "Admin", icon: BookOpenCheck },
   { key: "users-access", to: "/users-access", label: "Users & Access", group: "Admin", icon: UserCog },

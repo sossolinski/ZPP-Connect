@@ -1,5 +1,6 @@
 import crypto from "node:crypto";
 import type { PrismaAfterActionReportService } from "./modules/after-action-reports/prisma-after-action-report-service.js";
+import type { PrismaEvidenceService } from "./modules/evidence/prisma-evidence-service.js";
 import compression from "compression";
 import cors from "cors";
 import express from "express";
@@ -31,6 +32,7 @@ import type { DictionaryConfigurationService } from "./modules/configuration/con
 
 export function createApp(options: {
   afterActionReportService?: PrismaAfterActionReportService;
+  evidenceService?: PrismaEvidenceService;
   incidentRepository?: IncidentRepository;
   enquiryRepository?: EnquiryRepository;
   incidentAccessRepository?: IncidentAccessRepository;
@@ -86,6 +88,7 @@ export function createApp(options: {
 
   registerRoutes(app, {
     afterActionReportService: options.afterActionReportService,
+    evidenceService: options.evidenceService,
     incidentRepository: options.incidentRepository,
     enquiryRepository: options.enquiryRepository,
     incidentAccessRepository: options.incidentAccessRepository,

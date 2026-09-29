@@ -17,6 +17,8 @@ export type IntegrityReport = {
     aarPdfArtifacts: number;
     publishedInternalDocuments: number;
     documentAcknowledgements: number;
+    incidentEvidence: number;
+    storedArtifacts: number;
   };
   failures: IntegrityFailure[];
 };
@@ -58,17 +60,21 @@ export async function runIntegrityCheck(databaseUrl: string, limit = 10_000): Pr
     );
     for (const row of invalidIndexes) fail(failures, "postgres-index", `Index ${row.index_name} is invalid`);
 
-    const [approvedCount, artifactCount, documentCount, acknowledgementCount] = await Promise.all([
+    const [approvedCount, artifactCount, documentCount, acknowledgementCount, evidenceCount, storedArtifactCount] = await Promise.all([
       db.afterActionReportVersion.count({ where: { status: "Approved" } }),
       db.afterActionPdfArtifact.count(),
       db.documentVersion.count({ where: { status: "Published", contentMode: "Internal text" } }),
       db.documentAcknowledgement.count({ where: { contentDigestSnapshot: { not: null } } }),
+      db.storedFile.count({ where: { purpose: "INCIDENT_EVIDENCE" } }),
+      db.storedArtifact.count(),
     ]);
     await Promise.all([
       boundedCount("Approved AAR versions", approvedCount, limit),
       boundedCount("AAR PDF artifacts", artifactCount, limit),
       boundedCount("Published internal Document versions", documentCount, limit),
       boundedCount("Document acknowledgements", acknowledgementCount, limit),
+      boundedCount("Incident evidence", evidenceCount, limit),
+      boundedCount("Stored evidence artifacts", storedArtifactCount, limit),
     ]);
 
     const approved = await db.afterActionReportVersion.findMany({ where: { status: "Approved" }, include: versionInclude, orderBy: { id: "asc" }, take: limit + 1 });
@@ -115,6 +121,34 @@ export async function runIntegrityCheck(databaseUrl: string, limit = 10_000): Pr
       }
     }
 
+    const evidence = await db.storedFile.findMany({
+      where: { purpose: "INCIDENT_EVIDENCE" },
+      select: { id: true, storageKey: true, sizeBytes: true, contentSha256: true },
+      orderBy: { id: "asc" }, take: limit + 1,
+    });
+    const storedArtifacts = await db.storedArtifact.findMany({ orderBy: { storageKey: "asc" }, take: limit + 1 });
+    const artifactByKey = new Map(storedArtifacts.map((artifact) => [artifact.storageKey, artifact]));
+    const referencedKeys = new Set<string>();
+    for (const record of evidence) {
+      referencedKeys.add(record.storageKey);
+      const artifact = artifactByKey.get(record.storageKey);
+      if (!artifact) {
+        fail(failures, "evidence-artifact-missing", "Incident evidence has no retained byte artifact", record.id);
+        continue;
+      }
+      const bytes = Buffer.from(artifact.content);
+      if (Number(record.sizeBytes) !== Number(artifact.sizeBytes) || bytes.length !== Number(record.sizeBytes)) {
+        fail(failures, "evidence-size", "Incident evidence byte length or artifact metadata does not match", record.id);
+      }
+      const digest = sha256(bytes);
+      if (record.contentSha256 !== artifact.contentSha256 || digest !== record.contentSha256) {
+        fail(failures, "evidence-digest", "Incident evidence SHA-256 or artifact metadata does not match retained bytes", record.id);
+      }
+    }
+    for (const artifact of storedArtifacts) {
+      if (!referencedKeys.has(artifact.storageKey)) fail(failures, "evidence-artifact-orphan", "Stored evidence bytes have no incident evidence metadata", artifact.storageKey);
+    }
+
     return {
       status: failures.length ? "fail" : "pass", checkedAt, durationMs: Date.now() - started, limit,
       counts: {
@@ -124,6 +158,8 @@ export async function runIntegrityCheck(databaseUrl: string, limit = 10_000): Pr
         aarPdfArtifacts: artifactCount,
         publishedInternalDocuments: documentCount,
         documentAcknowledgements: acknowledgementCount,
+        incidentEvidence: evidenceCount,
+        storedArtifacts: storedArtifactCount,
       },
       failures,
     };

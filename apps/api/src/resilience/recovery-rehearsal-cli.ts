@@ -46,17 +46,36 @@ await runCli("recovery_rehearsal", async () => {
 
     const restoredDb = new PrismaClient({ datasources: { db: { url: restoreUrl } } });
     try {
-      const [session, report, artifact, audit, document, role, dictionary] = await Promise.all([
+      const [session, report, artifact, evidence, evidenceArtifact, audit, document, role, dictionary] = await Promise.all([
         restoredDb.session.findUnique({ where: { id: fixture.sessionId } }),
         restoredDb.afterActionReport.findUnique({ where: { id: fixture.reportId } }),
         restoredDb.afterActionPdfArtifact.findUnique({ where: { id: fixture.artifactId } }),
-        restoredDb.auditLog.findFirst({ where: { sessionId: fixture.sessionId, action: "stage23_recovery_fixture_created" } }),
+        restoredDb.storedFile.findUnique({ where: { id: fixture.evidenceId } }),
+        restoredDb.storedArtifact.findUnique({ where: { storageKey: `incident-evidence/${fixture.evidenceId}` } }),
+        restoredDb.auditLog.findFirst({ where: { sessionId: fixture.sessionId, action: "stage25_recovery_fixture_created" } }),
         restoredDb.document.findFirst(), restoredDb.role.findFirst(), restoredDb.dictionary.findFirst(),
       ]);
       if (!session || session.mode !== "REAL" || session.status !== "Closed") throw new Error("Restored REAL Session fixture is missing or invalid");
       if (!report || !audit) throw new Error("Restored AAR or Audit fixture is missing");
       if (!artifact || artifact.contentSha256 !== fixture.artifactSha256 || Number(artifact.contentSizeBytes) !== fixture.artifactSizeBytes) throw new Error("Restored retained PDF fixture is missing or invalid");
+      if (!evidence || !evidenceArtifact || evidence.contentSha256 !== fixture.evidenceSha256 || evidenceArtifact.contentSha256 !== fixture.evidenceSha256 || Buffer.from(evidenceArtifact.content).length !== fixture.evidenceSizeBytes) {
+        throw new Error("Restored incident evidence metadata or retained bytes are missing or invalid");
+      }
       if (!document || !role || !dictionary) throw new Error("Restored canonical Document, Role or Dictionary data is missing");
+
+      const originalEvidence = Buffer.from(evidenceArtifact.content);
+      const corruptedEvidence = Buffer.from(originalEvidence);
+      const finalByte = corruptedEvidence.readUInt8(corruptedEvidence.length - 1);
+      corruptedEvidence.writeUInt8(finalByte ^ 0xff, corruptedEvidence.length - 1);
+      await restoredDb.$executeRawUnsafe(`ALTER TABLE "StoredArtifact" DISABLE TRIGGER USER`);
+      try {
+        await restoredDb.$executeRaw`UPDATE "StoredArtifact" SET "content" = ${corruptedEvidence} WHERE "storageKey" = ${evidenceArtifact.storageKey}`;
+        if ((await assertIntegrity(restoreUrl).then(() => "pass", () => "fail")) !== "fail") throw new Error("Intentional evidence corruption was not detected");
+        await restoredDb.$executeRaw`UPDATE "StoredArtifact" SET "content" = ${originalEvidence} WHERE "storageKey" = ${evidenceArtifact.storageKey}`;
+      } finally {
+        await restoredDb.$executeRawUnsafe(`ALTER TABLE "StoredArtifact" ENABLE TRIGGER USER`);
+      }
+      await assertIntegrity(restoreUrl);
     } finally { await restoredDb.$disconnect(); }
 
     const corruptArchiveName = backup.manifest.archive.fileName.replace(/[a-f0-9]{12}\.backup\.dump$/, "ffffffffffff.backup.dump");

@@ -26,6 +26,7 @@ export type AppConfig = {
   notificationDispatchBatchSize: number;
   notificationProjectBatchSize: number;
   notificationProjectMaxRows: number;
+  evidenceMaxFileSizeBytes: number;
 };
 
 function positiveInteger(name: string, value: string | undefined, fallback: number) {
@@ -68,7 +69,8 @@ export function resolveConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     notificationProjectIntervalMs: positiveInteger("NOTIFICATION_PROJECT_INTERVAL_MS", env.NOTIFICATION_PROJECT_INTERVAL_MS, 60_000),
     notificationDispatchBatchSize: positiveInteger("NOTIFICATION_DISPATCH_BATCH_SIZE", env.NOTIFICATION_DISPATCH_BATCH_SIZE, 100),
     notificationProjectBatchSize: positiveInteger("NOTIFICATION_PROJECT_BATCH_SIZE", env.NOTIFICATION_PROJECT_BATCH_SIZE, 200),
-    notificationProjectMaxRows: positiveInteger("NOTIFICATION_PROJECT_MAX_ROWS", env.NOTIFICATION_PROJECT_MAX_ROWS, 10_000)
+    notificationProjectMaxRows: positiveInteger("NOTIFICATION_PROJECT_MAX_ROWS", env.NOTIFICATION_PROJECT_MAX_ROWS, 10_000),
+    evidenceMaxFileSizeBytes: positiveInteger("EVIDENCE_MAX_FILE_SIZE_BYTES", env.EVIDENCE_MAX_FILE_SIZE_BYTES, 10 * 1024 * 1024)
   };
 }
 
@@ -90,6 +92,9 @@ export function validateRuntimeConfig(value: AppConfig) {
   }
   if (value.authMode === "entra" && (!value.entraIssuer || !value.entraAudience || !value.entraJwksUri)) {
     throw new Error("AUTH_MODE=entra requires ENTRA_ISSUER, ENTRA_AUDIENCE and ENTRA_JWKS_URI");
+  }
+  if (value.evidenceMaxFileSizeBytes > 20 * 1024 * 1024) {
+    throw new Error("EVIDENCE_MAX_FILE_SIZE_BYTES must not exceed 20 MiB");
   }
 }
 

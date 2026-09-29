@@ -1,5 +1,6 @@
 import type { Express } from "express";
 import type { PrismaAfterActionReportService } from "../modules/after-action-reports/prisma-after-action-report-service.js";
+import type { PrismaEvidenceService } from "../modules/evidence/prisma-evidence-service.js";
 import { config } from "../config.js";
 import { logger } from "../logger.js";
 import type { AssignmentRepository } from "../modules/assignments/assignment-repository.js";
@@ -48,6 +49,7 @@ const createMemoryTestRouter = config.persistenceMode === "memory"
 
 export type RouteOptions = {
   afterActionReportService?: PrismaAfterActionReportService;
+  evidenceService?: PrismaEvidenceService;
   incidentRepository?: IncidentRepository;
   enquiryRepository?: EnquiryRepository;
   incidentAccessRepository?: IncidentAccessRepository;
@@ -80,7 +82,7 @@ function requestsPostgres(options: RouteOptions) {
     options.assignmentRepository, options.memberDirectoryRepository, options.rosteringRepository,
     options.documentRepository, options.notificationRepository,
     options.operationalBriefingService, options.importService, options.exportService,
-    options.dictionaryService, options.afterActionReportService,
+    options.dictionaryService, options.afterActionReportService, options.evidenceService,
   ].some((candidate) => candidate && "kind" in candidate && candidate.kind === "postgres");
 }
 
@@ -118,6 +120,7 @@ export function registerRoutes(app: Express, options: RouteOptions = {}) {
   const dictionaryService = options.dictionaryService ?? createPrismaDictionaryService(prisma);
   const composition = createProductionComposition({
     afterActionReportService: options.afterActionReportService,
+    evidenceService: options.evidenceService,
     db: prisma,
     incidentRepository, enquiryRepository, incidentAccessRepository, incidentAssignmentRepository,
     passengerRepository, familyRepository, matchingRepository, releaseRepository, requestRepository,

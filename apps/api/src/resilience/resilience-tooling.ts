@@ -20,6 +20,7 @@ const migrationSchema = z.object({
 export const criticalCountKeys = [
   "users", "roles", "sessions", "documents", "documentVersions", "auditLogs",
   "dictionaries", "afterActionReports", "afterActionReportVersions", "afterActionPdfArtifacts",
+  "incidentEvidence", "storedArtifacts", "storedFileOperations",
 ] as const;
 
 const criticalCountsSchema = z.object({
@@ -33,6 +34,11 @@ const criticalCountsSchema = z.object({
   afterActionReports: z.number().int().nonnegative(),
   afterActionReportVersions: z.number().int().nonnegative(),
   afterActionPdfArtifacts: z.number().int().nonnegative(),
+  // Optional-on-input defaults preserve verification of Stage 23/24 v1 manifests;
+  // every new Stage 25 manifest serializes all three explicit counts.
+  incidentEvidence: z.number().int().nonnegative().default(0),
+  storedArtifacts: z.number().int().nonnegative().default(0),
+  storedFileOperations: z.number().int().nonnegative().default(0),
 }).strict();
 
 export const backupManifestSchema = z.object({
@@ -192,11 +198,12 @@ export async function migrationState(db: PrismaClient | Prisma.TransactionClient
 }
 
 export async function criticalCounts(db: PrismaClient | Prisma.TransactionClient): Promise<CriticalCounts> {
-  const [users, roles, sessions, documents, documentVersions, auditLogs, dictionaries, afterActionReports, afterActionReportVersions, afterActionPdfArtifacts] = await Promise.all([
+  const [users, roles, sessions, documents, documentVersions, auditLogs, dictionaries, afterActionReports, afterActionReportVersions, afterActionPdfArtifacts, incidentEvidence, storedArtifacts, storedFileOperations] = await Promise.all([
     db.user.count(), db.role.count(), db.session.count(), db.document.count(), db.documentVersion.count(),
     db.auditLog.count(), db.dictionary.count(), db.afterActionReport.count(), db.afterActionReportVersion.count(), db.afterActionPdfArtifact.count(),
+    db.storedFile.count({ where: { purpose: "INCIDENT_EVIDENCE" } }), db.storedArtifact.count(), db.storedFileOperation.count(),
   ]);
-  return { users, roles, sessions, documents, documentVersions, auditLogs, dictionaries, afterActionReports, afterActionReportVersions, afterActionPdfArtifacts };
+  return { users, roles, sessions, documents, documentVersions, auditLogs, dictionaries, afterActionReports, afterActionReportVersions, afterActionPdfArtifacts, incidentEvidence, storedArtifacts, storedFileOperations };
 }
 
 async function serverVersion(db: PrismaClient | Prisma.TransactionClient) {

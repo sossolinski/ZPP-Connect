@@ -32,7 +32,7 @@ describePostgres("Foundation Stage 23 PostgreSQL integrity", () => {
     const report = await runIntegrityCheck(databaseUrl!, 20_000);
     expect(report.status).toBe("pass");
     expect(report.failures).toEqual([]);
-    expect(report.counts.migrations).toBe(23);
+    expect(report.counts.migrations).toBe(24);
     expect(report.counts.approvedAarVersions).toBeGreaterThan(0);
     expect(report.counts.aarPdfArtifacts).toBeGreaterThan(0);
   });

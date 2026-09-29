@@ -26,6 +26,7 @@ export type PortalRouteKey =
   | "rostering"
   | "assignments"
   | "documents"
+  | "evidence"
   | "files-import"
   | "reports"
   | "users-access"
