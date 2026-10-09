@@ -1,3 +1,4 @@
+import { dashboardAttention } from "./modules/dashboard/dashboard-attention.js";
 import { createHash, randomUUID } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { Router } from "express";
@@ -1928,13 +1929,22 @@ function dashboard(req: Request, sessionId: string) {
       .map((item) => canReadFamily && canReadPassengers && canReadEnquiries ? demoRequestContext(item) : item);
   }
 
+  const aggregate = canReadAllAggregates ? buildDashboardAggregates(sessionId, openRequests, urgentWelfare) : undefined;
+  const sources = [
+    ["urgentRequests", "Urgent support requests", "request", "/requests", canReadRequests && (can(req, "request:create") || can(req, "request:update"))],
+    ["unresolvedHolds", "Unresolved holds", "matching", "/matching", canReadMatching && can(req, "matching:hold")],
+    ["pendingMatching", "Pending matches", "matching", "/matching", canReadMatching && can(req, "matching:verify")],
+    ["unverifiedFamily", "Unverified family contacts", "family", "/family-nok", canReadFamily && can(req, "family:verify")],
+    ["unlinkedEnquiries", "Unlinked enquiries", "enquiry", "/tec-intake", canReadEnquiries && can(req, "enquiry:update")],
+  ].filter(([, , , , allowed]) => allowed).map(([key, label, kind, path]) => ({ label: String(label), items: (priorityQueue[String(key)] ?? []).slice(0, 5).map(row => ({ key: `${kind}:${row.id}`, title: String(row.operationalId), detail: String(label), href: `${path}?${kind}Id=${encodeURIComponent(row.id)}` })) }));
   return {
+    operationalStatus: { loadedAt: new Date().toISOString(), specialist: aggregate ? { status: "available", value: aggregate } : { status: "unavailable" }, attention: dashboardAttention(sources) },
     session,
     sessionLabel: session ? `${session.mode} ${session.operationalId}` : undefined,
     kpis,
     priorityQueue,
     status,
-    ...(canReadAllAggregates ? buildDashboardAggregates(sessionId, openRequests, urgentWelfare) : {})
+    ...aggregate
   };
 }
 

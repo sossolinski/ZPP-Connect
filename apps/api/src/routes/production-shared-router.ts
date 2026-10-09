@@ -1,5 +1,5 @@
 import type { PrismaClient } from "@prisma/client";
-import { defaultProfile, workflowStates } from "@zpp/shared";
+import { defaultProfile, workflowStates, type DashboardSpecialist, type DashboardOperationalStatus } from "@zpp/shared";
 import { Router, type Request } from "express";
 import swaggerUi from "swagger-ui-express";
 import { asyncHandler, HttpError } from "../errors.js";
@@ -7,6 +7,9 @@ import { openApiDocument } from "../openapi.js";
 import { redactForUser } from "../redaction.js";
 import { listQuery, timelineSchema } from "../validation.js";
 import type { IncidentPermissionGate } from "../modules/incident-access/incident-permission-gate.js";
+
+import type { FoundationDocumentRepository } from "../modules/documents/document-repository.js";
+import { dashboardAttention } from "../modules/dashboard/dashboard-attention.js";
 
 type DashboardPassenger = {
   id: string;
@@ -56,7 +59,7 @@ function buildDashboardAggregates(input: {
     enquiriesByPassenger.set(enquiry.passengerRecordId, [...(enquiriesByPassenger.get(enquiry.passengerRecordId) ?? []), enquiry]);
   }
 
-  const matchingProgress = { totalPax: input.passengers.length, done: 0, inReview: 0, onHold: 0, noCandidate: 0, rejectedOnly: 0, completionRate: 0, slices: [] as Array<Record<string, unknown>> };
+  const matchingProgress = { totalPax: input.passengers.length, done: 0, inReview: 0, onHold: 0, noCandidate: 0, rejectedOnly: 0, completionRate: 0, slices: [] as DashboardSpecialist["matchingProgress"]["slices"] };
   let reviewedTotal = 0;
   let readyForRelease = 0;
   for (const passenger of input.passengers) {
@@ -153,7 +156,7 @@ export function createTechnicalReadinessRouter(db: PrismaClient, probe: () => Pr
   return router;
 }
 
-export function createProductionSharedRouter(db: PrismaClient, requireIncidentPermission: IncidentPermissionGate) {
+export function createProductionSharedRouter(db: PrismaClient, requireIncidentPermission: IncidentPermissionGate, documents: FoundationDocumentRepository) {
   const router = Router();
   router.get("/config/profile", (_req, res) => res.json(defaultProfile));
 
@@ -204,7 +207,7 @@ export function createProductionSharedRouter(db: PrismaClient, requireIncidentPe
       const matchingContext = (row: Record<string, any>) => { const { familyRecord, passengerRecord, enquiry, ...rest } = row; return { ...rest, familyOperationalId: familyRecord?.operationalId ?? null, familyName: name(familyRecord?.firstName, familyRecord?.lastName), passengerOperationalId: passengerRecord?.operationalId ?? null, passengerName: name(passengerRecord?.firstName, passengerRecord?.lastName), passengerType: passengerRecord?.personType ?? null, enquiryOperationalId: enquiry?.operationalId ?? null, enquiryCallerName: enquiry?.callerName ?? null, claimedRelationship: familyRecord?.claimedRelationship ?? enquiry?.claimedRelationship ?? null }; };
       const requestContext = (row: Record<string, any>) => { const { relatedFamilyRecord, relatedPassengerRecord, relatedEnquiry, ...rest } = row; return { ...rest, familyOperationalId: relatedFamilyRecord?.operationalId ?? null, familyName: name(relatedFamilyRecord?.firstName, relatedFamilyRecord?.lastName), passengerOperationalId: relatedPassengerRecord?.operationalId ?? null, passengerName: name(relatedPassengerRecord?.firstName, relatedPassengerRecord?.lastName), enquiryOperationalId: relatedEnquiry?.operationalId ?? null, enquiryCallerName: relatedEnquiry?.callerName ?? null }; };
 
-      let aggregates: Record<string, unknown> = {};
+      let aggregates: ReturnType<typeof buildDashboardAggregates> | undefined;
       if (canEnquiry && canFamily && canPassenger && canMatching && canRequest && canRelease && canImport) {
         const [passengers, matches, families, enquiryRows, releases, batches] = await Promise.all([
           db.passengerRecord.findMany({ where: { sessionId }, select: { id: true, personType: true, source: true, conditionStatus: true, holdStatus: true, srcConfirmed: true, caseId: true, dateOfBirth: true, age: true, seat: true, manifestVersion: true } }),
@@ -216,6 +219,30 @@ export function createProductionSharedRouter(db: PrismaClient, requireIncidentPe
         ]);
         aggregates = buildDashboardAggregates({ passengers, matches, families, enquiries: enquiryRows, releases, importBatches: batches, openRequests: openRequests ?? 0, urgentWelfare: urgentWelfare ?? 0 });
       }
+      const attentionSources: Parameters<typeof dashboardAttention>[0] = [];
+      const add = (allowed: boolean, label: string, rows: Array<{ id: string; operationalId: string }>, kind: string, path: string, detail: string) => {
+        if (allowed) attentionSources.push({ label, items: rows.map(row => ({ key: `${kind}:${row.id}`, title: row.operationalId, detail, href: `${path}?${kind}Id=${encodeURIComponent(row.id)}` })) });
+      };
+      // Urgent requests are permitted support risks; TEC can initiate follow-up, not fulfill them.
+      add(canRequest && (permissions.has("request:update") || permissions.has("request:create")), "Urgent support requests", urgentRequests, "request", "/requests", "Urgent support request needs follow-up");
+      add(canMatching && (permissions.has("matching:hold") || permissions.has("matching:clearHold")), "Unresolved holds", unresolvedHolds, "matching", "/matching", "Unresolved hold needs review");
+      add(canMatching && permissions.has("matching:verify"), "Pending matches", pendingMatching, "matching", "/matching", "Match needs review");
+      add(canFamily && permissions.has("family:verify"), "Unverified family contacts", unverifiedFamily, "family", "/family-nok", "Family relationship needs verification");
+      add(canEnquiry && permissions.has("enquiry:update"), "Unlinked enquiries", unlinkedEnquiries, "enquiry", "/tec-intake", "Enquiry needs a case link");
+      if (permissions.has("assignment:read") && permissions.has("assignment:update")) {
+        const rows = await db.assignmentTask.findMany({ where: { sessionId, assignedUserId: req.user!.id, status: { notIn: ["Completed", "Cancelled"] }, OR: [{ dueAt: { lt: new Date() } }, { status: "Escalated" }] }, orderBy: [{ dueAt: "asc" }, { id: "asc" }], take: 5 });
+        attentionSources.push({ label: "My overdue or escalated tasks", items: rows.map(row => ({ key: `assignment:${row.id}`, title: row.operationalId, detail: row.status === "Escalated" ? "Your task is escalated" : "Your task is overdue", href: `/assignments?assignmentId=${encodeURIComponent(row.id)}` })) });
+      }
+      if ((permissions.has("document:read-own") || permissions.has("document:read-all")) && permissions.has("document:acknowledge-own")) {
+        const member = await db.memberProfile.findFirst({ where: { linkedUserId: req.user!.id, status: { not: "Archived" } }, select: { id: true } });
+        const compliance = member ? await documents.evaluateMemberCompliance(member.id, { ...req.user!, permissions: [...permissions] }, new Date()) : null;
+        attentionSources.push({ label: "My document acknowledgements", items: (compliance?.items ?? []).filter(item => item.acknowledgementRequired && item.status !== "Acknowledged").slice(0, 5).map(item => ({ key: `document:${item.documentVersionId}`, title: item.title, detail: item.status === "Overdue" ? "Your document acknowledgement is overdue" : "Your document acknowledgement is required", href: "/documents" })) });
+      }
+      const operationalStatus: DashboardOperationalStatus = {
+        loadedAt: new Date().toISOString(),
+        specialist: aggregates ? { status: "available", value: aggregates } : { status: "unavailable" },
+        attention: dashboardAttention(attentionSources),
+      };
       const kpis: Record<string, number> = {};
       if (enquiries !== undefined) Object.assign(kpis, { enquiries, urgentWelfare: urgentWelfare ?? 0 });
       if (familyRecords !== undefined) kpis.familyRecords = familyRecords;
@@ -223,6 +250,7 @@ export function createProductionSharedRouter(db: PrismaClient, requireIncidentPe
       if (matchingRecords !== undefined) Object.assign(kpis, { matchingRecords, holds: holds ?? 0, verifiedReunited: verified ?? 0 });
       if (openRequests !== undefined) kpis.openRequests = openRequests;
       res.json(redactForUser(req, {
+        operationalStatus,
         session,
         sessionLabel: `${session.mode} ${session.operationalId}`,
         kpis,

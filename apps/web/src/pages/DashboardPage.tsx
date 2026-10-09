@@ -1,3 +1,5 @@
+import { ageLabel, dashboardStaleAfterMs, type DashboardDto } from "@zpp/shared";
+import { useOperationalClock } from "../lib/use-operational-clock";
 import { useEffect, useState, type ComponentType } from "react";
 import {
   AlertTriangle,
@@ -265,182 +267,15 @@ function AcronymGuide() {
   );
 }
 
-type AttentionKind = "request" | "match" | "family" | "enquiry";
-
-type AttentionSummary = {
-  title: string;
-  href: string;
-  status?: string;
-  detail: string;
-  context: string[];
-  cta: string;
-};
-
-function text(value: unknown) {
-  if (value === null || value === undefined) return "";
-  return String(value).trim();
-}
-
-function firstText(row: AnyRecord, keys: string[]) {
-  for (const key of keys) {
-    const value = text(row[key]);
-    if (value) return value;
-  }
-  return "";
-}
-
-function compactParts(values: unknown[], separator = " | ") {
-  return values.map(text).filter(Boolean).join(separator);
-}
-
-function labelled(label: string, value: unknown) {
-  const current = text(value);
-  return current ? `${label}: ${current}` : "";
-}
-
-function recordFocus(row: AnyRecord) {
-  return firstText(row, ["operationalId", "id", "caseId"]) || "record";
-}
-
-function attentionHref(kind: AttentionKind, row: AnyRecord) {
-  const focus = encodeURIComponent(recordFocus(row));
-  if (kind === "match") return `/matching?match=${focus}`;
-  if (kind === "family") return `/family-nok?focus=${focus}`;
-  if (kind === "enquiry") return `/tec-intake?focus=${focus}`;
-  return `/requests?focus=${focus}`;
-}
-
-function attentionSummary(kind: AttentionKind, row: AnyRecord, cta: string): AttentionSummary {
-  if (kind === "request") {
-    const requester = firstText(row, ["requester", "enquiryCallerName", "callerName"]);
-    return {
-      title: compactParts([row.operationalId, requester]) || "Request",
-      href: attentionHref(kind, row),
-      status: firstText(row, ["priority", "status"]),
-      detail: firstText(row, ["details", "category", "notes"]) || "Welfare request needs action.",
-      context: [
-        labelled("PAX", compactParts([row.passengerOperationalId, row.passengerName])),
-        labelled("FAM", compactParts([row.familyOperationalId, row.familyName])),
-        labelled("TEC", compactParts([row.enquiryOperationalId, row.enquiryCallerName])),
-        labelled("Case", row.caseId)
-      ].filter(Boolean),
-      cta
-    };
-  }
-
-  if (kind === "match") {
-    return {
-      title: compactParts([row.operationalId, compactParts([row.familyName, row.passengerName], " to ")]) || "Match",
-      href: attentionHref(kind, row),
-      status: firstText(row, ["holdCheck", "status"]),
-      detail: firstText(row, ["decisionNotes", "matchBasis"]) || "Match needs review.",
-      context: [
-        labelled("PAX", compactParts([row.passengerOperationalId, row.passengerName])),
-        labelled("FAM", compactParts([row.familyOperationalId, row.familyName])),
-        labelled("TEC", compactParts([row.enquiryOperationalId, row.enquiryCallerName])),
-        labelled("Claim", row.claimedRelationship),
-        labelled("Case", row.caseId)
-      ].filter(Boolean),
-      cta
-    };
-  }
-
-  if (kind === "family") {
-    const familyName = firstText(row, ["familyName"]) || compactParts([row.lastName, row.firstName], ", ");
-    return {
-      title: compactParts([row.operationalId, familyName]) || "Family/NOK",
-      href: attentionHref(kind, row),
-      status: firstText(row, ["verificationStatus"]),
-      detail: firstText(row, ["verificationNotes", "immediateNeeds", "claimedRelationship", "notes"]) || "Family/NOK record needs verification.",
-      context: [
-        labelled("Claim", row.claimedRelationship),
-        labelled("PAX", compactParts([row.passengerOperationalId, row.passengerName])),
-        labelled("Contact", compactParts([row.phone, row.email], " / ")),
-        labelled("Case", row.caseId)
-      ].filter(Boolean),
-      cta
-    };
-  }
-
-  return {
-    title: compactParts([row.operationalId, firstText(row, ["enquiryCallerName", "callerName"])]) || "Enquiry",
-    href: attentionHref(kind, row),
-    status: firstText(row, ["urgency", "status"]),
-    detail: firstText(row, ["notes", "claimedRelationship", "enquiryType"]) || "Enquiry is not linked to a match.",
-    context: [
-      labelled("Caller", firstText(row, ["enquiryCallerName", "callerName"])),
-      labelled("PAX", compactParts([row.passengerOperationalId, row.passengerName])),
-      labelled("Claim", row.claimedRelationship),
-      labelled("Case", row.caseId)
-    ].filter(Boolean),
-    cta
-  };
-}
-
-function AttentionItem({ row, kind, cta }: { row: AnyRecord; kind: AttentionKind; cta: string }) {
-  const item = attentionSummary(kind, row, cta);
-  return (
-    <Link
-      to={item.href}
-      className="group grid gap-2 border-b border-border px-3 py-3 transition hover:bg-muted focus-visible:outline focus-visible:outline-2 focus-visible:outline-[#145C63] last:border-0"
-    >
-      <div className="flex min-w-0 items-start justify-between gap-3">
-        <div className="min-w-0 flex-1">
-          <p className="truncate text-sm font-black text-foreground">{item.title}</p>
-          <p className="mt-1 line-clamp-2 text-xs font-semibold text-muted-foreground">{item.detail}</p>
-        </div>
-        <StatusBadge value={item.status} className="max-w-[45%] shrink-0 sm:max-w-56" />
-      </div>
-      {item.context.length ? (
-        <div className="flex flex-wrap gap-1.5">
-          {item.context.slice(0, 4).map((value) => (
-            <span key={value} className="inline-block max-w-full truncate rounded-full border border-border bg-muted px-2 py-0.5 text-[11px] font-bold text-muted-foreground">
-              {value}
-            </span>
-          ))}
-        </div>
-      ) : null}
-      <span className="inline-flex items-center gap-1 text-xs font-black text-[#145C63] transition dark:text-[#7ed7dc]">
-        {item.cta}
-        <ArrowRight className="h-3.5 w-3.5" />
-      </span>
-    </Link>
-  );
-}
-
-function AttentionBlock({
-  title,
-  icon: Icon,
-  rows,
-  kind,
-  cta
-}: {
-  title: string;
-  icon: ComponentType<{ className?: string }>;
-  rows?: AnyRecord[];
-  kind: AttentionKind;
-  cta: string;
-}) {
-  return (
-    <div className="rounded-md border border-border bg-card text-foreground">
-      <div className="flex items-center gap-2 border-b border-border px-3 py-2">
-        <Icon className="h-4 w-4 text-muted-foreground" />
-        <h3 className="text-sm font-black text-foreground">{title}</h3>
-      </div>
-      {rows && rows.length > 0 ? (
-        rows.slice(0, 4).map((row) => <AttentionItem key={row.id ?? row.operationalId} row={row} kind={kind} cta={cta} />)
-      ) : (
-        <div className="px-3 py-4 text-sm font-medium text-muted-foreground">Nothing needs action in this queue.</div>
-      )}
-    </div>
-  );
-}
-
 export function DashboardPage({ portalUser, canAccessRoute }: { portalUser: DemoUser; canAccessRoute: (route: PortalRouteKey) => boolean }) {
   const { activeSession, reload } = useApp();
-  const [dashboard, setDashboard] = useState<AnyRecord>();
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState("");
+  const [snapshot, setSnapshot] = useState<{ sessionId: string; data?: DashboardDto; error: string; refreshing: boolean }>({ sessionId: "", error: "", refreshing: false });
+  const [refresh, setRefresh] = useState(0);
+  const now = useOperationalClock();
+  const dashboard = snapshot.sessionId === activeSession?.id ? snapshot.data : undefined;
+  const error = snapshot.sessionId === activeSession?.id ? snapshot.error : "";
+  const loading = Boolean(activeSession && (!dashboard && !error));
+  const refreshDashboard = () => setRefresh(value => value + 1);
   const onboardingStorageKey = `zpp:ui-tip:dashboard-start:v1:${portalUser.email}:${portalUser.role}`;
   const [showGettingStarted, setShowGettingStarted] = useState(() => localStorage.getItem(onboardingStorageKey) !== "dismissed");
 
@@ -459,73 +294,44 @@ export function DashboardPage({ portalUser, canAccessRoute }: { portalUser: Demo
   }
 
   useEffect(() => {
-    if (!activeSession) {
-      setDashboard(undefined);
-      setError("");
-      setLoading(false);
-      return;
-    }
-    setLoading(true);
-    setError("");
-    api
-      .dashboard(activeSession.id)
-      .then(setDashboard)
-      .catch((err: Error) => setError(err.message))
-      .finally(() => setLoading(false));
-  }, [activeSession]);
+    const sessionId = activeSession?.id;
+    let cancelled = false;
+    if (!sessionId) { setSnapshot({ sessionId: "", error: "", refreshing: false }); return; }
+    setSnapshot(previous => ({ sessionId, data: previous.sessionId === sessionId ? previous.data : undefined, error: "", refreshing: true }));
+    api.dashboard(sessionId).then(data => {
+      if (!data.operationalStatus) throw new Error("Dashboard status could not be verified. Retry.");
+      if (!cancelled) setSnapshot({ sessionId, data, error: "", refreshing: false });
+    }).catch((err: Error) => {
+      if (!cancelled) setSnapshot(previous => ({ ...previous, error: err.message, refreshing: false }));
+    });
+    return () => { cancelled = true; };
+  }, [activeSession?.id, refresh]);
 
-  const manifest = dashboard?.manifestCoverage ?? {};
-  const matching = dashboard?.matchingProgress ?? {};
-  const work = dashboard?.workRemaining ?? {};
-  const quality = dashboard?.dataQuality ?? {};
-  const slices = (matching.slices ?? []) as DashboardSlice[];
-
-  const expectedTotal = num(manifest.expectedTotal);
-  const inDatabaseTotal = num(manifest.inDatabaseTotal);
-  const reviewedTotal = num(manifest.reviewedTotal);
-  const notReviewedTotal = num(manifest.notReviewedTotal);
-  const manifestGapTotal = num(manifest.notLoadedTotal) + num(manifest.invalidTotal);
-  const totalPax = num(matching.totalPax);
-  const donePax = num(matching.done);
-  const pendingMatchCount = num(work.pendingMatch);
-  const activeHoldCount = num(work.activeHold);
-  const urgentWelfareCount = num(work.urgentWelfare);
-  const unverifiedFamilyCount = num(work.unverifiedFamily);
-  const unlinkedEnquiryCount = num(work.unlinkedEnquiries);
-  const attentionCount = activeHoldCount + urgentWelfareCount + pendingMatchCount + unverifiedFamilyCount + unlinkedEnquiryCount;
-  const attentionDetail =
-    [
-      activeHoldCount ? `${activeHoldCount} holds` : "",
-      urgentWelfareCount ? `${urgentWelfareCount} urgent` : "",
-      pendingMatchCount ? `${pendingMatchCount} match review` : "",
-      unverifiedFamilyCount ? `${unverifiedFamilyCount} family` : "",
-      unlinkedEnquiryCount ? `${unlinkedEnquiryCount} unlinked` : ""
-    ]
-      .filter(Boolean)
-      .join(" · ") || "clear";
-  const allAttentionBlocks: Array<{
-    title: string;
-    icon: ComponentType<{ className?: string }>;
-    rows: AnyRecord[];
-    kind: AttentionKind;
-    cta: string;
-  }> = [
-    { title: "Urgent welfare", icon: HeartPulse, rows: (dashboard?.priorityQueue?.urgentRequests ?? []) as AnyRecord[], kind: "request", cta: "Open request" },
-    { title: "Unresolved holds", icon: ShieldAlert, rows: (dashboard?.priorityQueue?.unresolvedHolds ?? []) as AnyRecord[], kind: "match", cta: "Open match" },
-    { title: "Pending matches", icon: Link2, rows: (dashboard?.priorityQueue?.pendingMatching ?? []) as AnyRecord[], kind: "match", cta: "Review match" },
-    { title: "Unverified family/NOK", icon: AlertTriangle, rows: (dashboard?.priorityQueue?.unverifiedFamily ?? []) as AnyRecord[], kind: "family", cta: "Open family" },
-    { title: "Unlinked enquiries", icon: Link2, rows: (dashboard?.priorityQueue?.unlinkedEnquiries ?? []) as AnyRecord[], kind: "enquiry", cta: "Open enquiry" }
-  ];
-  const attentionBlocks = allAttentionBlocks.filter((block) => block.rows.length > 0);
+  const specialist = dashboard?.operationalStatus.specialist;
+  const manifest = specialist?.status === "available" ? specialist.value.manifestCoverage : undefined;
+  const matching = specialist?.status === "available" ? specialist.value.matchingProgress : undefined;
+  const quality = specialist?.status === "available" ? specialist.value.dataQuality : undefined;
+  const slices = matching?.slices ?? [];
+  // Values are used only inside the available specialist section below.
+  const expectedTotal = manifest?.expectedTotal ?? 0;
+  const inDatabaseTotal = manifest?.inDatabaseTotal ?? 0;
+  const reviewedTotal = manifest?.reviewedTotal ?? 0;
+  const notReviewedTotal = manifest?.notReviewedTotal ?? 0;
+  const manifestGapTotal = (manifest?.notLoadedTotal ?? 0) + (manifest?.invalidTotal ?? 0);
+  const totalPax = matching?.totalPax ?? 0;
+  const donePax = matching?.done ?? 0;
+  const attention = dashboard?.operationalStatus.attention;
+  const attentionItems = attention?.status === "available" ? attention.value.items : [];
+  const stale = Boolean(dashboard && (error || now - Date.parse(dashboard.operationalStatus.loadedAt) >= dashboardStaleAfterMs));
   const qualityItems = ([
-    { label: "Missing case link", value: num(quality.missingCaseId), detail: "records without a usable case/passenger link", tone: "warning" },
-    { label: "DOB / age missing", value: num(quality.missingDobOrAge), detail: "PAX or crew without age context", tone: "warning" },
-    { label: "Seat missing", value: num(quality.missingSeat), detail: "passenger rows without seat assignment", tone: "warning" },
-    { label: "SRC pending", value: num(quality.srcPending), detail: "loaded people not yet SRC-confirmed", tone: "warning" },
-    { label: "Unknown condition", value: num(quality.unknownCondition), detail: "people without condition/status update", tone: "warning" },
-    { label: "Family contact gaps", value: num(quality.familyContactMissing), detail: "family/NOK rows without phone or email", tone: "warning" },
-    { label: "Open release actions", value: num(quality.openReleaseActions), detail: "prepared actions not completed or cancelled", tone: "warning" },
-    { label: "Release checklist", value: num(quality.releaseChecklistPending), detail: "identity or hold checks still pending", tone: "warning" }
+    { label: "Missing case link", value: num(quality?.missingCaseId), detail: "records without a usable case/passenger link", tone: "warning" },
+    { label: "DOB / age missing", value: num(quality?.missingDobOrAge), detail: "PAX or crew without age context", tone: "warning" },
+    { label: "Seat missing", value: num(quality?.missingSeat), detail: "passenger rows without seat assignment", tone: "warning" },
+    { label: "SRC pending", value: num(quality?.srcPending), detail: "loaded people not yet SRC-confirmed", tone: "warning" },
+    { label: "Unknown condition", value: num(quality?.unknownCondition), detail: "people without condition/status update", tone: "warning" },
+    { label: "Family contact gaps", value: num(quality?.familyContactMissing), detail: "family/NOK rows without phone or email", tone: "warning" },
+    { label: "Open release actions", value: num(quality?.openReleaseActions), detail: "prepared actions not completed or cancelled", tone: "warning" },
+    { label: "Release checklist", value: num(quality?.releaseChecklistPending), detail: "identity or hold checks still pending", tone: "warning" }
   ] satisfies QualityDashboardItem[]).filter((item) => item.value > 0);
   const qualityGapCount = qualityItems.reduce((sum, item) => sum + item.value, 0);
   const roleLabel = portalUser.roles.join(" + ");
@@ -592,12 +398,12 @@ export function DashboardPage({ portalUser, canAccessRoute }: { portalUser: Demo
   const matchingTarget = canAccessRoute("matching") ? "/matching" : undefined;
 
   if (loading) return <Loading label="Loading dashboard" />;
-  if (error) {
+  if (error && !dashboard) {
     return (
       <EmptyState
         title="Dashboard unavailable"
         detail={error}
-        action={<Button onClick={() => void reload()}>Retry operational context</Button>}
+        action={<Button onClick={refreshDashboard}>Retry</Button>}
       />
     );
   }
@@ -618,10 +424,15 @@ export function DashboardPage({ portalUser, canAccessRoute }: { portalUser: Demo
       />
     );
   }
-  if (!dashboard) return <EmptyState title="No dashboard data" action={<Button onClick={() => void reload()}>Retry</Button>} />;
+  if (!dashboard) return <EmptyState title="No dashboard data" action={<Button onClick={refreshDashboard}>Retry</Button>} />;
 
   return (
     <div className="grid gap-5">
+      <div role="status" data-testid="dashboard-freshness" className="rounded-md border border-border p-3 text-sm font-semibold">
+        {snapshot.refreshing ? "Refreshing…" : error ? "Refresh failed — showing previously loaded data." : stale ? "Data may be stale — loaded more than 5 minutes ago." : "Data loaded successfully."}
+        <span className="ml-2">Last loaded {new Date(dashboard.operationalStatus.loadedAt).toLocaleString()} · {ageLabel(dashboard.operationalStatus.loadedAt, now)}. Refresh to check for changes.</span>
+        <Button size="sm" variant="secondary" disabled={snapshot.refreshing} onClick={refreshDashboard}>{error ? "Retry" : "Refresh dashboard"}</Button>
+      </div>
       {showGettingStarted ? (
         <Card>
           <CardHeader
@@ -657,14 +468,16 @@ export function DashboardPage({ portalUser, canAccessRoute }: { portalUser: Demo
         </div>
       )}
 
-      <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+      <section data-testid="dashboard-metrics" className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+        {specialist?.status === "available" ? <>
         <MetricTile label="Manifest" value={expectedTotal} detail={`${inDatabaseTotal} records loaded · ${manifestGapTotal} gaps`} icon={ClipboardList} tone={manifestGapTotal ? "warning" : "info"} to={manifestTarget} />
         <MetricTile label="Processing" value={`${reviewedTotal}/${inDatabaseTotal}`} detail={`${notReviewedTotal} not reviewed`} icon={Database} tone={notReviewedTotal ? "warning" : "success"} to={processingTarget} />
-        <MetricTile label="Matching" value={`${donePax}/${totalPax}`} detail={`${num(matching.completionRate)}% verified or ready`} icon={PieChart} tone={donePax === totalPax && totalPax > 0 ? "success" : "info"} to={matchingTarget} />
-        <MetricTile label="Needs attention" value={attentionCount} detail={attentionDetail} icon={AlertTriangle} tone={attentionCount ? "warning" : "success"} />
+        <MetricTile label="Matching" value={`${donePax}/${totalPax}`} detail={`${num(matching?.completionRate)}% verified or ready`} icon={PieChart} tone={donePax === totalPax && totalPax > 0 ? "success" : "info"} to={matchingTarget} />
+        </> : <div className="rounded-md border border-border p-4 md:col-span-2 xl:col-span-3"><p className="font-bold">Specialist metrics</p><p>Not available for your role</p></div>}
+        <MetricTile label="Needs attention" value={attention?.status === "available" ? `${attentionItems.length} shown` : "Unavailable"} detail={attention?.status === "available" ? "Permitted queues and personal obligations" : "Not available for your role"} icon={AlertTriangle} tone={attentionItems.length ? "warning" : "neutral"} />
       </section>
 
-      <Card>
+      {specialist?.status === "available" ? <Card>
         <CardHeader title="Operations Snapshot" />
         <div className="dashboard-progress-grid">
           <section className="grid min-w-0 gap-3 border-b border-border p-4 xl:border-b-0 xl:border-r xl:border-border">
@@ -673,9 +486,9 @@ export function DashboardPage({ portalUser, canAccessRoute }: { portalUser: Demo
               <Badge tone={manifestGapTotal ? "warning" : "success"}>{pct(inDatabaseTotal, expectedTotal)}% loaded</Badge>
             </div>
             <div className="grid gap-2 sm:grid-cols-2">
-              <CompactStat label="PAX" value={num(manifest.passengersInDatabase)} detail="passenger records" icon={UsersRound} />
-              <CompactStat label="Crew" value={num(manifest.crewInDatabase)} detail="crew records" icon={UserCheck} />
-              {manifestGapTotal ? <CompactStat label="Import gaps" value={manifestGapTotal} detail={`${num(manifest.invalidTotal)} invalid rows`} icon={FileWarning} tone="warning" /> : null}
+              <CompactStat label="PAX" value={num(manifest?.passengersInDatabase)} detail="passenger records" icon={UsersRound} />
+              <CompactStat label="Crew" value={num(manifest?.crewInDatabase)} detail="crew records" icon={UserCheck} />
+              {manifestGapTotal ? <CompactStat label="Import gaps" value={manifestGapTotal} detail={`${num(manifest?.invalidTotal)} invalid rows`} icon={FileWarning} tone="warning" /> : null}
             </div>
           </section>
 
@@ -684,24 +497,19 @@ export function DashboardPage({ portalUser, canAccessRoute }: { portalUser: Demo
             <MatchingProgressSummary slices={slices} total={totalPax} complete={donePax} />
           </section>
         </div>
+      </Card> : null}
+
+      <Card data-testid="dashboard-attention">
+        <CardHeader title="Current Attention" action={<Badge tone={attentionItems.length ? "warning" : "neutral"}>{attention?.status === "available" ? `${attentionItems.length} shown` : "Unavailable"}</Badge>} />
+        <div className="p-4">
+          {attention?.status === "available" ? <>
+            <p className="mb-3 text-sm text-muted-foreground">Checked: {attention.value.checkedSources.join(" · ")}. Up to {attention.value.limitPerSource} items per queue; personal documents apply across incidents. This is a scoped snapshot.</p>
+            {attentionItems.length ? <div className="grid gap-3 md:grid-cols-2">{attentionItems.map(item => <Link key={item.key} to={item.href} className="focus-ring rounded-md border border-border p-3"><p className="font-bold">{item.title}</p><p className="text-sm">{item.detail}</p><span className="text-sm underline">Open record</span></Link>)}</div> : <EmptyState title="No attention items in the checked queues" detail="Other work may exist. Review the appropriate work queue or briefing for your role." />}
+          </> : <EmptyState title="Attention information unavailable" detail="Not available for your role. Read the operational briefing for incident context." />}
+        </div>
       </Card>
 
-      <Card>
-        <CardHeader title="Current Attention" action={attentionCount ? <Badge tone="warning">{attentionCount} items</Badge> : <Badge tone="success">Clear</Badge>} />
-        {attentionBlocks.length ? (
-          <div className="dashboard-attention-grid p-4">
-            {attentionBlocks.map((block) => (
-              <AttentionBlock key={block.title} title={block.title} icon={block.icon} rows={block.rows} kind={block.kind} cta={block.cta} />
-            ))}
-          </div>
-        ) : (
-          <div className="p-4">
-            <EmptyState title="No current attention items" detail="Urgent queues are clear. Continue with assignments, roster, documents or the current briefing as appropriate for your role." />
-          </div>
-        )}
-      </Card>
-
-      <Card>
+      {specialist?.status === "available" ? <Card>
         <CardHeader title="Data Quality" action={<Badge tone={qualityGapCount ? "warning" : "success"}>{qualityGapCount ? `${qualityGapCount} gaps` : "clear"}</Badge>} />
         {qualityItems.length ? (
           <div className="grid gap-3 p-4 md:grid-cols-2 xl:grid-cols-3">
@@ -714,7 +522,7 @@ export function DashboardPage({ portalUser, canAccessRoute }: { portalUser: Demo
             <EmptyState title="No data quality gaps" detail="Monitored checks are clear." />
           </div>
         )}
-      </Card>
+      </Card> : null}
     </div>
   );
 }

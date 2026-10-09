@@ -1,3 +1,4 @@
+import type { DashboardDto } from "@zpp/shared";
 import type { ApiList, AnyRecord, AppOrganization, AppProfile, DictionaryMap, SessionRecord, UserContext } from "./types";
 import type { AarReport, AarVersion, AarArtifact, AarResult, AarPage } from "./aar-types";
 import type { EvidencePage, EvidenceRecord } from "./evidence-types";
@@ -160,7 +161,7 @@ export const api = {
   me: () => request<{ user: UserContext }>("/auth/me"),
   profile: () => request<AppProfile>("/config/profile"),
   dictionaries: () => request<DictionaryMap>("/dictionaries"),
-  dashboard: (sessionId?: string) => request<AnyRecord>(`/dashboard${queryString({ sessionId })}`),
+  dashboard: (sessionId?: string) => request<DashboardDto>(`/dashboard${queryString({ sessionId })}`),
   sessions: (query?: AnyRecord) => request<ApiList<SessionRecord>>(`/sessions${queryString(query)}`),
   sessionsAll: (query?: AnyRecord, options?: ListAllOptions) =>
     listAllPages<SessionRecord>((pageQuery) => request<ApiList<SessionRecord>>(`/sessions${queryString(pageQuery)}`), query, options),
