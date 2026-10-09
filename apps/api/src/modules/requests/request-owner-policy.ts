@@ -10,3 +10,8 @@ export async function isSuitableRequestOwner(db: Db, incidentId: string, userId:
   const member = await db.incidentAssignment.count({ where: { incidentId, userId, active: true, user: { status: "Active" } } });
   return member > 0 && new EffectiveAccessService(db).hasEffectivePermissions(userId, requestOwnerPermissions, { incidentId });
 }
+
+/** One fresh access-graph batch, optionally limited to owners on a queue page. */
+export async function suitableRequestOwnerIds(db: Db, incidentId: string, userIds?: string[]): Promise<Set<string>> {
+  return new Set(await new EffectiveAccessService(db).eligibleUsersForPermissions(requestOwnerPermissions, { incidentId }, userIds));
+}

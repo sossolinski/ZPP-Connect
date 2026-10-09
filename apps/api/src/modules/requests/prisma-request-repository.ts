@@ -1,5 +1,5 @@
 import { Prisma, type PrismaClient } from "@prisma/client";
-import { isSuitableRequestOwner } from "./request-owner-policy.js";
+import { isSuitableRequestOwner, suitableRequestOwnerIds } from "./request-owner-policy.js";
 import { HttpError } from "../../errors.js";
 import type { IncidentContext } from "../incident-access/incident-access-types.js";
 import type { RequestRepository } from "./request-repository.js";
@@ -64,14 +64,14 @@ function isConflict(error: unknown) {
     ["P2002", "P2034"].includes(error.code)
   );
 }
-async function view(db: PrismaClient | Prisma.TransactionClient, row: Prisma.RequestGetPayload<{ include: typeof include }>, visibility: RequestVisibility): Promise<RequestRecord> {
+async function view(db: PrismaClient | Prisma.TransactionClient, row: Prisma.RequestGetPayload<{ include: typeof include }>, visibility: RequestVisibility, suitableOwners?: Set<string>): Promise<RequestRecord> {
   const { relatedEnquiry, relatedFamilyRecord, relatedPassengerRecord, relatedReleaseAction, ...fields } = row;
   const status = row.status as RequestStatus;
   const overdue =
     !terminal.has(status) &&
     Boolean(row.dueAt && new Date(row.dueAt).getTime() < Date.now());
   const ownerEligibility = terminal.has(status) ? "historical" : row.ownerUserId
-    ? await isSuitableRequestOwner(db, row.incidentId, row.ownerUserId) ? "eligible" : "ineligible"
+    ? (suitableOwners ? suitableOwners.has(row.ownerUserId) : await isSuitableRequestOwner(db, row.incidentId, row.ownerUserId)) ? "eligible" : "ineligible"
     : row.legacyOwnerLabel ? "legacy" : "unassigned";
   return {
     ...fields,
@@ -559,7 +559,9 @@ export function createPrismaRequestRepository(
           skip: query.offset,
         }),
       ]);
-      return { total, data: await Promise.all(rows.map((row) => view(client, row, visibility))) };
+      const ownerIds = [...new Set(rows.filter(row => !terminal.has(row.status as RequestStatus)).flatMap(row => row.ownerUserId ? [row.ownerUserId] : []))];
+      const suitableOwners = ownerIds.length ? await suitableRequestOwnerIds(client, context.incidentId, ownerIds) : new Set<string>();
+      return { total, data: await Promise.all(rows.map((row) => view(client, row, visibility, suitableOwners))) };
     },
     async getContext(context, id, visibility) {
       const row = await find(client, context.incidentId, id);
@@ -588,8 +590,8 @@ export function createPrismaRequestRepository(
         orderBy: { user: { displayName: "asc" } },
       });
       const candidates = Array.from(new Map(rows.map(({ user }) => [user.id, user])).values());
-      const suitable = await Promise.all(candidates.map(user => isSuitableRequestOwner(client, context.incidentId, user.id)));
-      return candidates.filter((_user, index) => suitable[index]);
+      const suitable = await suitableRequestOwnerIds(client, context.incidentId, candidates.map(user => user.id));
+      return candidates.filter(user => suitable.has(user.id));
     },
     async create(context, input, actor, visibility) {
       const fp = fingerprint("CREATE", null, [

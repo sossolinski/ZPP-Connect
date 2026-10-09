@@ -153,16 +153,24 @@ export class EffectiveAccessService {
   }
 
   async eligibleUsersForPermission(permission: Permission, scope: EffectiveAccessScope = {}) {
+    return this.eligibleUsersForPermissions([permission], scope);
+  }
+
+  async eligibleUsersForPermissions(required: Permission[], scope: EffectiveAccessScope = {}, userIds?: string[]) {
     const incidentId = scope.incidentId || null;
     const users = await this.db.user.findMany({
       where: {
         status: activeAccountStatus,
+        ...(userIds ? { id: { in: userIds } } : {}),
         ...(incidentId ? { incidentAssignments: { some: { incidentId, active: true } } } : {})
       },
       include: accessGraphInclude,
       orderBy: { id: "asc" }
     });
     const now = this.clock.now();
-    return users.filter((user) => evaluateAccessGraph(user, now, scope).permissions.has(permission)).map((user) => user.id);
+    return users.filter((user) => {
+      const effective = evaluateAccessGraph(user, now, scope).permissions;
+      return required.every(permission => effective.has(permission));
+    }).map((user) => user.id);
   }
 }

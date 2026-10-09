@@ -91,7 +91,12 @@ pgDescribe("PI1 production PostgreSQL operational trust", () => {
     expect(member.body.operationalStatus.attention.value.items.some((item: { key: string }) => item.key.startsWith("request:"))).toBe(false);
   });
   it("rejects incapable candidates and direct writes; accepts an owner without assignment/admin capability", async () => {
+    const membershipReads = vi.spyOn(runtimeDb.incidentAssignment, "count");
+    const graphBatches = vi.spyOn(runtimeDb.user, "findMany");
     const candidates = await request(app()).get("/api/requests/assignees").set(as("coordinator@lot.pl")).query({ sessionId: activeId });
+    expect(membershipReads).not.toHaveBeenCalled();
+    expect(graphBatches).toHaveBeenCalledTimes(1);
+    membershipReads.mockRestore(); graphBatches.mockRestore();
     expect(candidates.status).toBe(200);
     expect(candidates.body.data.map((item: { id: string }) => item.id)).toContain(capableId);
     expect(candidates.body.data.map((item: { id: string }) => item.id)).not.toContain(incapableId);
