@@ -16,7 +16,7 @@ export type DashboardSpecialist = {
     unknownCondition: number; familyContactMissing: number; openReleaseActions: number; releaseChecklistPending: number;
   };
 };
-export type DashboardAttentionItem = { key: string; title: string; detail: string; href: string };
+export type DashboardAttentionItem = { key: string; title: string; detail: string; href: string; actionLabel?: string };
 export type DashboardOperationalStatus = {
   loadedAt: string;
   specialist: DashboardAvailability<DashboardSpecialist>;
@@ -57,6 +57,7 @@ export function assertDashboardDto(input: unknown): asserts input is DashboardDt
     if (!Array.isArray(value.items) || !Array.isArray(value.checkedSources) || !value.checkedSources.length || !value.checkedSources.every(item => typeof item === "string") || value.limitPerSource !== 5) fail();
     for (const item of value.items as unknown[]) {
       const row = record(item);
+      if (row.actionLabel !== undefined && typeof row.actionLabel !== "string") fail();
       if (![row.key, row.title, row.detail, row.href].every(field => typeof field === "string") || !String(row.href).startsWith("/") || String(row.href).startsWith("//")) fail();
     }
   } else if (attention.status !== "unavailable" || "value" in attention) fail();

@@ -490,7 +490,7 @@ export function DashboardPage({ portalUser, canAccessRoute }: { portalUser: Demo
         <div className="p-4">
           {attention?.status === "available" ? <>
             <p className="mb-3 text-sm text-muted-foreground">Checked: {attention.value.checkedSources.join(" · ")}. Up to {attention.value.limitPerSource} items per queue; personal documents apply across incidents. This is a scoped snapshot.</p>
-            {attentionItems.length ? <div className="grid gap-3 md:grid-cols-2">{attentionItems.map(item => <Link key={item.key} to={item.href} className="focus-ring rounded-md border border-border p-3"><p className="font-bold">{item.title}</p><p className="text-sm">{item.detail}</p><span className="text-sm underline">Open record</span></Link>)}</div> : <EmptyState title="No attention items in the checked queues" detail="Other work may exist. Review the appropriate work queue or briefing for your role." />}
+            {attentionItems.length ? <div className="grid gap-3 md:grid-cols-2">{attentionItems.map(item => <Link key={item.key} to={item.href} className="focus-ring rounded-md border border-border p-3"><p className="font-bold">{item.title}</p><p className="text-sm">{item.detail}</p><span className="text-sm underline">{item.actionLabel ?? "Open record"}</span></Link>)}</div> : <EmptyState title="No attention items in the checked queues" detail="Other work may exist. Review the appropriate work queue or briefing for your role." />}
           </> : <EmptyState title="Attention information unavailable" detail="Not available for your role. Read the operational briefing for incident context." />}
         </div>
       </Card></section>

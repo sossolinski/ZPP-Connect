@@ -2,6 +2,7 @@ import { expect, test, type Page } from "@playwright/test";
 import { PrismaClient } from "@prisma/client";
 import { randomUUID } from "node:crypto";
 import { login } from "./helpers";
+import type { DashboardDto } from "@zpp/shared";
 
 const db = new PrismaClient();
 const marker = `PI1-BROWSER-${randomUUID().slice(0, 8)}`;
@@ -24,6 +25,7 @@ test.beforeAll(async () => {
   capableId = (await db.user.create({ data: { email: `${marker.toLowerCase()}@example.test`, displayName: "PI1 capable support owner", roles: { create: { roleId: role.id, assignedBy: "PI1 browser" } } } })).id;
   await db.incidentAssignment.create({ data: { incidentId: activeId, userId: capableId, function: marker, createdById: coordinator.id } });
   urgentId = (await db.request.create({ data: { operationalId: `${marker}-URGENT`, incidentId: activeId, category: "Transport", priority: "Urgent", details: "PI1 urgent support request", createdById: coordinator.id } })).id;
+  await db.enquiry.create({ data: { operationalId: `${marker}-ENQUIRY`, sessionId: activeId, contactChannel: "Phone", callerName: "PI1 focus caller", enquiryType: "Family enquiry" } });
   await db.assignmentTask.create({ data: { operationalId: `${marker}-TASK`, sessionId: activeId, title: marker, assignedUserId: member.id, dueAt: new Date("2000-01-01T00:00:00Z") } });
   emptyId = (await db.session.create({ data: { operationalId: `${marker}-EMPTY`, mode: "REAL", status: "Draft", eventType: marker } })).id;
   await db.incidentAssignment.create({ data: { incidentId: emptyId, userId: coordinator.id, function: marker, createdById: coordinator.id } });
@@ -73,6 +75,36 @@ test("authorized measured zero remains available", async ({ page }) => {
   await expect(page.getByTestId("dashboard-metrics")).toContainText("0 records loaded");
   await expect(page.getByText("Manifest coverage", { exact: true })).toBeVisible();
   await expect(page.getByTestId("dashboard-metrics")).not.toContainText("Not available for your role");
+});
+
+test("Dashboard attention links focus the permitted family, enquiry and matching claim", async ({ page }) => {
+  await loginReady(page, "coordinator@lot.pl");
+  await page.evaluate(id => localStorage.setItem("zpp:activeSessionId", id), activeId);
+  const response = await page.request.get(`${apiUrl}/dashboard?sessionId=${activeId}`, { headers: { "x-user-email": "coordinator@lot.pl" } });
+  expect(response.status()).toBe(200);
+  const dashboard = await response.json() as DashboardDto;
+  const attention = dashboard.operationalStatus.attention;
+  expect(attention.status).toBe("available");
+  if (attention.status !== "available") throw new Error("Expected permitted attention");
+  for (const kind of ["family", "enquiry", "matching"]) {
+    const item = attention.value.items.find(row => row.key.startsWith(`${kind}:`) && (kind !== "matching" || row.href.includes("claimId=")) && (kind !== "enquiry" || row.title === `${marker}-ENQUIRY`));
+    expect(item, `${kind} attention fixture`).toBeDefined();
+    await page.goto("/dashboard");
+    const link = page.getByTestId("dashboard-attention").locator(`a[href="${item!.href}"]`);
+    await expect(link).toContainText(item!.title);
+    await link.click();
+    if (kind === "matching") {
+      const claimId = new URL(item!.href, "http://localhost").searchParams.get("claimId")!;
+      const claim = await db.relationshipClaim.findUniqueOrThrow({ where: { id: claimId }, include: { familyRecord: true } });
+      await expect(page.locator("#matching-claim-heading")).toBeVisible();
+      await expect(page.getByText(`Claim ${claim.familyRecord.operationalId} ·`, { exact: false })).toBeVisible();
+    } else {
+      const drawer = page.getByRole("dialog");
+      await expect(drawer).toBeVisible();
+      await expect(drawer).toContainText(item!.title);
+      if (kind === "enquiry") await expect(drawer.locator("#record-callerName")).toHaveValue("PI1 focus caller");
+    }
+  }
 });
 
 test("manual refresh preserves failed/stale snapshots and retries current data", async ({ page }) => {

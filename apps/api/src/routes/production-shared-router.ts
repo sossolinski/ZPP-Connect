@@ -220,8 +220,14 @@ export function createProductionSharedRouter(db: PrismaClient, requireIncidentPe
         aggregates = buildDashboardAggregates({ passengers, matches, families, enquiries: enquiryRows, releases, importBatches: batches, openRequests: openRequests ?? 0, urgentWelfare: urgentWelfare ?? 0 });
       }
       const attentionSources: Parameters<typeof dashboardAttention>[0] = [];
-      const add = (allowed: boolean, label: string, rows: Array<{ id: string; operationalId: string }>, kind: string, path: string, detail: string) => {
-        if (allowed) attentionSources.push({ label, items: rows.map(row => ({ key: `${kind}:${row.id}`, title: row.operationalId, detail, href: `${path}?${kind}Id=${encodeURIComponent(row.id)}` })) });
+      const add = (allowed: boolean, label: string, rows: Array<{ id: string; operationalId: string; relationshipClaimId?: string | null }>, kind: string, path: string, detail: string) => {
+        if (allowed) attentionSources.push({ label, items: rows.map(row => ({
+          key: `${kind}:${row.id}`, title: row.operationalId, detail,
+          href: kind === "family" || kind === "enquiry" ? `${path}?focus=${encodeURIComponent(row.operationalId)}`
+            : kind === "matching" ? row.relationshipClaimId ? `${path}?claimId=${encodeURIComponent(row.relationshipClaimId)}` : path
+            : `${path}?${kind}Id=${encodeURIComponent(row.id)}`,
+          actionLabel: kind === "matching" && !row.relationshipClaimId ? "Open matching queue" : "Open record",
+        })) });
       };
       // Urgent requests are permitted support risks; TEC can initiate follow-up, not fulfill them.
       add(canRequest && (permissions.has("request:update") || permissions.has("request:create")), "Urgent support requests", urgentRequests, "request", "/requests", "Urgent support request needs follow-up");
@@ -236,7 +242,7 @@ export function createProductionSharedRouter(db: PrismaClient, requireIncidentPe
       if ((permissions.has("document:read-own") || permissions.has("document:read-all")) && permissions.has("document:acknowledge-own")) {
         const member = await db.memberProfile.findFirst({ where: { linkedUserId: req.user!.id, status: { not: "Archived" } }, select: { id: true } });
         const compliance = member ? await documents.evaluateMemberCompliance(member.id, { ...req.user!, permissions: [...permissions] }, new Date()) : null;
-        attentionSources.push({ label: "My document acknowledgements", items: (compliance?.items ?? []).filter(item => item.acknowledgementRequired && item.status !== "Acknowledged").slice(0, 5).map(item => ({ key: `document:${item.documentVersionId}`, title: item.title, detail: item.status === "Overdue" ? "Your document acknowledgement is overdue" : "Your document acknowledgement is required", href: "/documents" })) });
+        attentionSources.push({ label: "My document acknowledgements", items: (compliance?.items ?? []).filter(item => item.acknowledgementRequired && item.status !== "Acknowledged").slice(0, 5).map(item => ({ key: `document:${item.documentVersionId}`, title: item.title, detail: item.status === "Overdue" ? "Your document acknowledgement is overdue" : "Your document acknowledgement is required", href: "/documents", actionLabel: "Open documents" })) });
       }
       const operationalStatus: DashboardOperationalStatus = {
         loadedAt: new Date().toISOString(),

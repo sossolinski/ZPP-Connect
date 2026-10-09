@@ -1,3 +1,4 @@
+import { useSearchParams } from "react-router-dom";
 import { useEffect, useMemo, useState } from "react";
 import { AlertTriangle, CheckCircle2, ChevronLeft, ChevronRight, History, RefreshCw, Search, ShieldCheck, UserCheck, XCircle } from "lucide-react";
 import { ApiRequestError, api } from "../lib/api";
@@ -60,6 +61,8 @@ function errorMessage(error: unknown, fallback: string) {
 }
 
 export function MatchingPage() {
+  const [params] = useSearchParams();
+  const linkedClaimId = params.get("claimId") ?? "";
   const { activeSession, activeSessionWritable, can, verifyActiveSessionWrite } = useApp();
   const [queue, setQueue] = useState<AnyRecord[]>([]);
   const [queueTotal, setQueueTotal] = useState(0);
@@ -68,7 +71,7 @@ export function MatchingPage() {
   const [search, setSearch] = useState("");
   const [stateFilter, setStateFilter] = useState("");
   const [relationshipFilter, setRelationshipFilter] = useState("");
-  const [selectedClaimId, setSelectedClaimId] = useState("");
+  const [selectedClaimId, setSelectedClaimId] = useState(linkedClaimId);
   const [context, setContext] = useState<AnyRecord | null>(null);
   const [candidates, setCandidates] = useState<AnyRecord[]>([]);
   const [candidateTotal, setCandidateTotal] = useState(0);
@@ -120,7 +123,10 @@ export function MatchingPage() {
       setQueue(result.data);
       setQueueTotal(result.total ?? result.data.length);
       const stillVisible = result.data.some((item) => item.relationshipClaim?.id === preferredClaimId);
-      if (!preferredClaimId || !stillVisible) setSelectedClaimId(result.data[0]?.relationshipClaim?.id ?? "");
+      setSelectedClaimId(current => {
+        if (current !== preferredClaimId || (linkedClaimId && current === linkedClaimId)) return current;
+        return stillVisible ? current : result.data[0]?.relationshipClaim?.id ?? "";
+      });
     } catch (loadError) {
       setError(errorMessage(loadError, "Unable to load the matching queue"));
     } finally {
@@ -171,16 +177,16 @@ export function MatchingPage() {
 
   useEffect(() => {
     setQueueOffset(0);
-    setSelectedClaimId("");
+    setSelectedClaimId(linkedClaimId);
     setContext(null);
     setCandidateOffset(0);
     setDecisionDialog(null);
     setNotice("");
-  }, [sessionId]);
+  }, [sessionId, linkedClaimId]);
 
   useEffect(() => {
     void loadQueue();
-  }, [sessionId, search, stateFilter, relationshipFilter, queueOffset]);
+  }, [sessionId, linkedClaimId, search, stateFilter, relationshipFilter, queueOffset]);
 
   useEffect(() => {
     void loadContext();
