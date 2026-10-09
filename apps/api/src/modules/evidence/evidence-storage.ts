@@ -1,4 +1,4 @@
-import { Prisma, type PrismaClient } from "@prisma/client";
+import type { Prisma, PrismaClient } from "@prisma/client";
 import { HttpError } from "../../errors.js";
 import { assertEvidenceStorageKey, sha256 } from "./evidence-types.js";
 
@@ -28,23 +28,22 @@ function createStore(db: PrismaClient | Prisma.TransactionClient): EvidenceArtif
       if (input.bytes.length !== input.sizeBytes || sha256(input.bytes) !== input.contentSha256) {
         throw new Error("Evidence storage input failed integrity verification");
       }
-      try {
-        await db.storedArtifact.create({ data: {
-          storageKey: input.storageKey,
-          storageProvider: "postgres",
-          sizeBytes: input.sizeBytes,
-          contentSha256: input.contentSha256,
-          content: new Uint8Array(input.bytes),
-        } });
-        return { created: true };
-      } catch (error) {
-        if (!(error instanceof Prisma.PrismaClientKnownRequestError) || error.code !== "P2002") throw error;
-        const existing = await this.read(input.storageKey);
-        if (!existing || existing.sizeBytes !== input.sizeBytes || existing.contentSha256 !== input.contentSha256 || !existing.bytes.equals(input.bytes)) {
-          throw new HttpError(409, "Evidence operation conflicts with stored content");
-        }
-        return { created: false };
+      // A caught unique violation still aborts a PostgreSQL transaction. Insert
+      // without raising that violation so replay verification uses a live transaction;
+      // serializable conflicts remain visible to the service's existing retry loop.
+      const inserted = await db.storedArtifact.createMany({ data: [{
+        storageKey: input.storageKey,
+        storageProvider: "postgres",
+        sizeBytes: input.sizeBytes,
+        contentSha256: input.contentSha256,
+        content: new Uint8Array(input.bytes),
+      }], skipDuplicates: true });
+      if (inserted.count === 1) return { created: true };
+      const existing = await this.read(input.storageKey);
+      if (!existing || existing.sizeBytes !== input.sizeBytes || existing.contentSha256 !== input.contentSha256 || !existing.bytes.equals(input.bytes)) {
+        throw new HttpError(409, "Evidence operation conflicts with stored content");
       }
+      return { created: false };
     },
 
     async read(storageKey) {
