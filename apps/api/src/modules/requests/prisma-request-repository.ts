@@ -1,4 +1,5 @@
 import { Prisma, type PrismaClient } from "@prisma/client";
+import { isSuitableRequestOwner } from "./request-owner-policy.js";
 import { HttpError } from "../../errors.js";
 import type { IncidentContext } from "../incident-access/incident-access-types.js";
 import type { RequestRepository } from "./request-repository.js";
@@ -63,17 +64,22 @@ function isConflict(error: unknown) {
     ["P2002", "P2034"].includes(error.code)
   );
 }
-function view(row: any, visibility: RequestVisibility): RequestRecord {
+async function view(db: PrismaClient | Prisma.TransactionClient, row: Prisma.RequestGetPayload<{ include: typeof include }>, visibility: RequestVisibility): Promise<RequestRecord> {
   const status = row.status as RequestStatus;
   const overdue =
     !terminal.has(status) &&
     Boolean(row.dueAt && new Date(row.dueAt).getTime() < Date.now());
+  const ownerEligibility = terminal.has(status) ? "historical" : row.ownerUserId
+    ? await isSuitableRequestOwner(db, row.incidentId, row.ownerUserId) ? "eligible" : "ineligible"
+    : row.legacyOwnerLabel ? "legacy" : "unassigned";
   return {
     ...row,
+    ownerEligibility,
+    reassignmentRequired: ownerEligibility === "ineligible" || ownerEligibility === "legacy",
     incidentId: row.incidentId,
     sessionId: row.incidentId,
     status,
-    priority: row.priority,
+    priority: row.priority as RequestPriority,
     overdue,
     relatedEnquiryId: visibility.enquiry ? row.relatedEnquiryId : null,
     relatedFamilyRecordId: visibility.family ? row.relatedFamilyRecordId : null,
@@ -295,7 +301,7 @@ export function createPrismaRequestRepository(
   ): Promise<RequestMutationResult> {
     const row = await find(tx, context.incidentId, id);
     return {
-      record: row ? view(row, visibility) : null,
+      record: row ? await view(tx, row, visibility) : null,
       conflict: !row,
       idempotent,
     };
@@ -366,7 +372,7 @@ export function createPrismaRequestRepository(
               metadata(previous),
             );
           }
-          return { record: view(current, visibility), conflict: false };
+          return { record: await view(tx, current, visibility), conflict: false };
         },
         { isolationLevel: Prisma.TransactionIsolationLevel.Serializable },
       );
@@ -502,7 +508,7 @@ export function createPrismaRequestRepository(
               newStatus: current.status,
             },
           );
-          return { record: view(current, visibility), conflict: false };
+          return { record: await view(tx, current, visibility), conflict: false };
         },
         { isolationLevel: Prisma.TransactionIsolationLevel.Serializable },
       );
@@ -556,11 +562,11 @@ export function createPrismaRequestRepository(
           skip: query.offset,
         }),
       ]);
-      return { total, data: rows.map((row) => view(row, visibility)) };
+      return { total, data: await Promise.all(rows.map((row) => view(client, row, visibility))) };
     },
     async getContext(context, id, visibility) {
       const row = await find(client, context.incidentId, id);
-      return row ? view(row, visibility) : null;
+      return row ? view(client, row, visibility) : null;
     },
     async listAssignees(context, search) {
       const rows = await client.incidentAssignment.findMany({
@@ -584,9 +590,9 @@ export function createPrismaRequestRepository(
         },
         orderBy: { user: { displayName: "asc" } },
       });
-      return Array.from(
-        new Map(rows.map(({ user }) => [user.id, user])).values(),
-      );
+      const candidates = Array.from(new Map(rows.map(({ user }) => [user.id, user])).values());
+      const suitable = await Promise.all(candidates.map(user => isSuitableRequestOwner(client, context.incidentId, user.id)));
+      return candidates.filter((_user, index) => suitable[index]);
     },
     async create(context, input, actor, visibility) {
       const fp = fingerprint("CREATE", null, [
@@ -670,7 +676,7 @@ export function createPrismaRequestRepository(
               created.details,
               { operationId: input.operationId, priority: created.priority },
             );
-            return { record: view(created, visibility), conflict: false };
+            return { record: await view(tx, created, visibility), conflict: false };
           },
           { isolationLevel: Prisma.TransactionIsolationLevel.Serializable },
         );
@@ -726,19 +732,8 @@ export function createPrismaRequestRepository(
           body: input.reason ?? "Operational owner assigned",
         }),
         async (tx) => {
-          const eligible = await tx.incidentAssignment.count({
-            where: {
-              incidentId: context.incidentId,
-              userId: input.ownerUserId,
-              active: true,
-              user: { status: "Active" },
-            },
-          });
-          if (!eligible)
-            throw new HttpError(
-              409,
-              "Request owner must be an active user assigned to this incident",
-            );
+          if (!await isSuitableRequestOwner(tx, context.incidentId, input.ownerUserId))
+            throw new HttpError(409, "Support request owner must be an active incident member able to read, progress and resolve support requests");
         },
       );
     },
