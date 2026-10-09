@@ -1,6 +1,6 @@
 # Product Increment 1 — Trustworthy Operational Status & Actionable Ownership
 
-Date: 9 October 2026. Branch: `agent/product-increment-1-operational-trust`.
+Date: 9–10 October 2026. Branch: `agent/product-increment-1-operational-trust`.
 Plan commit: `3a20ce9`. Baseline: merged Stage 25 `2d47bc0`, accepted guarded
 preview tooling cherry-pick `6cf3c99`, and the authoritative audit reference.
 The unrelated product-baseline documentation branch is not an ancestor.
@@ -52,6 +52,11 @@ Unread/read notifications are never queried or counted. Available empty attentio
 says “No attention items in the checked queues”; unavailable says so explicitly.
 Neither claims the whole incident is clear. Notifications remain delivery/read
 state, Timeline remains chronology, and Requests/Assignments retain work authority.
+Family and enquiry links use the record pages' supported operational-ID `focus`
+parameter. Matching links select the linked relationship claim, including one
+outside the initial queue page; records without a claim say “Open matching queue”.
+Documents likewise use the honest “Open documents” action label. PostgreSQL browser
+acceptance verifies the actual destination record/claim, not merely the URL.
 
 ### Actionable ownership
 
@@ -63,6 +68,10 @@ powers are not required. No new role or permission is introduced or granted.
 
 Candidate discovery and the serializable assignment transaction use the same
 EffectiveAccess rule, including denies, role/group scope, expiry and revocation.
+Candidate and queue-owner read projections evaluate access graphs in fresh batches
+instead of two additional queries per member. A PostgreSQL assertion verifies one
+candidate graph batch and no per-user membership counts. Transactional write-side
+validation remains independent of candidate discovery and read batching.
 A stale/direct assignment to an unsuitable owner returns 409 with a clear workflow
 eligibility explanation. Client controls refresh the candidate list, reset owner
 selection and only submit a listed candidate. The Dashboard request link opens
@@ -143,7 +152,7 @@ test shares a database with an application/preview process.
 | Full current PostgreSQL command, fresh database | 284 passed / 24 files; zero skipped |
 | Dedicated PI1 and evidence PostgreSQL | 28 passed (13 PI1 + 15 evidence); 100 concurrent replay rounds passed |
 | Full Playwright smoke | 62 passed |
-| PI1 + established PostgreSQL Playwright workflows | 30 passed (14 PI1 + 16 existing workflows) |
+| PI1 + established PostgreSQL Playwright workflows | 31 passed (15 PI1 + 16 existing workflows) |
 | Production dependency audit | 0 vulnerabilities |
 | Production PostgreSQL/Entra startup | Passed: health/readiness, SSO-only config, development route 404, anonymous Dashboard 401 |
 | Preview seed/coherence and six-persona browser inspection | Passed |
@@ -152,6 +161,10 @@ test shares a database with an application/preview process.
 Remote CI is the PR's live check record for this branch. The final handoff records
 its result for the exact pushed head. This report is not evidence of a real Entra
 browser login, a deployed production artifact, or an off-host restore.
+Both automated review findings were corrected: supported record focus parameters
+and batched owner eligibility. Matching claim focus received equivalent bounded
+link support. The first remote PostgreSQL jobs hit Docker Hub pull quota/timeout
+before tests; rerunning the failed jobs passed without an image or deployment change.
 
 ## Definition of Done and remaining findings
 
