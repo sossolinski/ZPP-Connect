@@ -1,5 +1,9 @@
 /** Synthetic supplement, explicitly invoked only for the marked disposable preview DB. */
 import { PrismaClient } from '@prisma/client';
+import assert from 'node:assert/strict';
+import { createPrismaPassengerRepository } from '../src/modules/passengers/prisma-passenger-repository.js';
+import { createPrismaFamilyRepository } from '../src/modules/families/prisma-family-repository.js';
+import { createPrismaMatchingRepository } from '../src/modules/matching/prisma-matching-repository.js';
 import { createPrismaEvidenceService } from '../src/modules/evidence/prisma-evidence-service.js';
 import { createPrismaEvidenceArtifactStore } from '../src/modules/evidence/evidence-storage.js';
 import { validateEvidenceUpload } from '../src/modules/evidence/evidence-types.js';
@@ -23,14 +27,49 @@ try {
   for (const member of await db.memberProfile.findMany({ where: { id: { in: Array.from({ length: 10 }, (_, i) => `mem-2026-${String(i + 1).padStart(6, '0')}`) } }, orderBy: { id: 'asc' } })) {
     await db.memberProfile.update({ where: { id: member.id }, data: { firstName: 'Synthetic', lastName: member.memberId, contactEmail: `${member.memberId.toLowerCase()}@example.test`, normalizedContactEmail: `${member.memberId.toLowerCase()}@example.test`, phone: null } });
   }
+  const context = { incidentId: active.id, mode: active.mode, status: active.status, actorId: actor.id, actorEmail: actor.email, systemAdminOverride: false, writable: true };
+  const fixtureActor = { ...actor, roles: ['zpp-coordinator'] };
+  const passengers = createPrismaPassengerRepository(db);
+  const families = createPrismaFamilyRepository(db);
+  const matching = createPrismaMatchingRepository(db);
+  // Source corrections increment versions and preserve history; approved/decision snapshots stay historical.
   for (const [index, passenger] of (await db.passengerRecord.findMany({ where: { sessionId: active.id }, orderBy: { operationalId: 'asc' } })).entries()) {
-    await db.passengerRecord.update({ where: { id: passenger.id }, data: { firstName: 'Synthetic', lastName: `Passenger ${index + 1}`, flightNumber: 'LO999', route: 'XYZ-ABC' } });
+    const facts = { firstName: 'Synthetic', lastName: `Passenger ${index + 1}`, flightNumber: 'LO999', route: 'XYZ-ABC' };
+    if (Object.entries(facts).some(([key, value]) => passenger[key as keyof typeof passenger] !== value)) {
+      const result = await passengers.correctSource(context, passenger.id, { ...facts, reason: 'Synthetic preview lineage correction; no real incident data' }, passenger.version, fixtureActor);
+      assert.ok(result.record && !result.conflict, 'Preview passenger correction must succeed');
+    }
   }
   for (const [index, family] of (await db.familyRecord.findMany({ where: { sessionId: active.id }, orderBy: { operationalId: 'asc' } })).entries()) {
-    await db.familyRecord.update({ where: { id: family.id }, data: { firstName: 'Synthetic', lastName: `Family ${index + 1}`, email: `family${index + 1}@example.test`, normalizedEmail: `family${index + 1}@example.test`, phone: null, normalizedPhone: null, passengerFirstName: 'Synthetic', passengerLastName: `Passenger ${index + 1}`, passengerFlight: 'LO999' } });
+    const current = await db.relationshipClaim.findFirstOrThrow({ where: { familyRecordId: family.id, isCurrent: true } });
+    const passenger = await db.passengerRecord.findUniqueOrThrow({ where: { id: current.passengerRecordId! } });
+    const facts = { firstName: 'Synthetic', lastName: `Family ${index + 1}`, email: `family${index + 1}@example.test`, phone: null, passengerFirstName: passenger.firstName, passengerLastName: passenger.lastName, passengerFlight: passenger.flightNumber };
+    if (Object.entries(facts).some(([key, value]) => family[key as keyof typeof family] !== value) || current.claimedPassengerFirstName !== passenger.firstName || current.claimedPassengerLastName !== passenger.lastName || current.claimedPassengerFlight !== passenger.flightNumber) {
+      const result = await families.correctClaim(context, family.id, { ...facts, reason: 'Synthetic preview claimant/passenger lineage correction' }, family.version, current.version, fixtureActor);
+      assert.ok(result.record && !result.conflict, 'Preview claim correction must succeed');
+    }
+    const claim = await db.relationshipClaim.findFirstOrThrow({ where: { familyRecordId: family.id, isCurrent: true } });
+    // Generate genuine deterministic algorithm output, never fabricate scores/signals.
+    const suggestions = await matching.generateSuggestions(context, claim.id, { expectedClaimVersion: claim.version }, fixtureActor);
+    const suggestion = suggestions.data.find(item => item.passengerRecordId === passenger.id);
+    assert.ok(suggestion, 'Linked synthetic passenger must have a current generated suggestion');
+    await db.matchingRecord.updateMany({ where: { sessionId: active.id, familyRecordId: family.id, passengerRecordId: passenger.id, status: { in: ['Suggested', 'Potential match', 'Hold / escalate'] } }, data: { relationshipClaimId: claim.id, suggestionId: suggestion.id, matchScore: suggestion.score, matchBasis: '[SYNTHETIC PREVIEW] Current generated candidate; human review still required.' } });
   }
-  for (const [index, enquiry] of (await db.enquiry.findMany({ where: { sessionId: active.id }, orderBy: { operationalId: 'asc' } })).entries()) {
-    await db.enquiry.update({ where: { id: enquiry.id }, data: { callerName: `Synthetic Family ${index + 1}`, callerEmail: `family${index + 1}@example.test`, callerPhone: null, passengerFirstName: 'Synthetic', passengerLastName: `Passenger ${index + 1}`, passengerFlight: 'LO999', passengerRoute: 'XYZ-ABC' } });
+  for (const enquiry of await db.enquiry.findMany({ where: { sessionId: active.id }, orderBy: { operationalId: 'asc' } })) {
+    const passenger = await db.passengerRecord.findUniqueOrThrow({ where: { id: enquiry.passengerRecordId! } });
+    const claim = await db.relationshipClaim.findFirstOrThrow({ where: { passengerRecordId: passenger.id, isCurrent: true }, include: { familyRecord: true } });
+    const family = claim.familyRecord;
+    await db.enquiry.update({ where: { id: enquiry.id }, data: { callerName: `${family.firstName} ${family.lastName}`, callerEmail: family.email, callerPhone: null, passengerFirstName: passenger.firstName, passengerLastName: passenger.lastName, passengerFlight: passenger.flightNumber, passengerRoute: passenger.route } });
+    assert.equal(claim.claimedPassengerFirstName, passenger.firstName);
+    assert.equal(claim.claimedPassengerLastName, passenger.lastName);
+    assert.equal(claim.claimedPassengerFlight, passenger.flightNumber);
+    const refreshed = await db.enquiry.findUniqueOrThrow({ where: { id: enquiry.id } });
+    assert.equal(refreshed.callerName, `${family.firstName} ${family.lastName}`);
+    assert.equal(refreshed.passengerLastName, claim.claimedPassengerLastName);
+    const suggestion = await db.matchSuggestion.findFirstOrThrow({ where: { relationshipClaimId: claim.id, passengerRecordId: passenger.id, isCurrent: true } });
+    assert.equal(suggestion.claimVersion, claim.version);
+    assert.equal(suggestion.passengerVersion, passenger.version);
+    assert.ok(Array.isArray(suggestion.conflicts) && suggestion.conflicts.length === 0, 'Synthetic principal lineage has no contradictory generated signals');
   }
   await db.request.updateMany({ where: { incidentId: active.id, operationalId: 'REQ-2026-000001' }, data: { requester: 'Synthetic Family 1' } });
   const evidence = createPrismaEvidenceService(db, createPrismaEvidenceArtifactStore(db));
