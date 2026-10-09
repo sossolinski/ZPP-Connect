@@ -1,4 +1,4 @@
-import { ageLabel, dashboardStaleAfterMs, type DashboardDto } from "@zpp/shared";
+import { ageLabel, dashboardStaleAfterMs, type DashboardDto, type DashboardSlice } from "@zpp/shared";
 import { useOperationalClock } from "../lib/use-operational-clock";
 import { useEffect, useState, type ComponentType } from "react";
 import {
@@ -11,7 +11,6 @@ import {
   Database,
   FileText,
   FileWarning,
-  HeartPulse,
   Link2,
   ListTodo,
   PieChart,
@@ -26,17 +25,9 @@ import { Link } from "react-router-dom";
 import { api } from "../lib/api";
 import { useApp } from "../lib/app-context";
 import type { DemoUser, PortalRouteKey } from "../lib/portal-types";
-import type { AnyRecord } from "../lib/types";
-import { Badge, Button, Card, CardHeader, EmptyState, Loading, StatusBadge } from "../components/ui";
+import { Badge, Button, Card, CardHeader, EmptyState, Loading } from "../components/ui";
 
 type BadgeTone = "neutral" | "info" | "success" | "warning" | "danger" | "exercise";
-type DashboardSlice = {
-  key: string;
-  label: string;
-  value: number;
-  tone: BadgeTone;
-  color: string;
-};
 type QualityDashboardItem = {
   label: string;
   value: number;
@@ -50,11 +41,6 @@ type QuickActionItem = {
   icon: ComponentType<{ className?: string }>;
   primary?: boolean;
 };
-
-function num(value: unknown) {
-  const parsed = Number(value ?? 0);
-  return Number.isFinite(parsed) ? parsed : 0;
-}
 
 function pct(part: number, total: number) {
   return total > 0 ? Math.round((part / total) * 100) : 0;
@@ -323,16 +309,16 @@ export function DashboardPage({ portalUser, canAccessRoute }: { portalUser: Demo
   const attention = dashboard?.operationalStatus.attention;
   const attentionItems = attention?.status === "available" ? attention.value.items : [];
   const stale = Boolean(dashboard && (error || now - Date.parse(dashboard.operationalStatus.loadedAt) >= dashboardStaleAfterMs));
-  const qualityItems = ([
-    { label: "Missing case link", value: num(quality?.missingCaseId), detail: "records without a usable case/passenger link", tone: "warning" },
-    { label: "DOB / age missing", value: num(quality?.missingDobOrAge), detail: "PAX or crew without age context", tone: "warning" },
-    { label: "Seat missing", value: num(quality?.missingSeat), detail: "passenger rows without seat assignment", tone: "warning" },
-    { label: "SRC pending", value: num(quality?.srcPending), detail: "loaded people not yet SRC-confirmed", tone: "warning" },
-    { label: "Unknown condition", value: num(quality?.unknownCondition), detail: "people without condition/status update", tone: "warning" },
-    { label: "Family contact gaps", value: num(quality?.familyContactMissing), detail: "family/NOK rows without phone or email", tone: "warning" },
-    { label: "Open release actions", value: num(quality?.openReleaseActions), detail: "prepared actions not completed or cancelled", tone: "warning" },
-    { label: "Release checklist", value: num(quality?.releaseChecklistPending), detail: "identity or hold checks still pending", tone: "warning" }
-  ] satisfies QualityDashboardItem[]).filter((item) => item.value > 0);
+  const qualityItems = quality ? ([
+    { label: "Missing case link", value: quality.missingCaseId, detail: "records without a usable case/passenger link", tone: "warning" },
+    { label: "DOB / age missing", value: quality.missingDobOrAge, detail: "PAX or crew without age context", tone: "warning" },
+    { label: "Seat missing", value: quality.missingSeat, detail: "passenger rows without seat assignment", tone: "warning" },
+    { label: "SRC pending", value: quality.srcPending, detail: "loaded people not yet SRC-confirmed", tone: "warning" },
+    { label: "Unknown condition", value: quality.unknownCondition, detail: "people without condition/status update", tone: "warning" },
+    { label: "Family contact gaps", value: quality.familyContactMissing, detail: "family/NOK rows without phone or email", tone: "warning" },
+    { label: "Open release actions", value: quality.openReleaseActions, detail: "prepared actions not completed or cancelled", tone: "warning" },
+    { label: "Release checklist", value: quality.releaseChecklistPending, detail: "identity or hold checks still pending", tone: "warning" }
+  ] satisfies QualityDashboardItem[]).filter((item) => item.value > 0) : [];
   const qualityGapCount = qualityItems.reduce((sum, item) => sum + item.value, 0);
   const roleLabel = portalUser.roles.join(" + ");
   const userRoles = new Set(portalUser.roles);
@@ -472,7 +458,7 @@ export function DashboardPage({ portalUser, canAccessRoute }: { portalUser: Demo
         {specialist?.status === "available" ? <>
         <MetricTile label="Manifest" value={expectedTotal} detail={`${inDatabaseTotal} records loaded · ${manifestGapTotal} gaps`} icon={ClipboardList} tone={manifestGapTotal ? "warning" : "info"} to={manifestTarget} />
         <MetricTile label="Processing" value={`${reviewedTotal}/${inDatabaseTotal}`} detail={`${notReviewedTotal} not reviewed`} icon={Database} tone={notReviewedTotal ? "warning" : "success"} to={processingTarget} />
-        <MetricTile label="Matching" value={`${donePax}/${totalPax}`} detail={`${num(matching?.completionRate)}% verified or ready`} icon={PieChart} tone={donePax === totalPax && totalPax > 0 ? "success" : "info"} to={matchingTarget} />
+        <MetricTile label="Matching" value={`${donePax}/${totalPax}`} detail={`${matching!.completionRate}% verified or ready`} icon={PieChart} tone={donePax === totalPax && totalPax > 0 ? "success" : "info"} to={matchingTarget} />
         </> : <div className="rounded-md border border-border p-4 md:col-span-2 xl:col-span-3"><p className="font-bold">Specialist metrics</p><p>Not available for your role</p></div>}
         <MetricTile label="Needs attention" value={attention?.status === "available" ? `${attentionItems.length} shown` : "Unavailable"} detail={attention?.status === "available" ? "Permitted queues and personal obligations" : "Not available for your role"} icon={AlertTriangle} tone={attentionItems.length ? "warning" : "neutral"} />
       </section>
@@ -486,9 +472,9 @@ export function DashboardPage({ portalUser, canAccessRoute }: { portalUser: Demo
               <Badge tone={manifestGapTotal ? "warning" : "success"}>{pct(inDatabaseTotal, expectedTotal)}% loaded</Badge>
             </div>
             <div className="grid gap-2 sm:grid-cols-2">
-              <CompactStat label="PAX" value={num(manifest?.passengersInDatabase)} detail="passenger records" icon={UsersRound} />
-              <CompactStat label="Crew" value={num(manifest?.crewInDatabase)} detail="crew records" icon={UserCheck} />
-              {manifestGapTotal ? <CompactStat label="Import gaps" value={manifestGapTotal} detail={`${num(manifest?.invalidTotal)} invalid rows`} icon={FileWarning} tone="warning" /> : null}
+              <CompactStat label="PAX" value={manifest!.passengersInDatabase} detail="passenger records" icon={UsersRound} />
+              <CompactStat label="Crew" value={manifest!.crewInDatabase} detail="crew records" icon={UserCheck} />
+              {manifestGapTotal ? <CompactStat label="Import gaps" value={manifestGapTotal} detail={`${manifest!.invalidTotal} invalid rows`} icon={FileWarning} tone="warning" /> : null}
             </div>
           </section>
 
@@ -499,7 +485,7 @@ export function DashboardPage({ portalUser, canAccessRoute }: { portalUser: Demo
         </div>
       </Card> : null}
 
-      <Card data-testid="dashboard-attention">
+      <section data-testid="dashboard-attention"><Card>
         <CardHeader title="Current Attention" action={<Badge tone={attentionItems.length ? "warning" : "neutral"}>{attention?.status === "available" ? `${attentionItems.length} shown` : "Unavailable"}</Badge>} />
         <div className="p-4">
           {attention?.status === "available" ? <>
@@ -507,7 +493,7 @@ export function DashboardPage({ portalUser, canAccessRoute }: { portalUser: Demo
             {attentionItems.length ? <div className="grid gap-3 md:grid-cols-2">{attentionItems.map(item => <Link key={item.key} to={item.href} className="focus-ring rounded-md border border-border p-3"><p className="font-bold">{item.title}</p><p className="text-sm">{item.detail}</p><span className="text-sm underline">Open record</span></Link>)}</div> : <EmptyState title="No attention items in the checked queues" detail="Other work may exist. Review the appropriate work queue or briefing for your role." />}
           </> : <EmptyState title="Attention information unavailable" detail="Not available for your role. Read the operational briefing for incident context." />}
         </div>
-      </Card>
+      </Card></section>
 
       {specialist?.status === "available" ? <Card>
         <CardHeader title="Data Quality" action={<Badge tone={qualityGapCount ? "warning" : "success"}>{qualityGapCount ? `${qualityGapCount} gaps` : "clear"}</Badge>} />

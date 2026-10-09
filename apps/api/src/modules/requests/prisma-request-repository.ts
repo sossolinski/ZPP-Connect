@@ -65,6 +65,7 @@ function isConflict(error: unknown) {
   );
 }
 async function view(db: PrismaClient | Prisma.TransactionClient, row: Prisma.RequestGetPayload<{ include: typeof include }>, visibility: RequestVisibility): Promise<RequestRecord> {
+  const { relatedEnquiry, relatedFamilyRecord, relatedPassengerRecord, relatedReleaseAction, ...fields } = row;
   const status = row.status as RequestStatus;
   const overdue =
     !terminal.has(status) &&
@@ -73,7 +74,7 @@ async function view(db: PrismaClient | Prisma.TransactionClient, row: Prisma.Req
     ? await isSuitableRequestOwner(db, row.incidentId, row.ownerUserId) ? "eligible" : "ineligible"
     : row.legacyOwnerLabel ? "legacy" : "unassigned";
   return {
-    ...row,
+    ...fields,
     ownerEligibility,
     reassignmentRequired: ownerEligibility === "ineligible" || ownerEligibility === "legacy",
     incidentId: row.incidentId,
@@ -99,10 +100,6 @@ async function view(db: PrismaClient | Prisma.TransactionClient, row: Prisma.Req
         : null,
       release: visibility.release ? (row.relatedReleaseAction ?? null) : null,
     },
-    relatedEnquiry: undefined,
-    relatedFamilyRecord: undefined,
-    relatedPassengerRecord: undefined,
-    relatedReleaseAction: undefined,
   };
 }
 async function find(
@@ -733,7 +730,7 @@ export function createPrismaRequestRepository(
         }),
         async (tx) => {
           if (!await isSuitableRequestOwner(tx, context.incidentId, input.ownerUserId))
-            throw new HttpError(409, "Support request owner must be an active incident member able to read, progress and resolve support requests");
+            throw new HttpError(409, "Support request owner must be an active incident member able to access the incident, read, progress and resolve support requests");
         },
       );
     },

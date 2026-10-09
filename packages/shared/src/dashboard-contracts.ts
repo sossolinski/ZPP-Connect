@@ -23,3 +23,41 @@ export type DashboardOperationalStatus = {
   attention: DashboardAvailability<{ items: DashboardAttentionItem[]; checkedSources: string[]; limitPerSource: number }>;
 };
 export type DashboardDto = { operationalStatus: DashboardOperationalStatus };
+
+/** Reject incomplete/malformed responses at this touched boundary, never invent zero. */
+export function assertDashboardDto(input: unknown): asserts input is DashboardDto {
+  const record = (value: unknown): Record<string, unknown> => {
+    if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error("Dashboard status could not be verified. Retry.");
+    return value as Record<string, unknown>;
+  };
+  const fail = () => { throw new Error("Dashboard status could not be verified. Retry."); };
+  const status = record(record(input).operationalStatus);
+  if (typeof status.loadedAt !== "string" || !Number.isFinite(Date.parse(status.loadedAt))) fail();
+  const specialist = record(status.specialist);
+  if (specialist.status === "available") {
+    const value = record(specialist.value);
+    for (const [section, fields] of [
+      ["manifestCoverage", ["expectedTotal", "inDatabaseTotal", "notLoadedTotal", "invalidTotal", "reviewedTotal", "notReviewedTotal", "passengersInDatabase", "crewInDatabase", "unknownTypeInDatabase"]],
+      ["matchingProgress", ["totalPax", "done", "inReview", "onHold", "noCandidate", "rejectedOnly", "completionRate"]],
+      ["dataQuality", ["missingCaseId", "missingDobOrAge", "missingSeat", "srcPending", "unknownCondition", "familyContactMissing", "openReleaseActions", "releaseChecklistPending"]],
+    ] as const) {
+      const metrics = record(value[section]);
+      for (const field of fields) if (typeof metrics[field] !== "number" || !Number.isFinite(metrics[field]) || Number(metrics[field]) < 0) fail();
+    }
+    const slices = record(value.matchingProgress).slices;
+    if (!Array.isArray(slices)) fail();
+    for (const slice of slices as unknown[]) {
+      const row = record(slice);
+      if (typeof row.value !== "number" || !Number.isFinite(row.value) || typeof row.key !== "string" || typeof row.label !== "string" || typeof row.color !== "string") fail();
+    }
+  } else if (specialist.status !== "unavailable" || "value" in specialist) fail();
+  const attention = record(status.attention);
+  if (attention.status === "available") {
+    const value = record(attention.value);
+    if (!Array.isArray(value.items) || !Array.isArray(value.checkedSources) || !value.checkedSources.length || !value.checkedSources.every(item => typeof item === "string") || value.limitPerSource !== 5) fail();
+    for (const item of value.items as unknown[]) {
+      const row = record(item);
+      if (![row.key, row.title, row.detail, row.href].every(field => typeof field === "string") || !String(row.href).startsWith("/") || String(row.href).startsWith("//")) fail();
+    }
+  } else if (attention.status !== "unavailable" || "value" in attention) fail();
+}

@@ -1,3 +1,4 @@
+import { useSearchParams } from "react-router-dom";
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
   CheckCircle2,
@@ -68,6 +69,8 @@ const dateInput = (value: unknown) =>
   value ? new Date(String(value)).toISOString().slice(0, 16) : "";
 
 export function RequestsPage() {
+  const [params] = useSearchParams();
+  const requestedId = params.get("requestId");
   const {
     activeSession,
     activeSessionWritable,
@@ -186,7 +189,11 @@ export function RequestsPage() {
     setPage(1);
   }, [activeSession?.id, search, status, priority, owner, due, category]);
 
-  async function open(row: RequestRecord) {
+  useEffect(() => {
+    if (activeSession && requestedId) void open({ id: requestedId });
+  }, [activeSession?.id, requestedId]);
+
+  async function open(row: Pick<RequestRecord, "id">) {
     if (!activeSession) return;
     setMutationError("");
     setAction("");
@@ -809,7 +816,7 @@ export function RequestsPage() {
                     <>
                       <Button
                         icon={UserCheck}
-                        onClick={() => setAction("assign")}
+                        onClick={() => { setActionOwner(""); setAction("assign"); void loadAssignees(); }}
                       >
                         Assign
                       </Button>
@@ -982,7 +989,7 @@ export function RequestsPage() {
                     disabled={
                       busy ||
                       (actionNeedsReason && actionReason.trim().length < 3) ||
-                      (action === "assign" && !actionOwner)
+                      (action === "assign" && !assignees.some(item => item.id === actionOwner))
                     }
                   >
                     {busy ? "Saving…" : "Confirm"}

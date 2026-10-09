@@ -14,12 +14,13 @@ preview-only lineage maintenance AUD-34. This is PI1, not Foundation Stage 26.
 - Needs attention is a **scoped list of displayed permitted unresolved issues**,
   not an incident-wide total or unread notification count. Its summary says
   “N shown” and identifies scope/limits. Source queries require read plus the
-  relevant action capability. It includes own overdue/escalated assignments and
+  relevant action capability; urgent Support Requests are permitted risks for
+  readers who can progress or initiate follow-up (TEC create). It includes own overdue/escalated assignments and
   outstanding personal document acknowledgements from authoritative records and
   existing compliance evaluation. Restricted/no applicable sources are unavailable;
   an available empty list says no items in the checked queues, never global clear.
 - Support Request owners require an active account, active incident membership,
-  and incident-effective `request:read`, `request:update`, `request:close` (resolve
+  and incident-effective `session:read` (application incident context), `request:read`, `request:update`, `request:close` (resolve
   uses close). Assignment/admin permission is not required of the owner. Reuse
   EffectiveAccess including denies, expiry, role/group scope; no automatic grants.
   Candidate discovery and serializable assignment transactions enforce the same rule.
@@ -35,7 +36,8 @@ preview-only lineage maintenance AUD-34. This is PI1, not Foundation Stage 26.
   as time since load, not domain validity. Context switches clear old data; late
   responses cannot overwrite a new incident. Retry remains available; no real-time claim.
 - Preview uses deterministic fictional current claim/passenger/enquiry lineage.
-  Preserve immutable prior snapshots; create corrected claim revisions and generate
+  Preserve immutable prior snapshots; correct mutable pending claims (terminal
+  corrections create revisions) and generate
   current suggestions through the existing production algorithm. Assert principal
   claimant/passenger/suggestion consistency. Preview-only invocation stays guarded.
 
