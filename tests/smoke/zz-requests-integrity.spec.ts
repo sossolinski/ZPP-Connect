@@ -39,7 +39,7 @@ test("runs the controlled Request queue, ownership and lifecycle without linked-
   const queueCalls: string[] = [];
   page.on("request", (value) => { if (value.url().includes("/requests/queue")) queueCalls.push(value.url()); });
   await page.goto("/requests");
-  await expect(page.getByText("Server queue", { exact: false })).toBeVisible();
+  await expect(page.getByText(/Support requests · (?:\d+|Loading)/)).toBeVisible();
   await expect.poll(() => queueCalls.some((url) => url.includes("limit=25") && url.includes("offset=0"))).toBe(true);
   await page.getByLabel("Filter Request priority").selectOption("Normal");
   await expect.poll(() => queueCalls.some((url) => url.includes("priority=Normal"))).toBe(true);

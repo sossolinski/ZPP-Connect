@@ -121,6 +121,11 @@ jobs:
       - name: Install Chromium for retained operational workflow coverage
         run: npx playwright install --with-deps chromium
 
+      - name: PI1 PostgreSQL operational trust acceptance
+        env:
+          PLAYWRIGHT_PERSISTENCE_MODE: postgres
+        run: npx playwright test tests/smoke/pi1-operational-trust.spec.ts
+
       - name: Stage 16 PostgreSQL browser workflow
         env:
           PLAYWRIGHT_PERSISTENCE_MODE: postgres

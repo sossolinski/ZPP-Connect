@@ -150,6 +150,7 @@ postgresDescribe("Foundation Stage 7 PostgreSQL Request safety", () => {
     await actor("assigner", ["session:read", "request:read", "request:assign"]);
     await actor("closer", ["session:read", "request:read", "request:close"]);
     await actor("owner-no-access", ["session:read"]);
+    await actor("fulfiller", ["session:read", "request:read", "request:update", "request:close"]);
   });
 
   afterAll(async () => {
@@ -247,7 +248,7 @@ postgresDescribe("Foundation Stage 7 PostgreSQL Request safety", () => {
           .send({})
       ).status,
     ).toBe(403);
-    const assigned = await request(application())
+    const rejected = await request(application())
       .post(`/api/requests/${created.body.id}/assign`)
       .set(as(actors.assigner!.email))
       .send({
@@ -256,18 +257,12 @@ postgresDescribe("Foundation Stage 7 PostgreSQL Request safety", () => {
         ownerUserId: actors["owner-no-access"]!.id,
         reason: "Named operational owner",
       });
-    expect(assigned.body).toMatchObject({
-      status: "ASSIGNED",
-      ownerUserId: actors["owner-no-access"]!.id,
-    });
-    expect(
-      (
-        await request(application())
-          .get("/api/requests/queue")
-          .query({ sessionId: incidentA })
-          .set(as(actors["owner-no-access"]!.email))
-      ).status,
-    ).toBe(403);
+    expect(rejected.status).toBe(409);
+    const assigned = await request(application())
+      .post(`/api/requests/${created.body.id}/assign`)
+      .set(as(actors.assigner!.email))
+      .send({ sessionId: incidentA, expectedVersion: created.body.version, ownerUserId: actors.fulfiller!.id });
+    expect(assigned.body).toMatchObject({ status: "ASSIGNED", ownerUserId: actors.fulfiller!.id, reassignmentRequired: false });
     const reassigned = await request(application())
       .post(`/api/requests/${created.body.id}/assign`)
       .set(as(actors.assigner!.email))
