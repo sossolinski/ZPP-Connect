@@ -1,4 +1,4 @@
-import { expect, test } from "@playwright/test";
+import { expect, test, type Page } from "@playwright/test";
 import { PrismaClient } from "@prisma/client";
 import { randomUUID } from "node:crypto";
 import { login } from "./helpers";
@@ -8,6 +8,12 @@ const marker = `PI1-BROWSER-${randomUUID().slice(0, 8)}`;
 const apiUrl = process.env.PLAYWRIGHT_API_URL ?? `http://127.0.0.1:${Number(process.env.PLAYWRIGHT_API_PORT ?? 4100)}/api`;
 let activeId: string, emptyId: string, urgentId: string, capableId: string;
 const briefings: Record<string, string> = {};
+
+async function loginReady(page: Page, email: string) {
+  await login(page, email);
+  // Let initial context settle before choosing the incident for this acceptance case.
+  await expect(page.getByTestId("dashboard-freshness")).toBeVisible();
+}
 
 test.beforeAll(async () => {
   expect(process.env.PLAYWRIGHT_PERSISTENCE_MODE).toBe("postgres");
@@ -33,7 +39,7 @@ test.afterAll(async () => { await db.$disconnect(); });
 
 for (const email of ["coordinator@lot.pl", "tec@lot.pl", "zpp@lot.pl", "volunteer@lot.pl", "viewer@lot.pl", "admin@lot.pl"]) {
   test(`truthful PostgreSQL Dashboard for ${email}`, async ({ page }) => {
-    await login(page, email);
+    await loginReady(page, email);
     await page.evaluate(id => localStorage.setItem("zpp:activeSessionId", id), activeId);
     await page.goto("/dashboard");
     await expect(page.getByTestId("dashboard-freshness")).toContainText("Data loaded successfully");
@@ -61,7 +67,7 @@ for (const email of ["coordinator@lot.pl", "tec@lot.pl", "zpp@lot.pl", "voluntee
 }
 
 test("authorized measured zero remains available", async ({ page }) => {
-  await login(page, "coordinator@lot.pl");
+  await loginReady(page, "coordinator@lot.pl");
   await page.evaluate(id => localStorage.setItem("zpp:activeSessionId", id), emptyId);
   await page.goto("/dashboard");
   await expect(page.getByTestId("dashboard-metrics")).toContainText("0 records loaded");
@@ -71,7 +77,7 @@ test("authorized measured zero remains available", async ({ page }) => {
 
 test("manual refresh preserves failed/stale snapshots and retries current data", async ({ page }) => {
   await page.clock.install({ time: new Date() });
-  await login(page, "tec@lot.pl");
+  await loginReady(page, "tec@lot.pl");
   await page.evaluate(id => localStorage.setItem("zpp:activeSessionId", id), activeId);
   await page.goto("/dashboard");
   const freshness = page.getByTestId("dashboard-freshness");
@@ -104,7 +110,7 @@ test("manual refresh preserves failed/stale snapshots and retries current data",
 });
 
 test("late refresh from the previous incident cannot replace the selected incident", async ({ page }) => {
-  await login(page, "coordinator@lot.pl");
+  await loginReady(page, "coordinator@lot.pl");
   await page.evaluate(id => localStorage.setItem("zpp:activeSessionId", id), activeId);
   await page.goto("/dashboard");
   await expect(page.getByTestId("dashboard-freshness")).toContainText("Data loaded successfully");
@@ -126,7 +132,7 @@ test("late refresh from the previous incident cannot replace the selected incide
 });
 
 test("initial load failure and absent incident never become zero or clear", async ({ page }) => {
-  await login(page, "tec@lot.pl");
+  await loginReady(page, "tec@lot.pl");
   await page.route("**/api/dashboard?*", route => route.fulfill({ status: 503, contentType: "application/json", body: JSON.stringify({ error: "PI1 unavailable" }) }));
   await page.goto("/dashboard");
   await expect(page.getByText("Dashboard unavailable", { exact: true })).toBeVisible();
@@ -141,7 +147,7 @@ test("initial load failure and absent incident never become zero or clear", asyn
 });
 
 test("owner controls use capable candidates and qualify later revocation", async ({ page }) => {
-  await login(page, "coordinator@lot.pl");
+  await loginReady(page, "coordinator@lot.pl");
   await page.evaluate(id => localStorage.setItem("zpp:activeSessionId", id), activeId);
   await page.goto(`/requests?requestId=${urgentId}`);
   let drawer = page.getByRole("dialog", { name: `Request ${marker}-URGENT` });
@@ -163,7 +169,7 @@ test("owner controls use capable candidates and qualify later revocation", async
 
 for (const state of ["overdue", "scheduled", "unscheduled"]) {
   test(`published briefing ${state} freshness has semantic text`, async ({ page }) => {
-    await login(page, "coordinator@lot.pl");
+    await loginReady(page, "coordinator@lot.pl");
     await page.evaluate(id => localStorage.setItem("zpp:activeSessionId", id), briefings[state]!);
     await page.goto("/active-event");
     const freshness = page.getByTestId("briefing-freshness");
