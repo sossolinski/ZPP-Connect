@@ -1,3 +1,4 @@
+import { BriefingFreshness } from "../components/BriefingFreshness";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { AlertTriangle, CheckCircle2, Clock, Edit3, ExternalLink, FileText, Plus, RefreshCw, Send, ShieldAlert } from "lucide-react";
 import { Badge, PageIntro, Panel, PanelBody, SectionHeader, StatusBadge } from "../components/portal";
@@ -460,9 +461,9 @@ export function ActiveEventPage() {
                         {currentBriefing.overview ? <p className="mt-3 text-sm font-semibold leading-6 text-muted-foreground">{currentBriefing.overview}</p> : null}
                       </div>
                       <div className="mt-3 flex flex-wrap gap-2 text-xs font-bold text-muted-foreground">
-                        {currentBriefing.publishedAt ? <span>Published {formatDate(currentBriefing.publishedAt)}</span> : null}
+                        <BriefingFreshness publishedAt={currentBriefing.publishedAt ?? null} nextUpdateDueAt={currentBriefing.nextUpdateDueAt ?? null} />
                         {currentBriefing.publishedBy?.displayName ? <span>by {currentBriefing.publishedBy.displayName}</span> : null}
-                        {currentBriefing.nextUpdateDueAt ? <span>Next update due {formatDate(currentBriefing.nextUpdateDueAt)}</span> : null}
+
                       </div>
                     </PanelBody>
                   </Panel>
