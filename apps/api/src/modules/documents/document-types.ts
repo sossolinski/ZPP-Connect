@@ -171,7 +171,7 @@ export type DocumentTotals = { documents: number; published: number; requirement
 export type PersonalDocumentTotals = { required: number; awareness: number; outstanding: number; overdue: number; acknowledged: number };
 export type DocumentAccess = { global: boolean; groupIds: string[]; ownMemberProfileId?: string | null };
 
-export type DocumentQuery = { search?: string; active?: boolean; category?: string; ownerFunction?: string; sort: "title" | "code" | "updatedAt"; direction: "asc" | "desc"; mine?: boolean; status?: string; overdue?: boolean; limit: number; offset: number };
+export type DocumentQuery = { search?: string; active?: boolean; category?: string; ownerFunction?: string; sort: "title" | "code" | "updatedAt"; direction: "asc" | "desc"; mine?: boolean; documentVersionId?: string; status?: string; overdue?: boolean; limit: number; offset: number };
 export type VersionQuery = { status?: DocumentVersionStatus; sort: "createdAt" | "versionLabel" | "status"; direction: "asc" | "desc"; limit: number; offset: number };
 export type RequirementQuery = { search?: string; documentId?: string; documentVersionId?: string; targetType?: DocumentRequirementTargetType; active?: boolean; effective?: boolean; sort: "document" | "target" | "dueAt" | "updatedAt"; direction: "asc" | "desc"; limit: number; offset: number };
 export type AcknowledgementQuery = { memberProfileId?: string; documentId?: string; documentVersionId?: string; dateFrom?: Date | null; dateTo?: Date | null; onBehalf?: boolean; sort: "acknowledgedAt" | "document" | "member"; direction: "asc" | "desc"; limit: number; offset: number };

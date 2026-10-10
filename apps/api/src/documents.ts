@@ -957,7 +957,7 @@ export function createDocumentRepository(directory: MemberDirectoryRepository) {
     assertDocumentRead(actor);
     const member = linkedMember(actor);
     if (!member) return page([], query, { linkedMemberProfile: null, totals: { required: 0, outstanding: 0, overdue: 0, acknowledged: 0 } });
-    const rows = documentObligationsForMember(member, actor);
+    const rows = documentObligationsForMember(member, actor).filter(row => !query.documentVersionId || row.documentVersionId === query.documentVersionId);
     const search = normalize(query.search ?? query.q);
     const filtered = search ? rows.filter((row) => [row.title, row.code, row.category, row.ownerFunction, row.status].some((value) => normalize(value).includes(search))) : rows;
     filtered.sort((left, right) => Number(left.status === "Acknowledged") - Number(right.status === "Acknowledged") || Number(right.status === "Overdue") - Number(left.status === "Overdue") || String(left.dueAt ?? "9999").localeCompare(String(right.dueAt ?? "9999")) || left.title.localeCompare(right.title));
