@@ -289,7 +289,7 @@ export function App() {
         path="/tec-intake"
         element={protect(
           "tec-intake",
-          <WorkflowPage eyebrow="Call intake" title="TEC Intake" description="Next: record the caller and enquiry details. Do not disclose passenger or casualty status.">
+          <WorkflowPage eyebrow="Call intake" title="TEC / Enquiries" description="Next: record the caller and enquiry details. Do not disclose passenger or casualty status.">
             <SessionDependentPage><RecordsPage kind="enquiries" /></SessionDependentPage>
           </WorkflowPage>
         )}
@@ -299,7 +299,7 @@ export function App() {
         path="/family-nok"
         element={protect(
           "family-nok",
-          <WorkflowPage eyebrow="Family assistance" title="Family / NOK" description="Next: capture contact details, then verify relationship before any disclosure.">
+          <WorkflowPage eyebrow="Family assistance" title="Family contacts / Relationship verification" description="Next: capture contact details, then verify relationship before any disclosure.">
             <SessionDependentPage><RecordsPage kind="family-records" /></SessionDependentPage>
           </WorkflowPage>
         )}
@@ -308,7 +308,7 @@ export function App() {
         path="/passenger-src"
         element={protect(
           "passenger-src",
-          <WorkflowPage eyebrow="Passenger records" title="Passenger / SRC" description="Next: confirm source status and holds before records are used for matching or release.">
+          <WorkflowPage eyebrow="Passenger records" title="Passengers / Source verification" description="Next: confirm source status and holds before records are used for matching or release.">
             <SessionDependentPage><RecordsPage kind="passenger-records" /></SessionDependentPage>
           </WorkflowPage>
         )}
@@ -326,7 +326,7 @@ export function App() {
         path="/release-control"
         element={protect(
           "release-control",
-          <WorkflowPage eyebrow="Controlled release" title="Release Control" description="Next: complete identity and hold checks before preparing any release action.">
+          <WorkflowPage eyebrow="Controlled release" title="Release & reunification" description="Next: prepare from a current human match, record independent checks, then authorize and complete separately.">
             <SessionDependentPage><ReleasePage /></SessionDependentPage>
           </WorkflowPage>
         )}

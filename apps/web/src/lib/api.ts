@@ -1,4 +1,4 @@
-import { assertDashboardDto, type DashboardDto } from "@zpp/shared";
+import { assertDashboardDto, assertSupportJourneyResult, type DashboardDto, type JourneyEntity, type SupportJourneyResult } from "@zpp/shared";
 import type { ApiList, AnyRecord, AppOrganization, AppProfile, DictionaryMap, SessionRecord, UserContext } from "./types";
 import type { AarReport, AarVersion, AarArtifact, AarResult, AarPage } from "./aar-types";
 import type { EvidencePage, EvidenceRecord } from "./evidence-types";
@@ -267,6 +267,7 @@ export const api = {
   markNotificationUnread: <T = AnyRecord>(id: string) => request<T>(`/notifications/${id}/unread`, { method: "POST", body: JSON.stringify({}) }),
   markNotificationsRead: (ids?: string[]) =>
     request<{ updatedCount: number }>("/notifications/read-all", { method: "POST", body: JSON.stringify({ ids }) }),
+  supportJourney: async (sessionId: string, entity: JourneyEntity, id: string): Promise<SupportJourneyResult> => { const result = await request<unknown>(`/support-journey${queryString({ sessionId, entity, id })}`); assertSupportJourneyResult(result); return result; },
   matchingQueue: (query: AnyRecord) => request<ApiList<AnyRecord>>(`/matching/queue${queryString(query)}`),
   matchingContext: (claimId: string, sessionId: string) => request<AnyRecord>(`/matching/claims/${claimId}${queryString({ sessionId })}`),
   matchingSuggestions: (claimId: string, query: AnyRecord) => request<ApiList<AnyRecord>>(`/matching/claims/${claimId}/suggestions${queryString(query)}`),

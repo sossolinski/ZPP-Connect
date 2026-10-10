@@ -1,6 +1,9 @@
 import { Fragment, useEffect, useMemo, useRef, useState } from "react";
 import { Check, CheckCircle2, ChevronLeft, ChevronRight, CopyX, Eye, FilePlus2, Pencil, Save, Search, Send, ShieldCheck, Siren, UserCheck, XCircle } from "lucide-react";
-import { useSearchParams } from "react-router-dom";
+import { useLocation, Link, useSearchParams } from "react-router-dom";
+import { SupportJourneyPanel, JourneyReturnLink } from "../components/SupportJourneyPanel";
+import { useQueueText, useQueueNumber, useQueuePatch } from "../lib/use-journey-queue";
+import { journeyQueuePath, withJourneyReturn } from "../lib/journey-navigation";
 import { api } from "../lib/api";
 import { useApp } from "../lib/app-context";
 import { isSessionWriteContextCurrent } from "../lib/session-safety";
@@ -93,7 +96,7 @@ const configs: Record<string, Config> = {
   },
   "family-records": {
     resource: "family-records",
-    title: "Family / NOK / FRC Records",
+    title: "Family contacts / Relationship verification",
     description: "Verification is tracked separately from enquiries and passenger records.",
     readPermission: "family:read",
     createPermission: "family:create",
@@ -128,7 +131,7 @@ const configs: Record<string, Config> = {
   },
   "passenger-records": {
     resource: "passenger-records",
-    title: "Passenger / Crew / SRC Records",
+    title: "Passengers / Source verification",
     description: "Manifest and SRC data remain separate from matching and release decisions.",
     readPermission: "passenger:read",
     createPermission: "passenger:create",
@@ -180,8 +183,8 @@ function recordUxCopy(kind: keyof typeof configs) {
   }
   if (kind === "family-records") {
     return {
-      noun: "family/NOK record",
-      newLabel: "New family record",
+      noun: "family contact",
+      newLabel: "New family contact",
       fallback: "Unsaved family record",
       helper: "Record family contact details and verification basis separately from passenger status.",
       nextSteps: [
@@ -189,12 +192,12 @@ function recordUxCopy(kind: keyof typeof configs) {
         "Link a known Passenger only when the claimant identified that person.",
         "Use Verify or Reject only after reviewing and documenting the basis."
       ],
-      saveNew: "Save family record"
+      saveNew: "Save family contact"
     };
   }
   if (kind === "passenger-records") {
     return {
-      noun: "passenger/SRC record",
+      noun: "passenger / source record",
       newLabel: "New passenger record",
       fallback: "Unsaved passenger record",
       helper: "Maintain manifest and source-confirmed details without changing matching or release decisions.",
@@ -356,23 +359,36 @@ export function RecordsPage({ kind }: { kind: keyof typeof configs }) {
   const config = configs[kind]!;
   const recordCopy = recordUxCopy(kind);
   const { activeSession, activeSessionWritable, dictionaries, can, reload, verifyActiveSessionWrite } = useApp();
-  const [searchParams] = useSearchParams();
+  const [searchParams, setSearchParams] = useSearchParams();
+  const location = useLocation();
+  const recordContextRef = useRef("");
+  const [lastSaved, setLastSaved] = useState<AnyRecord | null>(null);
+  const [copiedCaller, setCopiedCaller] = useState("");
+  const fromEnquiry = kind === "family-records" ? searchParams.get("fromEnquiry") ?? "" : "";
   const focusRecordId = searchParams.get("focus") ?? "";
   const handledFocusRef = useRef("");
-  const [rows, setRows] = useState<AnyRecord[]>([]);
+  const [storedRows, setRows] = useState<AnyRecord[]>([]);
+  const rows = useMemo(() => storedRows.filter(row => row.sessionId === activeSession?.id), [storedRows, activeSession?.id]);
+  const recordIncidentRef = useRef(activeSession?.id);
+  recordIncidentRef.current = activeSession?.id;
   const [serverTotal, setServerTotal] = useState(0);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
-  const [query, setQuery] = useState("");
+  const [query, setQuery] = useQueueText("q");
+  const patchQueue = useQueuePatch();
   const [editing, setEditing] = useState<AnyRecord>(() => buildDefaults(config.fields, dictionaries, activeSession?.id));
   const [editorOpen, setEditorOpen] = useState(false);
-  const [passengerOptions, setPassengerOptions] = useState<AnyRecord[]>([]);
+  const [storedPassengerOptions, setPassengerOptions] = useState<AnyRecord[]>([]);
+  const passengerOptions = useMemo(() => storedPassengerOptions.filter(row => row.sessionId === activeSession?.id), [storedPassengerOptions, activeSession?.id]);
   const [selectedPassengerId, setSelectedPassengerId] = useState("");
-  const [sortKey, setSortKey] = useState("updatedAt");
-  const [sortDirection, setSortDirection] = useState<SortDirection>("desc");
-  const [pageSize, setPageSize] = useState(10);
-  const [page, setPage] = useState(1);
-  const [statusFilter, setStatusFilter] = useState("");
+  const [sortKey] = useQueueText("sort", "updatedAt");
+  const [sortDirectionValue] = useQueueText("direction", "desc");
+  const sortDirection: SortDirection = sortDirectionValue === "asc" ? "asc" : "desc";
+  const [pageSizeValue, setPageSize] = useQueueNumber("size", 10, 100);
+  const pageSize = pageSizeOptions.includes(pageSizeValue) ? pageSizeValue : 10;
+  const [pageValue, setPage] = useQueueNumber("page", 1, 100000);
+  const page = Math.max(1, pageValue);
+  const [statusFilter, setStatusFilter] = useQueueText("status");
   const [pendingDecision, setPendingDecision] = useState<PendingDecision | null>(null);
   const [writeError, setWriteError] = useState("");
   const [editorBaseline, setEditorBaseline] = useState("");
@@ -471,7 +487,12 @@ export function RecordsPage({ kind }: { kind: keyof typeof configs }) {
   const pageRangeStart = resultTotal ? pageStartIndex + 1 : 0;
   const pagedRows = isServerPage ? sortedRows : sortedRows.slice(pageStartIndex, pageEndIndex);
 
+  const listSequence = useRef(0);
+  const listScopeRef = useRef("");
+  const listScope = JSON.stringify([activeSession?.id, kind, query, statusFilter, sortKey, sortDirection, page, pageSize]);
+  listScopeRef.current = listScope;
   async function load() {
+    const sequence = ++listSequence.current, scope = listScope;
     if (!activeSession) {
       setRows([]);
       setPassengerOptions([]);
@@ -498,13 +519,14 @@ export function RecordsPage({ kind }: { kind: keyof typeof configs }) {
         isServerPage ? api.list(config.resource, serverQuery) : api.listAll(config.resource, { sessionId: activeSession.id }),
         canLoadPassengerContext ? api.listAll("passenger-records", { sessionId: activeSession.id }) : Promise.resolve({ data: [] })
       ]);
+      if (sequence !== listSequence.current || scope !== listScopeRef.current) return;
       setRows(result.data);
       setServerTotal(Number(result.total ?? result.data.length));
       setPassengerOptions(passengers.data);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Unable to load records");
+      if (sequence === listSequence.current && scope === listScopeRef.current) setError(err instanceof Error ? err.message : "Unable to load records");
     } finally {
-      setLoading(false);
+      if (sequence === listSequence.current && scope === listScopeRef.current) setLoading(false);
     }
   }
 
@@ -513,11 +535,9 @@ export function RecordsPage({ kind }: { kind: keyof typeof configs }) {
     setEditing(buildDefaults(config.fields, dictionaries, activeSession?.id));
     setEditorOpen(false);
     setSelectedPassengerId("");
-    setSortKey("updatedAt");
-    setSortDirection("desc");
-    setStatusFilter("");
-    setQuery("");
-    setPage(1);
+    recordContextRef.current = "";
+    setLastSaved(null);
+    setCopiedCaller("");
     setPendingDecision(null);
     setWriteError("");
     setSourceCorrectionMode(false);
@@ -531,13 +551,7 @@ export function RecordsPage({ kind }: { kind: keyof typeof configs }) {
   }, [activeSession?.id, isServerPage, page, pageSize, query, sortDirection, sortKey, statusFilter]);
 
   function handleSort(key: string) {
-    setPage(1);
-    if (sortKey === key) {
-      setSortDirection((current) => (current === "asc" ? "desc" : "asc"));
-      return;
-    }
-    setSortKey(key);
-    setSortDirection("asc");
+    patchQueue({ page: null, sort: key, direction: sortKey === key && sortDirection === "asc" ? "desc" : "asc" });
   }
 
   async function save() {
@@ -578,15 +592,16 @@ export function RecordsPage({ kind }: { kind: keyof typeof configs }) {
     setSaving(true);
     setWriteError("");
     try {
+      let saved: AnyRecord;
       if (isPassengerPage && editing.id && sourceCorrectionMode) {
-        await api.action(config.resource, editing.id, "correct-source", {
+        saved = await api.action(config.resource, editing.id, "correct-source", {
           ...sourceChanges,
           sessionId: activeSession.id,
           version: editing.version,
           reason: sourceCorrectionReason
         });
       } else if (isFamilyPage && editing.id && sourceCorrectionMode) {
-        await api.action(config.resource, editing.id, "correct-claim", {
+        saved = await api.action(config.resource, editing.id, "correct-claim", {
           ...sourceChanges,
           sessionId: activeSession.id,
           version: editing.version,
@@ -594,18 +609,20 @@ export function RecordsPage({ kind }: { kind: keyof typeof configs }) {
           reason: sourceCorrectionReason
         });
       } else if (isPassengerPage && editing.id) {
-        await api.update(config.resource, editing.id, { sessionId: activeSession.id, version: editing.version, caseId: editing.caseId ?? null, notes: editing.notes ?? null });
+        saved = await api.update(config.resource, editing.id, { sessionId: activeSession.id, version: editing.version, caseId: editing.caseId ?? null, notes: editing.notes ?? null });
       } else if (isFamilyPage && editing.id) {
-        await api.update(config.resource, editing.id, {
+        saved = await api.update(config.resource, editing.id, {
           sessionId: activeSession.id,
           version: editing.version,
           ...Object.fromEntries(familyOperatorFields.map((field) => [field, payload[field] ?? null]))
         });
-      } else if (editing.id) await api.update(config.resource, editing.id, payload);
-      else await api.create(config.resource, payload);
+      } else if (editing.id) saved = await api.update(config.resource, editing.id, payload);
+      else saved = await api.create(config.resource, payload);
+      setLastSaved(saved);
+      recordContextRef.current = "";
       setEditorBaseline("");
       setEditing(buildDefaults(config.fields, dictionaries, activeSession.id));
-      setEditorOpen(false);
+      closeEditor();
       setSelectedPassengerId("");
       await Promise.all([load(), reload()]);
     } catch (err) {
@@ -617,6 +634,9 @@ export function RecordsPage({ kind }: { kind: keyof typeof configs }) {
 
   function startNewRecord() {
     if (!activeSessionWritable) return;
+    recordContextRef.current = "";
+    setSearchParams(current => { const next = new URLSearchParams(current); next.delete("focus"); next.delete("fromEnquiry"); return next; }, { replace: true });
+    setCopiedCaller("");
     const next = buildDefaults(config.fields, dictionaries, activeSession?.id);
     setEditing(next);
     setEditorBaseline(JSON.stringify(next));
@@ -632,27 +652,17 @@ export function RecordsPage({ kind }: { kind: keyof typeof configs }) {
     return [passenger.operationalId, name, flight, passenger.caseId].filter(Boolean).join(" | ");
   }
 
-  function findPassengerForRecord(record: AnyRecord) {
-    return passengerOptions.find((passenger) => {
-      if (record.passengerRecordId && passenger.id === record.passengerRecordId) return true;
-      const sameCase = record.caseId && passenger.caseId === record.caseId;
-      const sameName =
-        record.passengerFirstName &&
-        record.passengerLastName &&
-        passenger.firstName === record.passengerFirstName &&
-        passenger.lastName === record.passengerLastName;
-      const sameFlight = !record.passengerFlight || passenger.flightNumber === record.passengerFlight;
-      return Boolean(sameCase || (sameName && sameFlight));
-    });
-  }
-
   function openRecord(row: AnyRecord) {
+    const contextKey = `${activeSession?.id}:${row.id}`;
+    recordContextRef.current = contextKey;
+    setCopiedCaller("");
+    setSearchParams(current => { const next = new URLSearchParams(current); next.delete("fromEnquiry"); next.set("focus", String(row.id)); return next; }, { replace: true });
     const opened = isFamilyPage ? { ...row, passengerRecordId: row.currentClaim?.passengerRecordId ?? null } : row;
     setEditing(opened);
     setEditorBaseline(JSON.stringify(opened));
     setWriteError("");
     setFieldErrors({});
-    setSelectedPassengerId(kind === "enquiries" ? (findPassengerForRecord(row)?.id ?? "") : isFamilyPage ? String(row.currentClaim?.passengerRecordId ?? "") : "");
+    setSelectedPassengerId(kind === "enquiries" ? String(row.passengerRecordId ?? "") : isFamilyPage ? String(row.currentClaim?.passengerRecordId ?? "") : "");
     setSourceCorrectionMode(false);
     setSourceCorrectionReason("");
     setPassengerCondition(String(row.conditionStatus ?? "Unknown"));
@@ -660,30 +670,63 @@ export function RecordsPage({ kind }: { kind: keyof typeof configs }) {
     setEditorOpen(true);
     if (isFamilyPage && activeSession) {
       void api.record(config.resource, row.id, { sessionId: activeSession.id }).then((full) => {
+        if (recordContextRef.current !== contextKey || recordIncidentRef.current !== row.sessionId) return;
         const refreshed = { ...full, passengerRecordId: full.currentClaim?.passengerRecordId ?? null };
         setEditing(refreshed);
         setEditorBaseline(JSON.stringify(refreshed));
         setSelectedPassengerId(String(full.currentClaim?.passengerRecordId ?? ""));
-      }).catch((err) => setWriteError(err instanceof Error ? err.message : "Unable to load relationship decision history"));
+      }).catch((err) => { if (recordContextRef.current === contextKey && recordIncidentRef.current === row.sessionId) setWriteError(err instanceof Error ? err.message : "Unable to load relationship decision history"); });
     }
   }
 
   useEffect(() => {
+    let cancelled = false;
     const focus = focusRecordId.trim();
-    if (!focus) {
-      handledFocusRef.current = "";
-      return;
-    }
-    setQuery(focus);
-    setPage(1);
-    if (loading) return;
-    const row = rows.find((item) => matchesRecordFocus(item, focus));
-    const key = `${kind}:${focus}`;
-    if (row && handledFocusRef.current !== key) {
-      handledFocusRef.current = key;
-      openRecord(row);
-    }
-  }, [focusRecordId, kind, loading, rows]);
+    if (!focus || !activeSession || !/^[0-9a-f]{8}-[0-9a-f-]{27}$/i.test(focus)) return;
+    const focusKey = `${activeSession.id}:${focus}`;
+    recordContextRef.current = focusKey;
+    void api.record(config.resource, focus, { sessionId: activeSession.id }).then(record => {
+      if (!cancelled && recordContextRef.current === focusKey && recordIncidentRef.current === activeSession.id) openRecord(record);
+    }).catch(() => {
+      if (!cancelled && recordContextRef.current === focusKey && recordIncidentRef.current === activeSession.id) setError("The linked record is unavailable in this incident or for your account.");
+    });
+    return () => { cancelled = true; };
+  }, [focusRecordId, activeSession?.id, kind]);
+
+  useEffect(() => {
+    const focus = focusRecordId.trim(), key = `${activeSession?.id}:${kind}:${focus}`;
+    if (!focus) { handledFocusRef.current = ""; return; }
+    if (/^[0-9a-f]{8}-[0-9a-f-]{27}$/i.test(focus) || !activeSession || loading || handledFocusRef.current === key) return;
+    const row = rows.find(item => matchesRecordFocus(item, focus));
+    if (row) { handledFocusRef.current = key; openRecord(row); }
+    else if (query !== focus) setQuery(focus);
+  }, [focusRecordId, activeSession?.id, kind, loading, rows]);
+
+  useEffect(() => {
+    let cancelled = false;
+    if (!fromEnquiry || !activeSession || !canCreate || !can("enquiry:read")) return;
+    void api.record("enquiries", fromEnquiry, { sessionId: activeSession.id }).then(enquiry => {
+      if (cancelled || recordIncidentRef.current !== activeSession.id) return;
+      const draft = { ...buildDefaults(config.fields, dictionaries, activeSession.id),
+        caseId: enquiry.caseId || enquiry.operationalId, phone: enquiry.callerPhone ?? "", email: enquiry.callerEmail ?? "",
+        location: enquiry.callerLocation ?? "", preferredLanguage: enquiry.preferredLanguage ?? "", preferredContactChannel: enquiry.contactChannel,
+        claimedRelationship: enquiry.claimedRelationship ?? "", passengerRecordId: enquiry.passengerRecordId ?? null,
+        passengerFirstName: enquiry.passengerFirstName ?? "", passengerLastName: enquiry.passengerLastName ?? "", passengerFlight: enquiry.passengerFlight ?? "",
+        notes: `Reported caller: ${enquiry.callerName}. Copied from enquiry ${enquiry.operationalId}. ${enquiry.notes ?? ""}`.slice(0,5000)
+      };
+      recordContextRef.current = ""; setSourceCorrectionMode(false); setSourceCorrectionReason(""); setCopiedCaller(String(enquiry.callerName)); setEditing(draft); setEditorBaseline(JSON.stringify(draft));
+      setSelectedPassengerId(String(enquiry.passengerRecordId ?? "")); setWriteError(""); setFieldErrors({}); setEditorOpen(true);
+    }).catch(() => { if (!cancelled) setError("The source enquiry could not be loaded. No contact was created."); });
+    return () => { cancelled = true; };
+  }, [fromEnquiry, activeSession?.id, canCreate]);
+
+  function closeEditor() {
+    recordContextRef.current = ""; setEditorOpen(false);
+    setSearchParams(current => { const next = new URLSearchParams(current); next.delete("focus"); next.delete("fromEnquiry"); return next; }, { replace: true });
+  }
+  const journeyEntity = kind === "enquiries" ? "enquiry" : isFamilyPage ? "family" : "passenger";
+  const queueOrigin = journeyQueuePath(location.pathname, searchParams);
+  const copyLink = (id: string) => withJourneyReturn(`/family-nok?fromEnquiry=${encodeURIComponent(id)}`, queueOrigin);
 
   function selectPassengerContext(passengerId: string) {
     setSelectedPassengerId(passengerId);
@@ -700,7 +743,7 @@ export function RecordsPage({ kind }: { kind: keyof typeof configs }) {
       passengerFirstName: passenger.firstName ?? "",
       passengerLastName: passenger.lastName ?? "",
       passengerFlight: passenger.flightNumber ?? "",
-      passengerRoute: passenger.route ?? ""
+      ...(kind === "enquiries" ? { passengerRoute: passenger.route ?? "" } : {})
     }));
   }
 
@@ -735,7 +778,7 @@ export function RecordsPage({ kind }: { kind: keyof typeof configs }) {
 
   async function runEditorAction(action: string, body?: AnyRecord) {
     if (!editing.id) return;
-    if (await runAction(editing, action, body)) setEditorOpen(false);
+    if (await runAction(editing, action, body)) { const updated = await api.record(config.resource, editing.id, { sessionId: editing.sessionId }); setLastSaved(updated); closeEditor(); }
   }
 
   function openFamilyDecision(action: "family-verify" | "family-reject" | "family-reopen") {
@@ -873,12 +916,13 @@ export function RecordsPage({ kind }: { kind: keyof typeof configs }) {
 
   function passengerPicker() {
     if (kind !== "enquiries" && !isFamilyPage) return null;
+    if (!can("passenger:read")) return <AlertBox>Passenger/source lookup is unavailable for your account. Keep caller details as reported; an authorized source reviewer must continue.</AlertBox>;
     const selectedPassenger = passengerOptions.find((passenger) => passenger.id === selectedPassengerId);
     return (
       <div className="grid gap-3 rounded-md border border-border bg-muted p-3 text-foreground">
         <div className="flex min-w-0 flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
           <div className="min-w-0">
-            <p className="text-sm font-bold text-foreground">Passenger from manifest / SRC</p>
+            <p className="text-sm font-bold text-foreground">Passenger from manifest / source confirmation (SRC)</p>
             <p className="mt-0.5 text-xs font-semibold text-muted-foreground">{isFamilyPage ? "Link only the Passenger identified by the claimant. This does not verify the relationship." : "Choose a known passenger to prefill this enquiry, or keep manual entry."}</p>
           </div>
           <Badge tone={selectedPassenger ? "info" : "neutral"}>{selectedPassenger ? "Prefilled" : "Manual"}</Badge>
@@ -899,6 +943,8 @@ export function RecordsPage({ kind }: { kind: keyof typeof configs }) {
 
   return (
     <div className="grid items-start gap-5">
+      <JourneyReturnLink />
+      {lastSaved && lastSaved.sessionId === activeSession?.id && !editorOpen ? <div><p className="mb-2 text-sm font-bold">Saved {lastSaved.operationalId}. Continue from the recorded context.</p><Button onClick={() => openRecord(lastSaved)}>Open saved record</Button>{kind === "enquiries" && can("family:create") && can("family:read") && activeSessionWritable ? <Link className="focus-ring ml-3 text-sm font-bold underline" to={copyLink(lastSaved.id)}>Copy reported enquiry to new contact</Link> : null}<SupportJourneyPanel entity={journeyEntity} id={lastSaved.id} revision={lastSaved.version} /></div> : null}
       <Card>
         <div className="border-b border-border px-4 py-3">
           <div className="flex min-w-0 flex-wrap items-center gap-2">
@@ -909,8 +955,7 @@ export function RecordsPage({ kind }: { kind: keyof typeof configs }) {
                 className="h-9 pl-9"
                 value={query}
                 onChange={(event) => {
-                  setQuery(event.target.value);
-                  setPage(1);
+                  setQuery(event.target.value, { page: null });
                 }}
                 placeholder="Search ID, case, name, actor"
               />
@@ -920,8 +965,7 @@ export function RecordsPage({ kind }: { kind: keyof typeof configs }) {
                 className="h-9 w-full sm:w-44"
                 value={statusFilter}
                 onChange={(event) => {
-                  setStatusFilter(event.target.value);
-                  setPage(1);
+                  setStatusFilter(event.target.value, { page: null });
                 }}
                 aria-label={`Filter by ${filterColumn.label}`}
               >
@@ -937,8 +981,7 @@ export function RecordsPage({ kind }: { kind: keyof typeof configs }) {
               className="h-9 w-full sm:w-32"
               value={pageSize}
               onChange={(event) => {
-                setPageSize(Number(event.target.value));
-                setPage(1);
+                setPageSize(Number(event.target.value), { page: null });
               }}
               aria-label="Rows per page"
             >
@@ -978,7 +1021,7 @@ export function RecordsPage({ kind }: { kind: keyof typeof configs }) {
                 onSort={handleSort}
                 emptyTitle={rows.length ? "No records match these filters" : "No records"}
                 emptyDetail={rows.length ? "Clear search and status filters to review the full queue." : "Records created in this module will appear here."}
-                emptyAction={rows.length ? <Button onClick={() => { setQuery(""); setStatusFilter(""); setPage(1); }}>Clear filters</Button> : canCreate ? <Button variant="create" onClick={startNewRecord}>{recordCopy.saveNew}</Button> : undefined}
+                emptyAction={rows.length ? <Button onClick={() => { patchQueue({ q: null, status: null, page: null }); }}>Clear filters</Button> : canCreate ? <Button variant="create" onClick={startNewRecord}>{recordCopy.saveNew}</Button> : undefined}
                 onRowOpen={openRecord}
                 rowLabel={(row) => `Open ${row.operationalId ?? recordCopy.noun}`}
               />
@@ -1005,13 +1048,13 @@ export function RecordsPage({ kind }: { kind: keyof typeof configs }) {
         </div>
       </Card>
 
-      {editorOpen ? (
+      {editorOpen && editing.sessionId === activeSession?.id ? (
         <DialogSurface
           title={editing.id ? `Edit ${recordCopy.noun}` : `New ${recordCopy.noun}`}
           description={editing.operationalId ?? activeSession?.operationalId ?? recordCopy.fallback}
           dirty={canSaveCurrent && Boolean(editorBaseline && JSON.stringify(editing) !== editorBaseline)}
           busy={saving}
-          onClose={() => setEditorOpen(false)}
+          onClose={closeEditor}
           className="fixed inset-y-0 right-0 z-50 flex w-full max-w-xl flex-col border-l border-border bg-card text-foreground shadow-2xl"
         >
           {({ requestClose }) => (
@@ -1029,8 +1072,8 @@ export function RecordsPage({ kind }: { kind: keyof typeof configs }) {
 
             <div className="scrollbar-soft flex-1 overflow-y-auto px-5 py-4">
               <ErrorSummary title="Record could not be saved" errors={writeError ? [{ message: writeError, fieldId: Object.keys(fieldErrors)[0] ? `record-${Object.keys(fieldErrors)[0]}` : undefined }] : []} />
-              <div className="mb-4 rounded-md border border-[#145C63]/25 bg-[#145C63]/10 p-3">
-                <p className="text-sm font-black text-foreground">What to do next</p>
+              <details className="mb-4 rounded-md border border-[#145C63]/25 bg-[#145C63]/10 p-3">
+                <summary className="focus-ring cursor-pointer text-sm font-black text-foreground">Record guidance</summary>
                 <ol className="mt-2 grid gap-2">
                   {recordCopy.nextSteps.map((step, index) => (
                     <li key={step} className="grid grid-cols-[1.5rem_minmax(0,1fr)] gap-2 text-xs font-semibold leading-5 text-muted-foreground">
@@ -1039,7 +1082,7 @@ export function RecordsPage({ kind }: { kind: keyof typeof configs }) {
                     </li>
                   ))}
                 </ol>
-              </div>
+              </details>
 
               <div className="mb-4 flex min-w-0 items-center justify-between gap-3 rounded-md border border-border bg-muted px-3 py-2">
                 <div className="min-w-0">
@@ -1064,6 +1107,8 @@ export function RecordsPage({ kind }: { kind: keyof typeof configs }) {
                 </div>
               ) : null}
 
+              {copiedCaller ? <AlertBox>Reported caller: {copiedCaller}. Review and enter the contact's given and family names; no surname was guessed. This is a new unverified contact draft. Existing contacts and verified facts are unchanged.</AlertBox> : null}
+              {editing.id && JSON.stringify(editing) === editorBaseline ? <><JourneyReturnLink />{kind === "enquiries" && can("family:create") && can("family:read") && activeSessionWritable ? <Link className="focus-ring mb-3 inline-block text-sm font-bold underline" to={copyLink(editing.id)}>Copy reported enquiry to new contact</Link> : null}<SupportJourneyPanel entity={journeyEntity} id={editing.id} revision={editing.version} /></> : editing.id ? <p className="mb-4 text-sm font-semibold">Save or discard changes before navigating to related work.</p> : null}
               {isFamilyPage && editing.id ? (
                 <div className="mb-4 grid gap-3 rounded-md border border-[#145C63]/25 bg-[#145C63]/5 p-3">
                   <div className="flex flex-wrap items-center justify-between gap-2">

@@ -1,6 +1,8 @@
 import { useSearchParams } from "react-router-dom";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { AlertTriangle, CheckCircle2, ChevronLeft, ChevronRight, History, RefreshCw, Search, ShieldCheck, UserCheck, XCircle } from "lucide-react";
+import { SupportJourneyPanel, JourneyReturnLink } from "../components/SupportJourneyPanel";
+import { useQueueText, useQueueNumber } from "../lib/use-journey-queue";
 import { ApiRequestError, api } from "../lib/api";
 import { useApp } from "../lib/app-context";
 import type { AnyRecord } from "../lib/types";
@@ -64,21 +66,24 @@ export function MatchingPage() {
   const [params] = useSearchParams();
   const linkedClaimId = params.get("claimId") ?? "";
   const { activeSession, activeSessionWritable, can, verifyActiveSessionWrite } = useApp();
-  const [queue, setQueue] = useState<AnyRecord[]>([]);
+  const [storedQueue, setQueue] = useState<AnyRecord[]>([]);
   const [queueTotal, setQueueTotal] = useState(0);
-  const [queueOffset, setQueueOffset] = useState(0);
-  const [searchDraft, setSearchDraft] = useState("");
-  const [search, setSearch] = useState("");
-  const [stateFilter, setStateFilter] = useState("");
-  const [relationshipFilter, setRelationshipFilter] = useState("");
-  const [selectedClaimId, setSelectedClaimId] = useState(linkedClaimId);
-  const [context, setContext] = useState<AnyRecord | null>(null);
-  const [candidates, setCandidates] = useState<AnyRecord[]>([]);
+  const [queueOffset, setQueueOffset] = useQueueNumber("offset", 0, 100000);
+  const [searchDraft, setSearchDraft] = useState(params.get("q") ?? "");
+  const [search, setSearch] = useQueueText("q");
+  const [stateFilter, setStateFilter] = useQueueText("state");
+  const [relationshipFilter, setRelationshipFilter] = useQueueText("relationship");
+  const [selectedClaimId, setSelectedClaimId] = useQueueText("claimId");
+  const contextSequence = useRef(0);
+  const scopeRef = useRef("");
+  const [storedContext, setContext] = useState<AnyRecord | null>(null);
+  const [storedCandidates, setCandidates] = useState<AnyRecord[]>([]);
   const [candidateTotal, setCandidateTotal] = useState(0);
   const [candidateSearchDraft, setCandidateSearchDraft] = useState("");
   const [candidateSearch, setCandidateSearch] = useState("");
   const [candidateOffset, setCandidateOffset] = useState(0);
   const [loadingQueue, setLoadingQueue] = useState(true);
+  const [queueLoaded,setQueueLoaded] = useState(false), [candidatesLoaded,setCandidatesLoaded] = useState(false);
   const [loadingContext, setLoadingContext] = useState(false);
   const [loadingCandidates, setLoadingCandidates] = useState(false);
   const [generating, setGenerating] = useState(false);
@@ -88,6 +93,17 @@ export function MatchingPage() {
   const [decisionDialog, setDecisionDialog] = useState<DecisionDialogState | null>(null);
 
   const sessionId = activeSession?.id ?? "";
+  const context = storedContext && storedContext.relationshipClaim?.id === selectedClaimId && storedContext.relationshipClaim?.incidentId === sessionId ? storedContext : null;
+  scopeRef.current = `${sessionId}:${selectedClaimId}`;
+  const queueScope = JSON.stringify([sessionId, search, stateFilter, relationshipFilter, queueOffset]);
+  const candidateScope = JSON.stringify([sessionId, selectedClaimId, candidateSearch, candidateOffset]);
+  const queueScopeRef = useRef(queueScope), candidateScopeRef = useRef(candidateScope);
+  queueScopeRef.current = queueScope; candidateScopeRef.current = candidateScope;
+  const queueSequence = useRef(0), candidateSequence = useRef(0);
+  const [loadedQueueScope, setLoadedQueueScope] = useState("");
+  const [loadedCandidateScope, setLoadedCandidateScope] = useState("");
+  const queue = loadedQueueScope === queueScope ? storedQueue : [];
+  const candidates = loadedCandidateScope === candidateScope ? storedCandidates : [];
   const claim = context?.relationshipClaim;
   const currentDecision = context?.currentDecision;
   const canGenerate = activeSessionWritable && can("matching:create");
@@ -100,6 +116,7 @@ export function MatchingPage() {
   );
 
   async function loadQueue(preferredClaimId = selectedClaimId) {
+    const sequence = ++queueSequence.current, scope = queueScope;
     if (!sessionId) {
       setQueue([]);
       setQueueTotal(0);
@@ -107,7 +124,7 @@ export function MatchingPage() {
       setLoadingQueue(false);
       return;
     }
-    setLoadingQueue(true);
+    setQueueLoaded(false); setLoadingQueue(true);
     setError("");
     try {
       const result = await api.matchingQueue({
@@ -120,17 +137,16 @@ export function MatchingPage() {
         limit: queuePageSize,
         offset: queueOffset
       });
-      setQueue(result.data);
+      if (sequence !== queueSequence.current || scope !== queueScopeRef.current) return;
+      setLoadedQueueScope(scope); setQueueLoaded(true); setQueue(result.data);
       setQueueTotal(result.total ?? result.data.length);
-      const stillVisible = result.data.some((item) => item.relationshipClaim?.id === preferredClaimId);
-      setSelectedClaimId(current => {
-        if (current !== preferredClaimId || (linkedClaimId && current === linkedClaimId)) return current;
-        return stillVisible ? current : result.data[0]?.relationshipClaim?.id ?? "";
-      });
+      if (!preferredClaimId && scopeRef.current === `${sessionId}:${preferredClaimId}`) {
+        setSelectedClaimId(result.data[0]?.relationshipClaim?.id ?? "");
+      }
     } catch (loadError) {
-      setError(errorMessage(loadError, "Unable to load the matching queue"));
+      if (sequence === queueSequence.current && scope === queueScopeRef.current) setError(errorMessage(loadError, "Unable to load the matching queue"));
     } finally {
-      setLoadingQueue(false);
+      if (sequence === queueSequence.current && scope === queueScopeRef.current) setLoadingQueue(false);
     }
   }
 
@@ -139,25 +155,29 @@ export function MatchingPage() {
       setContext(null);
       return;
     }
-    setLoadingContext(true);
+    const sequence = ++contextSequence.current, scope = `${sessionId}:${claimId}`;
+    setContext(null); setLoadingContext(true);
     setError("");
     try {
-      setContext(await api.matchingContext(claimId, sessionId));
+      const result = await api.matchingContext(claimId, sessionId);
+      if (sequence === contextSequence.current && scope === scopeRef.current) setContext(result);
     } catch (loadError) {
+      if (sequence !== contextSequence.current || scope !== scopeRef.current) return;
       setContext(null);
       setError(errorMessage(loadError, "Unable to load matching context"));
     } finally {
-      setLoadingContext(false);
+      if (sequence === contextSequence.current && scope === scopeRef.current) setLoadingContext(false);
     }
   }
 
   async function loadCandidates(claimId = selectedClaimId) {
+    const sequence = ++candidateSequence.current, scope = candidateScope;
     if (!sessionId || !claimId) {
       setCandidates([]);
       setCandidateTotal(0);
       return;
     }
-    setLoadingCandidates(true);
+    setCandidatesLoaded(false); setLoadingCandidates(true);
     try {
       const result = await api.matchingCandidates(claimId, {
         sessionId,
@@ -166,18 +186,17 @@ export function MatchingPage() {
         limit: candidatePageSize,
         offset: candidateOffset
       });
-      setCandidates(result.data);
+      if (sequence !== candidateSequence.current || scope !== candidateScopeRef.current) return;
+      setLoadedCandidateScope(scope); setCandidatesLoaded(true); setCandidates(result.data);
       setCandidateTotal(result.total ?? result.data.length);
     } catch (loadError) {
-      setError(errorMessage(loadError, "Unable to load passenger candidates"));
+      if (sequence === candidateSequence.current && scope === candidateScopeRef.current) setError(errorMessage(loadError, "Unable to load passenger candidates"));
     } finally {
-      setLoadingCandidates(false);
+      if (sequence === candidateSequence.current && scope === candidateScopeRef.current) setLoadingCandidates(false);
     }
   }
 
   useEffect(() => {
-    setQueueOffset(0);
-    setSelectedClaimId(linkedClaimId);
     setContext(null);
     setCandidateOffset(0);
     setDecisionDialog(null);
@@ -285,6 +304,7 @@ export function MatchingPage() {
 
   return (
     <div className="grid gap-4">
+      <JourneyReturnLink />
       <div>
         <h1 className="text-2xl font-black text-foreground">Matching workspace</h1>
         <p className="mt-1 text-sm font-semibold text-muted-foreground">Persisted algorithm suggestions and human decisions are separate. Nothing is confirmed automatically.</p>
@@ -300,15 +320,14 @@ export function MatchingPage() {
           className="grid gap-3 border-b border-border p-4 md:grid-cols-[minmax(14rem,1fr)_12rem_12rem_auto]"
           onSubmit={(event) => {
             event.preventDefault();
-            setQueueOffset(0);
-            setSearch(searchDraft.trim());
+            setSearch(searchDraft.trim(), { offset: null });
           }}
         >
           <Field label="Search claims">
             <Input value={searchDraft} onChange={(event) => setSearchDraft(event.target.value)} placeholder="Claimant, passenger, flight or operational ID" />
           </Field>
           <Field label="Match state">
-            <Select value={stateFilter} onChange={(event) => { setQueueOffset(0); setStateFilter(event.target.value); }}>
+            <Select value={stateFilter} onChange={(event) => { setStateFilter(event.target.value, { offset: null }); }}>
               <option value="">All states</option>
               <option value="UNMATCHED">Unmatched</option>
               <option value="SUGGESTED">Suggested</option>
@@ -317,7 +336,7 @@ export function MatchingPage() {
             </Select>
           </Field>
           <Field label="Relationship status">
-            <Select value={relationshipFilter} onChange={(event) => { setQueueOffset(0); setRelationshipFilter(event.target.value); }}>
+            <Select value={relationshipFilter} onChange={(event) => { setRelationshipFilter(event.target.value, { offset: null }); }}>
               <option value="">All statuses</option>
               <option value="VERIFIED">Verified</option>
               <option value="UNVERIFIED">Unverified</option>
@@ -335,7 +354,7 @@ export function MatchingPage() {
               {loadingQueue ? <Loading label="Loading" /> : null}
             </div>
             <div className="max-h-[42rem] overflow-y-auto p-2">
-              {!loadingQueue && !queue.length ? <EmptyState title="No claims found" detail="Adjust the server-side filters." /> : null}
+              {!loadingQueue && queueLoaded && !queue.length ? <EmptyState title="No claims found" detail="Adjust the server-side filters." /> : null}
               {queue.map((item) => {
                 const itemClaim = item.relationshipClaim;
                 const selected = selectedClaimId === itemClaim.id;
@@ -371,6 +390,7 @@ export function MatchingPage() {
             {!loadingContext && !context ? <EmptyState title="Select a claim" detail="Review its persisted suggestions and decision history." /> : null}
             {!loadingContext && context ? (
               <div className="grid gap-4">
+                <SupportJourneyPanel entity="claim" id={claim.id} revision={`${claim.version}:${currentDecision?.id ?? ""}`} />
                 <section className="rounded-md border border-border p-4" aria-labelledby="matching-claim-heading">
                   <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
                     <div>
@@ -391,11 +411,11 @@ export function MatchingPage() {
                 </section>
 
                 {currentDecision ? (
-                  <section className="rounded-md border border-emerald-200 bg-emerald-50 p-4 text-emerald-950">
+                  <section className={`rounded-md border p-4 ${currentDecision.effectiveValidity === "CURRENT" ? "border-emerald-200 bg-emerald-50 text-emerald-950" : "border-amber-200 bg-amber-50 text-amber-950"}`}>
                     <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
                       <div>
-                        <h3 className="font-black">Current human decision: {currentDecision.decision}</h3>
-                        <p className="mt-1 text-sm font-semibold">Passenger {currentDecision.passengerRecordId} · {currentDecision.reason}</p>
+                        <h3 className="font-black">Recorded human decision: {currentDecision.decision}</h3>
+                        <p className="mt-1 text-sm font-semibold">Human confirmation · {currentDecision.reason}</p>
                         <p className="mt-1 text-xs font-semibold">By {currentDecision.decisionByDisplayName || "Recorded actor"} at {formatDate(currentDecision.decidedAt)} · validity {currentDecision.effectiveValidity}</p>
                       </div>
                       {canConfirm ? <Button variant="danger" size="sm" icon={XCircle} onClick={() => openInvalidate(currentDecision)}>Invalidate</Button> : null}
@@ -419,15 +439,15 @@ export function MatchingPage() {
                             <h4 className="font-black text-foreground">{personName(suggestion.passenger)} · {suggestion.passenger?.operationalId}</h4>
                             <p className="mt-1 text-sm text-muted-foreground">{suggestion.passenger?.flightNumber || "No flight"} · {suggestion.passenger?.route || "No route"} · passenger v{suggestion.passengerVersion}</p>
                           </div>
-                          <div className="flex flex-wrap gap-2"><Badge tone="info">{percent(suggestion.score)}</Badge><StatusBadge value={suggestion.status} /></div>
+                          <div className="flex flex-wrap gap-2"><Badge tone="info">System suggested — human review required</Badge>{suggestion.claimVersion !== claim.version || suggestion.passengerVersion !== suggestion.passenger?.version ? <Badge tone="danger">Stale suggestion — regenerate</Badge> : null}<StatusBadge value={suggestion.status} /></div>
                         </div>
                         <div className="mt-3 grid gap-3 md:grid-cols-2">
                           <div><p className="text-xs font-black uppercase text-emerald-800">Positive signals</p><ul className="mt-1 list-disc pl-5 text-sm">{suggestion.positiveSignals?.length ? suggestion.positiveSignals.map((signal: AnyRecord, index: number) => <li key={`${signal.key}-${index}`}>{signal.label}{signal.detail ? `: ${signal.detail}` : ""}</li>) : <li>None recorded</li>}</ul></div>
                           <div><p className="text-xs font-black uppercase text-red-800">Conflicts</p><ul className="mt-1 list-disc pl-5 text-sm">{suggestion.conflicts?.length ? suggestion.conflicts.map((signal: AnyRecord, index: number) => <li key={`${signal.key}-${index}`}>{signal.label}{signal.detail ? `: ${signal.detail}` : ""}</li>) : <li>No detected conflicts</li>}</ul></div>
                         </div>
-                        <p className="mt-3 text-xs font-semibold text-muted-foreground">{suggestion.algorithm} v{suggestion.algorithmVersion} · generation {suggestion.generationId} · suggestion v{suggestion.version}</p>
+                        <details className="mt-3 text-xs text-muted-foreground"><summary className="focus-ring cursor-pointer font-semibold">Suggestion evidence and technical provenance</summary><p className="mt-1">Signal score {percent(suggestion.score)} · {suggestion.algorithm} v{suggestion.algorithmVersion} · generation {suggestion.generationId} · suggestion v{suggestion.version}</p></details>
                         <div className="mt-3 flex flex-wrap gap-2">
-                          {canConfirm ? <Button variant="success" size="sm" icon={CheckCircle2} onClick={() => openConfirm(suggestion.passenger, suggestion)}>Confirm match</Button> : null}
+                          {canConfirm ? <Button variant="success" size="sm" icon={CheckCircle2} disabled={suggestion.claimVersion !== claim.version || suggestion.passengerVersion !== suggestion.passenger?.version} onClick={() => openConfirm(suggestion.passenger, suggestion)}>Confirm match</Button> : null}
                           {canReject ? <Button variant="danger" size="sm" icon={XCircle} onClick={() => openReject(suggestion)}>Reject suggestion</Button> : null}
                         </div>
                       </article>
@@ -443,7 +463,7 @@ export function MatchingPage() {
                   </form>
                   <div className="divide-y divide-border">
                     {loadingCandidates ? <div className="p-3"><Loading label="Loading candidates" /></div> : null}
-                    {!loadingCandidates && !candidates.length ? <div className="p-3"><EmptyState title="No passengers found" /></div> : null}
+                    {!loadingCandidates && candidatesLoaded && !candidates.length ? <div className="p-3"><EmptyState title="No passengers found" /></div> : null}
                     {candidates.map((passenger) => (
                       <div key={passenger.id} className="flex flex-col gap-2 p-3 sm:flex-row sm:items-center sm:justify-between">
                         <div><p className="font-black">{personName(passenger)} · {passenger.operationalId}</p><p className="text-sm text-muted-foreground">{passenger.flightNumber || "No flight"} · {passenger.route || "No route"} · v{passenger.version}</p></div>
