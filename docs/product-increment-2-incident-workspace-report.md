@@ -42,16 +42,18 @@ unavailable never becomes measured zero.
 | --- | --- |
 | Coordinator | Published authority, permitted attention, own work, broad incident coordination including unassigned tasks/requests, current authorized staffing and significant activity; specialist metrics available |
 | TEC | Published authority, permitted urgent support/enquiry/family attention, readable own work and personal obligations; specialist data unavailable; follows urgent support to the existing request drawer |
-| Group leader | Personal responsibilities, active group-member-owned open tasks, group/personal staffing and documents; forbidden Support Requests remain unavailable |
+| Group leader | Personal responsibilities, current group-member-owned open tasks, group/personal staffing and documents; forbidden Support Requests remain unavailable |
 | Member | Published briefing, own tasks and document acknowledgements, personal staffing; no broad team coordination projection |
 | Observer | Incident/published authority and authorized staffing observation; no work lifecycle controls, no personal/team work implied empty, no false specialist zero |
 | Admin | Combined operational roles give the appropriate operational view; a separate admin-only fixture has incident identity but unavailable operational domains |
 
 The production reader resolves incident-effective access again with scoped role
 assignments and DENY overrides. Group scopes are restricted to active groups in
-the selected incident. Team task owners derive from active member profiles,
-current group membership and active user/incident membership. Other groups and
-incidents are excluded. Tasks have no structured group ownership: unassigned tasks
+the selected incident. Team task owners derive from nonarchived linked member
+profiles and current group membership. Actor incident access is required; assignee eligibility is checked
+separately by the authoritative domain. Losing incident access therefore keeps
+group-owned work visible with Reassignment required, rather than hiding the
+blocker. Other groups and incidents are excluded. Tasks have no structured group ownership: unassigned tasks
 are not guessed into a leader's team by free-text function labels. Global
 coordination may see them; scoped leaders see their current member-owned work.
 No privilege is inferred from frontend layout or system-admin alone.
@@ -93,11 +95,18 @@ states and active assigned member profiles, with EffectiveAccess roster group/ow
 scope. Draft, Declined, Cancelled, Completed, ended and future rows are excluded.
 Confirmed coverage, Awaiting confirmation and Unfilled duty are distinct text
 states. Empty current periods explicitly do not establish full coverage. Staffing
-is an operational read, not an authorization editor.
+is an operational read, not an authorization editor. An own-roster reader with no
+nonarchived linked profile receives unavailable staffing, consistent with the
+source permission contract; it is not reported as measured empty.
 
 Activity is a bounded recent curated slice of CaseTimelineEvent, gated by Timeline
 and source read permissions. Task/roster source events also obey workspace scope.
-Only published briefing events and genuine session events use those source links.
+Own-roster events remain visible with roster:read-own and a nonarchived linked
+profile even without broad roster read. Chronological cursor pages continue until
+six permitted entries or the actual end, so fifty newer private events cannot hide older permitted change.
+Source visibility is checked in batches and actors resolved only for returned
+entries. Only published briefing events and genuine session events use those
+source links.
 Human title/time/actor/short summary replace technical presentation; metadata is
 not projected, and technical UUID/hash/storage references in text are removed.
 AuditLog is not converted into Timeline. Full Timeline remains a separate page.
@@ -135,10 +144,10 @@ during them to avoid shared Vite caches.
 | npm ci / Prisma generation | Passed |
 | lint / typecheck / build | Passed |
 | Full unit command | 134 passed; established PostgreSQL/dormant suites environment-skipped |
-| Fresh full PostgreSQL command | 299 passed / 25 files, zero skipped |
-| Dedicated PI2 production PostgreSQL | 15 passed |
+| Fresh full PostgreSQL command | 303 passed / 25 files, zero skipped |
+| Dedicated PI2 production PostgreSQL | 19 passed |
 | General Playwright | 62 passed |
-| PI1/PI2 + retained PostgreSQL browser workflows | 45 passed (15 PI1 + 14 PI2 + 16 retained) |
+| PI1/PI2 + retained PostgreSQL browser workflows | 46 passed (15 PI1 + 15 PI2 + 16 retained) |
 | Production dependency audit | 0 vulnerabilities |
 | Production PostgreSQL/Entra startup | Passed; health/readiness, SSO-only config, dev login route 404, anonymous Dashboard 401 |
 | Four-width visual/overflow and keyboard journeys | Passed; final screenshots/preview visually inspected |
@@ -149,6 +158,17 @@ One initial existing unit case reported socket hang up; its isolated rerun and
 subsequent full command passed without a production change. An attempted repeat of
 the full PostgreSQL suite on its used disposable database failed its initial
 notification-seed assertion; the final gate recreates/migrates/seeds a fresh database.
+Both automated review findings were fixed and covered by production PostgreSQL
+cases: own-roster activity for TEC, and permitted activity behind fifty newer
+out-of-group events. One concurrent post-review full-suite run exceeded an
+existing five-second release-integrity test limit; the sequential fresh rerun
+passed all 303 tests without timeout changes.
+Additional scope regressions keep blocked group-owned work visible after assignee
+incident-access revocation and keep missing own-roster profiles unavailable.
+During temporary host CPU contention, an intermediate local browser rerun used a
+90-second CLI test budget; repository and CI time limits stayed unchanged. The
+final browser gates use the standard repository limits.
+
 Fixture setup was corrected to respect existing terminal/publication constraints
 and actual group membership; those domain constraints were not weakened.
 

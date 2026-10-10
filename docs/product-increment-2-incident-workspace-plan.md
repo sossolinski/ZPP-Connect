@@ -18,7 +18,7 @@ activity and next update; it creates no persisted handover or parallel dashboard
 | --- | --- |
 | Coordinator | Published briefing, permitted attention, own work, incident coordination work including unassigned, broad permitted staffing/activity, specialist subsection |
 | TEC | Published briefing, permitted enquiry/family/support follow-up, own tasks/requests if readable, permitted staffing/activity; restricted metrics unavailable |
-| Group leader | Briefing, personal obligations, open work owned by active members of incident-scoped groups, scoped current staffing; no forbidden support ownership |
+| Group leader | Briefing, personal obligations, open work owned by current members of incident-scoped groups, scoped current staffing; no forbidden support ownership |
 | Member | Briefing, own work/documents and permitted staffing; no team coordination projection |
 | Observer | Incident and published briefing, permitted staffing observation; no actionable work controls or implied empty restricted domains |
 | Admin | Actual effective operational permissions decide content; system administration alone provides no operational domain visibility |
@@ -36,7 +36,9 @@ MemberProfile/GroupMembership/OperationalGroup, RosterShift and CaseTimelineEven
 Notifications retain the existing shell indicator/inbox, separate from work;
 personal document obligations continue through PI1's compliance evaluator.
 
-Team task scope is derived from active group-member linked users; tasks have no
+Team task scope is derived from current group membership of nonarchived linked
+profiles. Assignee eligibility remains a separate existing-domain check: losing
+incident access must not hide blocked group-owned work from its leader. Tasks have no
 structured group ownership, so unassigned tasks are shown only in global
 coordination scope. Do not infer group links from free text or add persistence.
 Current staffing uses start <= snapshot time < end and published/confirmed state,
