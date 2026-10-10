@@ -36,12 +36,12 @@ export async function readIncidentWorkspace(db: PrismaClient, incidentId: string
   const groups = groupIds.length ? await db.operationalGroup.findMany({ where: { id: { in: groupIds }, incidentId, status: { not: "Archived" } }, select: { id: true, name: true } }) : [];
   const liveGroupIds = new Set(groups.map(group => group.id));
   const usersForGroups = async (ids: Set<string>) => {
-    const rows = await db.memberProfile.findMany({ where: { status: "Active", linkedUser: { status: "Active", incidentAssignments: { some: { incidentId, active: true } } }, memberships: { some: { removedAt: null, groupId: { in: [...ids].filter(id => liveGroupIds.has(id)) } } } }, select: { linkedUserId: true } });
+    const rows = await db.memberProfile.findMany({ where: { status: { not: "Archived" }, linkedUserId: { not: null }, memberships: { some: { removedAt: null, groupId: { in: [...ids].filter(id => liveGroupIds.has(id)) } } } }, select: { linkedUserId: true } });
     return rows.flatMap(row => row.linkedUserId ? [row.linkedUserId] : []);
   };
   const taskTeamIds = taskScope.allowed && !taskScope.global ? await usersForGroups(taskScope.groupIds) : [];
   const requestTeamIds = requestScope.allowed && !requestScope.global ? await usersForGroups(requestScope.groupIds) : [];
-  const groupLabel = (ids: Set<string>) => `Members of ${groups.filter(group => ids.has(group.id)).map(group => group.name).join(", ") || "your incident groups"}`;
+  const groupLabel = (ids: Set<string>) => `Current members of ${groups.filter(group => ids.has(group.id)).map(group => group.name).join(", ") || "your incident groups"}`;
 
   async function tasks(allowed: boolean, owned: Prisma.AssignmentTaskWhereInput, scope: string): Promise<IncidentWorkspace["myTasks"]> {
     if (!allowed) return unavailable;
@@ -78,9 +78,9 @@ export async function readIncidentWorkspace(db: PrismaClient, incidentId: string
     requests(has("request:read") && requestScope.allowed, requestScope.global ? {} : { ownerUserId: { in: requestTeamIds } }, requestScope.global ? "Open incident support requests, including unassigned work" : groupLabel(requestScope.groupIds)),
     has("briefing:read") ? db.operationalBriefing.findFirst({ where: { sessionId: incidentId, status: "Published" }, orderBy: [{ publishedAt: "desc" }, { revision: "desc" }], include: { priorities: { orderBy: { sortOrder: "asc" }, take: 3 }, risks: { where: { status: { notIn: ["Closed", "Resolved"] } }, orderBy: { createdAt: "desc" }, take: 3 } } }) : null,
   ]);
-  const member = has("roster:read-own") ? await db.memberProfile.findFirst({ where: { linkedUserId: userId, status: "Active" }, select: { id: true } }) : null;
+  const member = has("roster:read-own") ? await db.memberProfile.findFirst({ where: { linkedUserId: userId, status: { not: "Archived" } }, select: { id: true } }) : null;
   let coverage: IncidentWorkspace["coverage"] = unavailable;
-  if (rosterScope.allowed || has("roster:read-own")) {
+  if (rosterScope.allowed || (has("roster:read-own") && member)) {
     const permitted: Prisma.RosterShiftWhereInput = rosterScope.global ? {} : { OR: [
       ...(rosterScope.groupIds.size ? [{ groupId: { in: [...rosterScope.groupIds].filter(id => liveGroupIds.has(id)) } }] : []),
       ...(member ? [{ assignedMemberProfileId: member.id }] : []),
@@ -110,30 +110,43 @@ export async function readIncidentWorkspace(db: PrismaClient, incidentId: string
       ["briefing", "briefing:read", "/active-event", ""], ["operationalBriefing", "briefing:read", "/active-event", ""],
       ["rosterShift", "roster:read", "/rostering", "shiftId"], ["session", "session:read", "/sessions", ""],
     ] as const;
-    const visible = definitions.filter(([, permission]) => has(permission));
-    const events = await db.caseTimelineEvent.findMany({ where: { sessionId: incidentId, occurredAt: { lte: now }, OR: [{ entityType: { in: visible.map(([type]) => type) } }, { entityType: null, eventType: { in: ["note", "status", "coordination", "decision"] } }] }, orderBy: [{ occurredAt: "desc" }, { id: "desc" }], take: 50 });
-    const actorIds = [...new Set(events.flatMap(row => row.createdById ? [row.createdById] : []))];
-    const actors = await db.user.findMany({ where: { id: { in: actorIds } }, select: { id: true, displayName: true } });
-    const taskEventIds = events.filter(row => row.entityType === "assignmentTask").flatMap(row => row.entityId ? [row.entityId] : []);
-    const rosterEventIds = events.filter(row => row.entityType === "rosterShift").flatMap(row => row.entityId ? [row.entityId] : []);
-    const [visibleTasks, visibleShifts] = await Promise.all([
-      db.assignmentTask.findMany({ where: { sessionId: incidentId, id: { in: taskEventIds }, ...(!taskScope.global ? { assignedUserId: { in: [...taskTeamIds, userId] } } : {}) }, select: { id: true } }),
-      db.rosterShift.findMany({ where: { sessionId: incidentId, id: { in: rosterEventIds }, ...(!rosterScope.global ? { OR: [{ groupId: { in: [...rosterScope.groupIds].filter(id => liveGroupIds.has(id)) } }, ...(member ? [{ assignedMemberProfileId: member.id }] : [])] } : {}) }, select: { id: true } }),
-    ]);
-    const taskIds = new Set(visibleTasks.map(row => row.id)), shiftIds = new Set(visibleShifts.map(row => row.id));
-    const items: WorkspaceActivity[] = [];
-    for (const row of events) {
-      const source = visible.find(([type]) => type === row.entityType);
-      if (source?.[0] === "assignmentTask" && (!row.entityId || !taskIds.has(row.entityId))) continue;
-      if (source?.[0] === "rosterShift" && (!row.entityId || !shiftIds.has(row.entityId))) continue;
-      if ((source?.[0] === "briefing" || source?.[0] === "operationalBriefing") && !/published/i.test(row.title)) continue;
-      if (source?.[0] === "session" && row.eventType !== "session") continue;
-      const title = operationalActivityText(row.title) || "Operational update";
-      const direct = Boolean(source && row.entityId && source[3]);
-      items.push({ id: row.id, title, summary: operationalActivityText(row.body), occurredAt: row.occurredAt.toISOString(), actor: actors.find(actor => actor.id === row.createdById)?.displayName ?? "System",
-        href: source ? direct ? `${source[2]}?${source[3]}=${encodeURIComponent(row.entityId!)}` : source[2] : `/timeline?eventId=${encodeURIComponent(row.id)}`, actionLabel: direct ? "Open record" : source ? source[2] === "/active-event" ? "Read briefing" : "Open incidents" : "Read timeline entry" });
-      if (items.length === limit) break;
+    const visible = definitions.filter(([, permission]) => has(permission) || (permission === "roster:read" && has("roster:read-own") && Boolean(member)));
+    const items: Array<WorkspaceActivity & { actorId: string | null }> = [];
+    let cursor: string | undefined;
+    // Source scope can discard a whole page. Continue to the next chronological
+    // page until six permitted entries or the actual end, never claim false empty.
+    while (items.length < limit) {
+      const events = await db.caseTimelineEvent.findMany({
+        where: { sessionId: incidentId, occurredAt: { lte: now }, OR: [{ entityType: { in: visible.map(([type]) => type) } }, { entityType: null, eventType: { in: ["note", "status", "coordination", "decision"] } }] },
+        orderBy: [{ occurredAt: "desc" }, { id: "desc" }], take: 50,
+        ...(cursor ? { cursor: { id: cursor }, skip: 1 } : {}),
+      });
+      if (!events.length) break;
+      const taskEventIds = events.filter(row => row.entityType === "assignmentTask").flatMap(row => row.entityId ? [row.entityId] : []);
+      const rosterEventIds = events.filter(row => row.entityType === "rosterShift").flatMap(row => row.entityId ? [row.entityId] : []);
+      const [visibleTasks, visibleShifts] = await Promise.all([
+        taskEventIds.length ? db.assignmentTask.findMany({ where: { sessionId: incidentId, id: { in: taskEventIds }, ...(!taskScope.global ? { assignedUserId: { in: [...taskTeamIds, userId] } } : {}) }, select: { id: true } }) : [],
+        rosterEventIds.length ? db.rosterShift.findMany({ where: { sessionId: incidentId, id: { in: rosterEventIds }, ...(!rosterScope.global ? { OR: [{ groupId: { in: [...rosterScope.groupIds].filter(id => liveGroupIds.has(id)) } }, ...(member ? [{ assignedMemberProfileId: member.id }] : [])] } : {}) }, select: { id: true } }) : [],
+      ]);
+      const taskIds = new Set(visibleTasks.map(row => row.id)), shiftIds = new Set(visibleShifts.map(row => row.id));
+      for (const row of events) {
+        const source = visible.find(([type]) => type === row.entityType);
+        if (source?.[0] === "assignmentTask" && (!row.entityId || !taskIds.has(row.entityId))) continue;
+        if (source?.[0] === "rosterShift" && (!row.entityId || !shiftIds.has(row.entityId))) continue;
+        if ((source?.[0] === "briefing" || source?.[0] === "operationalBriefing") && !/published/i.test(row.title)) continue;
+        if (source?.[0] === "session" && row.eventType !== "session") continue;
+        const title = operationalActivityText(row.title) || "Operational update";
+        const direct = Boolean(source && row.entityId && source[3]);
+        items.push({ id: row.id, title, summary: operationalActivityText(row.body), occurredAt: row.occurredAt.toISOString(), actor: "System", actorId: row.createdById,
+          href: source ? direct ? `${source[2]}?${source[3]}=${encodeURIComponent(row.entityId!)}` : source[2] : `/timeline?eventId=${encodeURIComponent(row.id)}`, actionLabel: direct ? "Open record" : source ? source[2] === "/active-event" ? "Read briefing" : "Open incidents" : "Read timeline entry" });
+        if (items.length === limit) break;
+      }
+      if (events.length < 50) break;
+      cursor = events.at(-1)!.id;
     }
-    return available(list(items, items.length, "Recent permitted significant events; up to 6 shown"));
+    const actorIds = [...new Set(items.flatMap(row => row.actorId ? [row.actorId] : []))];
+    const actors = actorIds.length ? await db.user.findMany({ where: { id: { in: actorIds } }, select: { id: true, displayName: true } }) : [];
+    const projected = items.map(({ actorId, ...row }) => ({ ...row, actor: actors.find(actor => actor.id === actorId)?.displayName ?? "System" }));
+    return available(list(projected, projected.length, "Recent permitted significant events; up to 6 shown"));
   }
 }

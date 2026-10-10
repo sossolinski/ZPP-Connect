@@ -90,6 +90,16 @@ pg("PI2 production PostgreSQL Incident Workspace", () => {
     if (coord.myRequests.status !== "available") throw new Error("Missing requests");
     expect(coord.myRequests.value.items.find(row => row.operationalId === `${mark}-REQUEST`)?.warning).toContain("Waiting");
   });
+  it("keeps current group-owned work visible when the assignee loses incident access", async () => {
+    const membership = await db!.incidentAssignment.findFirstOrThrow({ where: { incidentId, userId: users["volunteer@lot.pl"]!, active: true } });
+    const before = await db!.assignmentTask.findUniqueOrThrow({ where: { id: taskIds["volunteer@lot.pl"] } });
+    await db!.incidentAssignment.update({ where: { id: membership.id }, data: { active: false } });
+    try {
+      const data = await workspace("zpp@lot.pl"); if (data.teamTasks.status !== "available") throw new Error("Missing team work");
+      expect(data.teamTasks.value.items.find(row => row.id === before.id)?.warning).toBe("Reassignment required");
+      expect(await db!.assignmentTask.findUniqueOrThrow({ where: { id: before.id } })).toEqual(before);
+    } finally { await db!.incidentAssignment.update({ where: { id: membership.id }, data: { active: true } }); }
+  });
   it("uses exact current period and publication/confirmation states, with group scope", async () => {
     const leader = await readIncidentWorkspace(db!, incidentId, users["zpp@lot.pl"]!, epoch);
     if (leader.coverage.status !== "available") throw new Error("Missing coverage");
@@ -104,6 +114,13 @@ pg("PI2 production PostgreSQL Incident Workspace", () => {
   it("keeps system administration alone separate from operational capabilities", async () => {
     const data = await workspace(`${mark.toLowerCase()}-admin@example.test`);
     for (const key of ["briefing", "myTasks", "myRequests", "teamTasks", "teamRequests", "coverage", "activity"] as const) expect(data[key]).toEqual({ status: "unavailable" });
+  });
+  it("does not turn a missing own-roster profile into measured empty staffing", async () => {
+    const grant = await db!.permissionOverride.create({ data: { userId: adminOnlyId, permission: "roster:read-own", effect: "GRANT", reason: "Missing profile acceptance", createdById: users["admin@lot.pl"]! } });
+    try {
+      const response = await request(createSharedApp()).get("/api/roster-shifts").set("x-user-email", `${mark.toLowerCase()}-admin@example.test`).query({ sessionId: incidentId }); expect(response.status).toBe(403);
+      const data = await workspace(`${mark.toLowerCase()}-admin@example.test`); expect(data.coverage).toEqual({ status: "unavailable" });
+    } finally { await db!.permissionOverride.delete({ where: { id: grant.id } }); }
   });
   it("exposes measured empty own work while preserving unavailable team scope", async () => {
     const data = await workspace(`${mark.toLowerCase()}@example.test`); expect(data.myTasks.status).toBe("available"); expect(data.teamTasks.status).toBe("unavailable");
@@ -132,6 +149,32 @@ pg("PI2 production PostgreSQL Incident Workspace", () => {
     if (data.activity.status !== "available") throw new Error("Missing activity");
     const item = data.activity.value.items.find(row => row.title.includes(mark)); expect(item?.actor).toBe("ZPP Coordinator"); expect(item?.href).toContain("/timeline?eventId=");
     expect(JSON.stringify(data.activity)).not.toContain(outsiderId); expect(JSON.stringify(data.activity)).not.toContain("DO-NOT-PROJECT"); expect(JSON.stringify(data.activity)).not.toContain("private/key"); expect(JSON.stringify(data.activity)).not.toContain("a".repeat(64));
+  });
+  it("includes significant own-roster events for TEC without exposing another member's roster", async () => {
+    const profile = await db!.memberProfile.findUniqueOrThrow({ where: { linkedUserId: users["tec@lot.pl"] } });
+    const id = `${mark}-TEC-OWN`;
+    await db!.rosterShift.create({ data: { id, operationalId: `${mark}-TEC-OWN-ROS`, sessionId: incidentId, assignedMemberProfileId: profile.id, title: "TEC owned shift", duty: "Intake", functionName: "TEC", location: "Synthetic desk", startAt: new Date("2000-01-01T00:00:00Z"), endAt: new Date("2001-01-01T00:00:00Z"), status: "Confirmed" } });
+    await db!.caseTimelineEvent.createMany({ data: [
+      { sessionId: incidentId, eventType: "roster", entityType: "rosterShift", entityId: id, title: `${mark}-OWN-ROSTER`, occurredAt: new Date("2002-01-01T00:00:00Z") },
+      { sessionId: incidentId, eventType: "roster", entityType: "rosterShift", entityId: `${mark}-BETA`, title: `${mark}-PRIVATE-ROSTER`, occurredAt: new Date("2003-01-01T00:00:00Z") },
+    ] });
+    const response = await request(createSharedApp()).get(`/api/roster-shifts/${id}`).set("x-user-email", "tec@lot.pl").query({ sessionId: incidentId }); expect(response.status).toBe(200);
+    const data = await readIncidentWorkspace(db!, incidentId, users["tec@lot.pl"]!, new Date("2004-01-01T00:00:00Z"));
+    if (data.activity.status !== "available") throw new Error("Missing activity");
+    expect(data.activity.value.items.find(row => row.title === `${mark}-OWN-ROSTER`)?.href).toBe(`/rostering?shiftId=${id}`);
+    expect(data.activity.value.items.some(row => row.title === `${mark}-PRIVATE-ROSTER`)).toBe(false);
+  });
+  it("finds permitted activity behind fifty newer out-of-group events", async () => {
+    const grant = await db!.permissionOverride.create({ data: { userId: users["zpp@lot.pl"]!, permission: "timeline:read", effect: "GRANT", reason: "Scoped Timeline acceptance", createdById: users["admin@lot.pl"]! } });
+    try {
+      await db!.caseTimelineEvent.createMany({ data: Array.from({ length: 50 }, (_, index) => ({ sessionId: incidentId, eventType: "assignment", entityType: "assignmentTask", entityId: taskIds.outside, title: `${mark}-OUT-EVENT-${index}`, occurredAt: new Date("2003-01-01T00:00:00Z") })) });
+      await db!.caseTimelineEvent.create({ data: { sessionId: incidentId, eventType: "assignment", entityType: "assignmentTask", entityId: taskIds["zpp@lot.pl"], title: `${mark}-PERMITTED-EVENT`, occurredAt: new Date("2002-01-01T00:00:00Z") } });
+      const data = await readIncidentWorkspace(db!, incidentId, users["zpp@lot.pl"]!, new Date("2004-01-01T00:00:00Z"));
+      if (data.activity.status !== "available") throw new Error("Missing activity");
+      expect(data.activity.value.items.map(row => row.title)).toContain(`${mark}-PERMITTED-EVENT`);
+      expect(data.activity.value.items.some(row => row.title.includes("OUT-EVENT"))).toBe(false);
+      expect(data.activity.value.items.length).toBeLessThanOrEqual(6);
+    } finally { await db!.permissionOverride.delete({ where: { id: grant.id } }); }
   });
   it("fails an authoritative workspace read rather than presenting an empty success, then retries", async () => {
     const spy = vi.spyOn(runtimeDb.operationalBriefing, "findFirst").mockRejectedValueOnce(new Error("PI2 source unavailable"));

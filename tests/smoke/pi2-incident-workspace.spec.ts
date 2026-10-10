@@ -111,6 +111,18 @@ test("staffing uses the current period and opens the exact shift; activity opens
   await expect(page.getByRole("dialog")).toContainText(`${marker} handover update`);
 });
 
+test("leader sees reassignment-needed work after a group assignee loses incident access", async ({ page }) => {
+  const member = await db.user.findUniqueOrThrow({ where: { email: "volunteer@lot.pl" } });
+  const membership = await db.incidentAssignment.findFirstOrThrow({ where: { incidentId: activeId, userId: member.id, active: true } });
+  await db.incidentAssignment.update({ where: { id: membership.id }, data: { active: false } });
+  try {
+    await openWorkspace(page, "zpp@lot.pl");
+    const item = page.getByTestId("workspace-team-work").locator(`a[href="/assignments?assignmentId=${tasks["volunteer@lot.pl"]}"]`);
+    await expect(item).toContainText("Reassignment required");
+    await expect(item).toContainText(`${marker} volunteer@lot.pl responsibility`);
+  } finally { await db.incidentAssignment.update({ where: { id: membership.id }, data: { active: true } }); }
+});
+
 test("personal empty differs from unavailable and unpublished authority", async ({ page }) => {
   await openWorkspace(page, "volunteer@lot.pl", emptyId);
   await expect(page.getByTestId("workspace-my-work")).toContainText("No open work in this scope");
