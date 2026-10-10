@@ -228,7 +228,7 @@ All required local gates passed on the final implementation before publication.
 | npm run lint | Passed API/web type checking |
 | npm test | 152 passed; 394 skipped (PostgreSQL-only and explicitly dormant legacy coverage); 54 files |
 | npm run build | Passed; existing Vite chunk-size warning remains a separate volume/performance concern |
-| Full PostgreSQL | 353 passed / 27 files, zero skipped, fresh zpp_connect_pi4_final_20261011 |
+| Full PostgreSQL | 353 passed / 27 files, zero skipped, fresh zpp_connect_pi4_ci_fixture_20261011 (rerun after CI fixture correction) |
 | Dedicated PI4 | 20 PostgreSQL + 11 bounded-return policy cases passed, fresh zpp_connect_pi4_dedicated_20261011 |
 | General Playwright | 62 passed |
 | PostgreSQL Playwright | 83 passed: PI1 15 + PI2 15 + PI3 19 + PI4 18 + retained 16; fresh zpp_connect_pi4_browser_finalgate_20261011 |
@@ -260,6 +260,14 @@ The correction filters compliance failures by acknowledgementRequired and adds a
 totals. A focused regression checks reference-only compliance and mixed overdue obligations;
 the full unit suite (152), lint and build passed after the correction. PostgreSQL services,
 schema, browser behavior and retained artifacts are unchanged by this memory-only fix.
+
+One subsequent CI PostgreSQL run exposed an inherited Stage 14 fixture issue: its
+random identifier was F14-3864756748, whose digits-only token correctly matched the
+notification safety policy. Four recipient-delivery assertions failed while all PI4
+cases passed. The fixture now prefixes the random token with a letter; safety policy
+and delivery assertions are unchanged. The actual policy was checked against both
+the failing numeric and corrected alphanumeric values. A new fresh local database
+zpp_connect_pi4_ci_fixture_20261011 passed all 353 tests with zero skipped.
 
 ## Definition of Done
 
