@@ -131,6 +131,11 @@ jobs:
           PLAYWRIGHT_PERSISTENCE_MODE: postgres
         run: npx playwright test tests/smoke/pi2-incident-workspace.spec.ts
 
+      - name: PI3 PostgreSQL continuous support journey acceptance
+        env:
+          PLAYWRIGHT_PERSISTENCE_MODE: postgres
+        run: npx playwright test tests/smoke/pi3-family-passenger-journey.spec.ts
+
       - name: Stage 16 PostgreSQL browser workflow
         env:
           PLAYWRIGHT_PERSISTENCE_MODE: postgres

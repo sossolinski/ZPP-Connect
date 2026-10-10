@@ -95,7 +95,7 @@ test("keeps explainable suggestions separate from an explicit human confirmation
   await expect(dialog.getByText(/same ID is retained after a timeout/i)).toBeVisible();
   await dialog.getByLabel("Decision reason").fill("Human reviewed the matching signals and authoritative passenger source.");
   await dialog.getByRole("button", { name: "Confirm match" }).click();
-  await expect(page.getByText("Current human decision: CONFIRMED")).toBeVisible();
+  await expect(page.getByText("Recorded human decision: CONFIRMED")).toBeVisible();
   await expect(page.getByText("Relationship verification")).toBeVisible();
 
   const family = await apiGet(page, `/family-records/${value.family.id}`, { sessionId: session.id });
@@ -132,7 +132,7 @@ test("supports manual matching without an invented score and preserves idempoten
   const dialog = page.getByRole("dialog", { name: "Confirm passenger match" });
   await dialog.getByLabel("Decision reason").fill("Operator found the Passenger manually and reviewed authoritative source evidence.");
   await dialog.getByRole("button", { name: "Confirm match" }).click();
-  await expect(page.getByText("Current human decision: CONFIRMED")).toBeVisible();
+  await expect(page.getByText("Recorded human decision: CONFIRMED")).toBeVisible();
   const manualProjection = await apiGet(page, "/matching-records", { sessionId: session.id, search: `CASE-${token}-UI` });
   expect(manualProjection.body.data[0].matchScore).toBeNull();
   await page.setViewportSize({ width: 390, height: 844 });
@@ -183,8 +183,8 @@ test("separates preparation, checks, authorization and completion in Release Con
   await expect(page.getByRole("button", { name: "Prepare action" })).toBeEnabled();
   await page.getByRole("button", { name: "Prepare action" }).click();
   const prepareDialog = page.getByRole("dialog", { name: "Prepare release action" });
-  await expect(prepareDialog.getByLabel("Current human match").getByRole("option", { name: new RegExp(value.passenger.operationalId) })).toHaveCount(1);
-  await prepareDialog.getByLabel("Current human match").selectOption(match.matchDecisionId);
+  await expect(prepareDialog.getByRole("combobox", { name: /^Current human match/ }).getByRole("option", { name: new RegExp(value.passenger.operationalId) })).toHaveCount(1);
+  await prepareDialog.getByRole("combobox", { name: /^Current human match/ }).selectOption(match.matchDecisionId);
   await prepareDialog.getByLabel("Action type").selectOption("RELEASE");
   await prepareDialog.getByLabel("Receiving party").fill("Authorized browser-test recipient");
   await prepareDialog.getByLabel("Preparation notes").fill("Prepared for independent checks; no authorization implied.");

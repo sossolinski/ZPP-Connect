@@ -122,7 +122,7 @@ test.describe("ZPP Connect portal", () => {
 
     await expect(page.getByRole("heading", { name: "Incident Workspace" })).toBeVisible();
     await expect(page.getByRole("button", { name: /Case Work/ })).toHaveCount(0);
-    await expect(page.getByRole("link", { name: /TEC Intake/ })).toHaveCount(0);
+    await expect(page.getByRole("link", { name: /TEC \/ Enquiries/ })).toHaveCount(0);
     await expect(page.getByRole("link", { name: /Passenger \/ SRC/ })).toHaveCount(0);
     await expect(page.getByRole("link", { name: /Matching/ })).toHaveCount(0);
     await page.getByRole("button", { name: /People/ }).click();
@@ -202,7 +202,7 @@ test.describe("ZPP Connect portal", () => {
     await login(page, "admin@lot.pl");
 
     await expect(page.getByRole("button", { name: "Open navigation" })).toBeVisible();
-    await expect(page.getByRole("link", { name: /TEC Intake/ })).toHaveCount(0);
+    await expect(page.getByRole("link", { name: /TEC \/ Enquiries/ })).toHaveCount(0);
 
     await page.getByRole("button", { name: "Open navigation" }).click();
     await expect(page.getByRole("button", { name: /Case Work/ })).toBeVisible();
@@ -219,11 +219,11 @@ test.describe("ZPP Connect portal", () => {
       ["/dashboard", "Incident Workspace"],
       ["/active-event", "Operational Briefing"],
       ["/sessions", "Incidents"],
-      ["/tec-intake", "TEC Intake"],
-      ["/family-nok", "Family / NOK"],
-      ["/passenger-src", "Passenger / SRC"],
+      ["/tec-intake", "TEC / Enquiries"],
+      ["/family-nok", "Family contacts / Relationship verification"],
+      ["/passenger-src", "Passengers / Source verification"],
       ["/matching", "Matching"],
-      ["/release-control", "Release Control"],
+      ["/release-control", "Release & reunification"],
       ["/requests", "Support Requests"],
       ["/timeline", "Timeline"],
       ["/members", "Members"],
@@ -245,7 +245,7 @@ test.describe("ZPP Connect portal", () => {
 
     await page.goto("/next-of-kin");
     await expect(page).toHaveURL(/\/family-nok$/);
-    await expect(page.getByRole("heading", { name: "Family / NOK", exact: true })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Family contacts / Relationship verification", exact: true })).toBeVisible();
   });
 
   test("shows access administration to System Admin users", async ({ page }) => {
@@ -538,7 +538,7 @@ test.describe("ZPP Connect portal", () => {
   test("keeps TEC and SRC record forms available in the new shell", async ({ page }) => {
     await login(page, "tec@lot.pl");
     await page.goto("/tec-intake");
-    await expect(page.getByRole("heading", { name: "TEC Intake", exact: true })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "TEC / Enquiries", exact: true })).toBeVisible();
     await expect(page.getByText("TEC-2026-000001")).toBeVisible();
     await page.getByRole("button", { name: "New" }).click();
     await expect(page.getByRole("heading", { name: "New TEC enquiry" })).toBeVisible();
@@ -547,10 +547,10 @@ test.describe("ZPP Connect portal", () => {
     await clearAuthSession(page);
     await login(page, "admin@lot.pl");
     await page.goto("/passenger-src");
-    await expect(page.getByRole("heading", { name: "Passenger / SRC", exact: true })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Passengers / Source verification", exact: true })).toBeVisible();
     await expect(page.getByText("PAX-2026-000001")).toBeVisible();
     await page.getByRole("button", { name: "Edit" }).first().click();
-    await expect(page.getByRole("heading", { name: "Edit passenger/SRC record" })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Edit passenger / source record" })).toBeVisible();
     await expect(page.getByRole("button", { name: "Mark SRC confirmed" })).toBeVisible();
   });
 

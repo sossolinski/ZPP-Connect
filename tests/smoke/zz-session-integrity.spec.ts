@@ -129,8 +129,8 @@ test.describe.serial("Stage 2A session integrity", () => {
     await enquiryDrawer.getByRole("button", { name: "Close" }).click();
 
     await page.goto("/family-nok");
-    await page.getByRole("button", { name: "New family record" }).click();
-    const familyDrawer = page.getByRole("dialog", { name: "New family/NOK record" });
+    await page.getByRole("button", { name: "New family contact" }).click();
+    const familyDrawer = page.getByRole("dialog", { name: "New family contact" });
     await expect(familyDrawer.getByLabel("Verification status")).toHaveCount(0);
     await familyDrawer.getByRole("button", { name: "Close" }).click();
 
