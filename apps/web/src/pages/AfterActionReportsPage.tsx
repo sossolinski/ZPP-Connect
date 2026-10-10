@@ -43,12 +43,13 @@ export function AfterActionReportsPage() {
     if (!requestedIncident || requestedIncident.length > 100) { setContextError("Invalid report incident link."); return; }
     void api.recordIncident(requestedIncident).then(s => {
       if (!active) return;
-      if (s.mode !== "REAL" || !["Closed", "Archived"].includes(s.status)) { setContextError("Post-Incident Reporting requires a closed or archived REAL incident."); return; }
+      if (!["Closed", "Archived"].includes(s.status)) { setContextError("Post-Incident Reporting requires a closed or archived historical event."); return; }
       setSelectedSession(s); setSessionId(s.id); setStatus(s.status);
     }).catch(e => { if (active) setContextError("Report incident unavailable: " + e.message); });
     return () => { active = false; };
   }, [requestedIncident]);
   function choose(id: string) {
+    setContextError("");
     const next = new URLSearchParams(params); next.delete("revisionId"); next.delete("artifactId");
     if (id) next.set("incidentId", id); else next.delete("incidentId");
     setSelectedSession(choices?.data.find(s => s.id === id)); setSessionId(id); setParams(next);
@@ -57,7 +58,7 @@ export function AfterActionReportsPage() {
   return <div className="grid min-w-0 gap-5">
     <RecordsContext incident={selectedSession} />
     {contextError && <AlertBox tone="danger">{contextError}</AlertBox>}
-    <Card><CardHeader title="Review a historical incident" description="Post-Incident Report · After Action Review (AAR). Choose a closed incident to prepare a report or an archived incident for historical review. The active operational incident does not change." /><div className="grid gap-3 p-4">
+    <Card><CardHeader title="Review a historical incident" description="Post-Incident Report · After Action Review (AAR). Choose a closed incident to prepare a report or an archived incident for historical review. The active operational incident does not change. Retained legacy event reports remain read-only." /><div className="grid gap-3 p-4">
       {error && <AlertBox tone="danger">Historical incidents unavailable: {error}</AlertBox>}
       <Field label="Report incident status"><Select disabled={locked} value={status} onChange={e => { setStatus(e.target.value); setOffset(0); choose(""); }}><option>Closed</option><option>Archived</option></Select></Field>
       <Field label="Search report incidents"><Input disabled={locked} value={search} onChange={e => { setSearch(e.target.value); setOffset(0); }} /></Field>

@@ -109,7 +109,7 @@ export function EvidencePage() {
       <Button variant="create" disabled={busy || !file} onClick={() => void upload()}>Upload retained evidence</Button>
     </div></Card>}
     {selected && <Card><CardHeader title="Selected evidence" description="Exact retained item, independent of the register page or withdrawn filter." /><div className="p-4">{recordView(selected)}</div></Card>}
-    <Card><CardHeader title="Evidence register" description={page ? `${page.total} ${showWithdrawn ? "records, including withdrawn history" : "active records"}` : "Evidence source unavailable"} /><div className="grid gap-3 p-4">
+    <Card><CardHeader title="Evidence register" description={page ? `${page.total} ${showWithdrawn ? "records, including withdrawn history" : "active records"}` : error ? "Evidence source unavailable" : "Loading evidence records"} /><div className="grid gap-3 p-4">
       <label className="flex items-center gap-2"><input type="checkbox" checked={showWithdrawn} disabled={busy} onChange={e => setShowWithdrawn(e.target.checked)} />Include withdrawn history</label>
       {!page && !error && <Loading label="Loading incident evidence" />}
       {page?.data.filter(r => r.id !== selected?.id).map(recordView)}

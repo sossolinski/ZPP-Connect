@@ -192,3 +192,18 @@ test("unavailable or freshly superseded document content cannot offer acknowledg
     await page.unroute(`**/api/document-versions/${version.id}/content`);
   }
 });
+
+test("retained legacy event reports remain readable while authoring stays prohibited",async({page})=>{
+  const coordinator=await db.user.findUniqueOrThrow({where:{email:"coordinator@lot.pl"}});
+  // Bootstrap historical content from the supported pre-retirement model; do not
+  // use an authoring command that the current product correctly prohibits.
+  const session=await db.session.create({data:{operationalId:marker+"-LEGACY",mode:"EXERCISE",status:"Closed",eventType:"Legacy historical event",createdById:coordinator.id}});
+  await db.incidentAssignment.create({data:{incidentId:session.id,userId:coordinator.id,function:marker,createdById:coordinator.id}});
+  const seq=await db.$queryRaw<Array<{n:bigint}>>`SELECT nextval('"AfterActionReport_operational_seq"') AS n`;
+  const report=await db.afterActionReport.create({data:{operationalId:"AAR-"+new Date().getUTCFullYear()+"-"+String(seq[0]!.n).padStart(6,"0"),sessionId:session.id,ownerId:coordinator.id,createdById:coordinator.id,updatedById:coordinator.id}});
+  const version=await db.afterActionReportVersion.create({data:{reportId:report.id,revision:1,title:"Retained legacy review",eventDate:new Date("2020-01-01T00:00:00Z"),executiveSummary:"Retained historical narrative",createdById:coordinator.id,updatedById:coordinator.id}});
+  await ready(page);const before=await page.evaluate(()=>localStorage.getItem("zpp:activeSessionId"));await page.goto(`/reports/after-action?incidentId=${session.id}&revisionId=${version.id}`);
+  await expect(page.getByTestId("records-context")).toContainText("Legacy EXERCISE event");await expect(page.getByLabel("Report title")).toHaveValue("Retained legacy review");await expect(page.getByLabel("Executive Summary")).toHaveValue("Retained historical narrative");await expect(page.getByLabel("Executive Summary")).toBeDisabled();
+  for(const name of ["Create report","Save draft","Submit for review","Approve report","Create revision"])await expect(page.getByRole("button",{name,exact:true})).toHaveCount(0);
+  const denied=await page.request.patch(`${apiUrl}/after-action-report-versions/${version.id}`,{headers,data:{expectedVersion:version.version,title:"Attempted new legacy content",eventDate:version.eventDate.toISOString(),executiveSummary:"Attempted new legacy content",findings:[],lessons:[],correctiveActions:[]}});expect(denied.status()).toBe(409);expect(await page.evaluate(()=>localStorage.getItem("zpp:activeSessionId"))).toBe(before);
+});
