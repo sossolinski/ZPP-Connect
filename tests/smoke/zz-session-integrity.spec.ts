@@ -66,12 +66,12 @@ async function useSession(page: Page, session: TestSession) {
   await page.goto(`/sessions?focus=${encodeURIComponent(session.operationalId)}`);
   const row = page.getByRole("row").filter({ hasText: session.operationalId });
   await expect(row).toBeVisible();
-  const action = row.getByRole("button", { name: "Use this session" });
-  if (!(await row.getByText("Current session", { exact: true }).count())) {
+  const action = row.getByRole("button", { name: "Use this incident" });
+  if (!(await row.getByText("Current incident", { exact: true }).count())) {
     await expect(action).toBeVisible();
     await action.click();
   }
-  await expect(page.locator(`[aria-label*="Current session REAL ${session.operationalId}"]:visible`)).toHaveCount(1);
+  await expect(page.locator(`[aria-label*="Current incident REAL ${session.operationalId}"]:visible`)).toHaveCount(1);
 }
 
 test.describe.serial("Stage 2A session integrity", () => {
@@ -83,11 +83,11 @@ test.describe.serial("Stage 2A session integrity", () => {
 
     await login(page);
     await useSession(page, first);
-    await expect(page.getByRole("row").filter({ hasText: first.operationalId }).getByText("Current session")).toBeVisible();
-    await expect(page.getByRole("row").filter({ hasText: first.operationalId }).getByRole("button", { name: "Use this session" })).toHaveCount(0);
+    await expect(page.getByRole("row").filter({ hasText: first.operationalId }).getByText("Current incident")).toBeVisible();
+    await expect(page.getByRole("row").filter({ hasText: first.operationalId }).getByRole("button", { name: "Use this incident" })).toHaveCount(0);
     await expect.poll(() => page.evaluate(() => localStorage.getItem("zpp:activeSessionId"))).toBe(first.id);
     await page.reload();
-    await expect(page.locator(`[aria-label*="Current session REAL ${first.operationalId}"]:visible`)).toHaveCount(1);
+    await expect(page.locator(`[aria-label*="Current incident REAL ${first.operationalId}"]:visible`)).toHaveCount(1);
 
     for (const [email, maySelect] of [
       ["admin@lot.pl", true],
@@ -99,14 +99,14 @@ test.describe.serial("Stage 2A session integrity", () => {
     ] as const) {
       await login(page, email);
       await page.goto("/sessions");
-      if (maySelect) await expect(page.getByRole("button", { name: "Use this session" }).first()).toBeVisible();
-      else await expect(page.getByRole("button", { name: "Use this session" })).toHaveCount(0);
+      if (maySelect) await expect(page.getByRole("button", { name: "Use this incident" }).first()).toBeVisible();
+      else await expect(page.getByRole("button", { name: "Use this incident" })).toHaveCount(0);
     }
 
     await page.setViewportSize({ width: 390, height: 844 });
     await login(page);
     await useSession(page, second);
-    await expect(page.locator(`[aria-label*="Current session REAL ${second.operationalId}"]:visible`)).toHaveCount(1);
+    await expect(page.locator(`[aria-label*="Current incident REAL ${second.operationalId}"]:visible`)).toHaveCount(1);
     expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(391);
   });
 
@@ -187,7 +187,7 @@ test.describe.serial("Stage 2A session integrity", () => {
     });
     await closeSessionViaApi(page, first.id, "Closed externally during stale drawer test");
     await drawer.getByRole("button", { name: "Save enquiry" }).click();
-    await expect(page.locator(`[aria-label*="Current session REAL ${second.operationalId}"]:visible`)).toHaveCount(1);
+    await expect(page.locator(`[aria-label*="Current incident REAL ${second.operationalId}"]:visible`)).toHaveCount(1);
     expect(createRequests).toBe(0);
     const staleRows = await page.request.get(`${apiUrl}/enquiries?sessionId=${encodeURIComponent(first.id)}`, { headers: coordinatorHeaders });
     expect(((await staleRows.json()).data as unknown[]).length).toBe(0);
@@ -198,15 +198,15 @@ test.describe.serial("Stage 2A session integrity", () => {
     await page.getByLabel("Closure note").fill("Second session closed with fallback available");
     await page.getByRole("button", { name: "Close session" }).last().click();
     await expect(page.getByText(new RegExp(`${second.operationalId} was closed.*SES-2026-001 is now the active session`))).toBeVisible();
-    await expect(page.locator('[aria-label*="Current session REAL SES-2026-001"]:visible')).toHaveCount(1);
+    await expect(page.locator('[aria-label*="Current incident REAL SES-2026-001"]:visible')).toHaveCount(1);
 
     const originalRow = page.getByRole("row").filter({ hasText: "SES-2026-001" });
     await originalRow.getByRole("button", { name: "Close session" }).click();
     await page.getByLabel("Closure note").fill("Only eligible session closed for no-session verification");
     await page.getByRole("button", { name: "Close session" }).last().click();
     await expect(page.getByText(/No eligible session remains/)).toBeVisible();
-    await expect(page.locator('[aria-label^="No active session"]:visible')).toHaveCount(1);
-    await expect(page.getByRole("button", { name: "Use this session" })).toHaveCount(0);
+    await expect(page.locator('[aria-label^="No active incident"]:visible')).toHaveCount(1);
+    await expect(page.getByRole("button", { name: "Use this incident" })).toHaveCount(0);
     await expect(page.getByText("Read-only").first()).toBeVisible();
 
     await page.goto("/tec-intake");
@@ -217,12 +217,12 @@ test.describe.serial("Stage 2A session integrity", () => {
     await page.goto("/requests");
     await expect(page.getByText(/No open operational session is selected/)).toBeVisible();
     await expect(page.getByRole("button", { name: "New Request" })).toHaveCount(0);
-    await expect(page.locator('[aria-label^="No active session"]:visible')).toHaveCount(1);
+    await expect(page.locator('[aria-label^="No active incident"]:visible')).toHaveCount(1);
     expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(391);
 
     const recovery = await ensureSession(page, "S2A-RECOVERY");
     await page.goto("/sessions");
     await useSession(page, recovery);
-    await expect(page.locator(`[aria-label*="Current session REAL ${recovery.operationalId}"]:visible`)).toHaveCount(1);
+    await expect(page.locator(`[aria-label*="Current incident REAL ${recovery.operationalId}"]:visible`)).toHaveCount(1);
   });
 });

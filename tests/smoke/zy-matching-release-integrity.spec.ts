@@ -37,9 +37,9 @@ async function useSession(page: Page, session: Row) {
   await page.goto("/sessions");
   const row = page.getByRole("row").filter({ hasText: session.operationalId });
   await expect(row).toBeVisible();
-  const button = row.getByRole("button", { name: "Use this session" });
+  const button = row.getByRole("button", { name: "Use this incident" });
   if (await button.count()) await button.click();
-  await expect(page.locator(`[aria-label*="Current session ${session.mode} ${session.operationalId}"]:visible`)).toHaveCount(1);
+  await expect(page.locator(`[aria-label*="Current incident ${session.mode} ${session.operationalId}"]:visible`)).toHaveCount(1);
 }
 
 async function confirmViaApi(page: Page, sessionId: string, claim: Row, passenger: Row, operationId = crypto.randomUUID()) {
