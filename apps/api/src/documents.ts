@@ -959,7 +959,7 @@ export function createDocumentRepository(directory: MemberDirectoryRepository) {
   function personalDocuments(query: Query, actor: DirectoryActor) {
     assertDocumentRead(actor);
     const member = linkedMember(actor);
-    if (!member) return page([], query, { linkedMemberProfile: null, totals: { required: 0, outstanding: 0, overdue: 0, acknowledged: 0 } });
+    if (!member) return page([], query, { linkedMemberProfile: null, totals: { required: 0, awareness: 0, outstanding: 0, overdue: 0, acknowledged: 0 } });
     const rows = documentObligationsForMember(member, actor).filter(row => !query.documentVersionId || row.documentVersionId === query.documentVersionId);
     const search = normalize(query.search ?? query.q);
     const filtered = search ? rows.filter((row) => [row.title, row.code, row.category, row.ownerFunction, row.status].some((value) => normalize(value).includes(search))) : rows;
@@ -984,12 +984,13 @@ export function createDocumentRepository(directory: MemberDirectoryRepository) {
       assert(canAccessMember(actor, "document:read-all", directory, member.id) || (canReadOwn(actor) && own), 403, "You do not have access to this member's document requirements.");
       const evaluationAt = options?.evaluationAt ?? referenceNow;
       const obligations = documentObligationsForMember(member, actor, evaluationAt);
+      const required = obligations.filter((item) => item.acknowledgementRequired);
       const status =
         obligations.length === 0
           ? "Not applicable"
-          : obligations.some((item) => item.status === "Overdue" || !item.contentAvailable)
+          : required.some((item) => item.status === "Overdue" || !item.contentAvailable)
             ? "Non-compliant"
-            : obligations.some((item) => item.status !== "Acknowledged")
+            : required.some((item) => item.status !== "Acknowledged")
               ? "Attention"
               : "Compliant";
 
@@ -999,11 +1000,12 @@ export function createDocumentRepository(directory: MemberDirectoryRepository) {
         evaluationAt,
         status,
         totals: {
-          required: obligations.length,
-          outstanding: obligations.filter((item) => item.status !== "Acknowledged").length,
-          overdue: obligations.filter((item) => item.status === "Overdue").length,
+          required: required.length,
+          awareness: obligations.length - required.length,
+          outstanding: required.filter((item) => item.status !== "Acknowledged").length,
+          overdue: required.filter((item) => item.status === "Overdue").length,
           acknowledged: obligations.filter((item) => item.status === "Acknowledged").length,
-          unavailableContent: obligations.filter((item) => !item.contentAvailable).length
+          unavailableContent: required.filter((item) => !item.contentAvailable).length
         },
         items: obligations
       };

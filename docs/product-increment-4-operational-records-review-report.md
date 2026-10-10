@@ -53,7 +53,9 @@ After:
 - Workspace obligation opens exact version. A small mine=true documentVersionId
   filter locates that user's obligation independently of pagination. The content
   endpoint still enforces scoped access. Memory preview supplies the same explicit
-  required/reference flag and reference status as PostgreSQL.
+  required/reference flag and reference status as PostgreSQL. Its compliance projection
+  excludes awareness-only items from required/outstanding/unavailable-content failures
+  and reports awareness totals; genuine overdue obligations still reduce compliance.
 - Read failures no longer become zero-filled requirements/acknowledgements. Technical
   publication and immutable evidence remain available through existing APIs.
 
@@ -224,7 +226,7 @@ All required local gates passed on the final implementation before publication.
 | npm ci | Passed; no dependency changes. Unfiltered install reports 16 dev/optional-inclusive advisories separately from production scope |
 | npm run db:generate | Passed |
 | npm run lint | Passed API/web type checking |
-| npm test | 151 passed; 394 skipped (PostgreSQL-only and explicitly dormant legacy coverage); 54 files |
+| npm test | 152 passed; 394 skipped (PostgreSQL-only and explicitly dormant legacy coverage); 54 files |
 | npm run build | Passed; existing Vite chunk-size warning remains a separate volume/performance concern |
 | Full PostgreSQL | 353 passed / 27 files, zero skipped, fresh zpp_connect_pi4_final_20261011 |
 | Dedicated PI4 | 20 PostgreSQL + 11 bounded-return policy cases passed, fresh zpp_connect_pi4_dedicated_20261011 |
@@ -239,7 +241,7 @@ All required local gates passed on the final implementation before publication.
 Disposable PostgreSQL gates retain their own synthetic immutable revisions/artifacts;
 no destructive suite ran against zpp_connect_preview. The full PostgreSQL count adds
 20 PI4 integration cases and 11 return-policy cases to the prior 322; it includes
-policy cases, not exclusively database cases. PI4 also adds two memory-projection
+policy cases, not exclusively database cases. PI4 also adds three memory-projection
 compatibility unit tests. Acceptance asserts content/state, exact links, lifecycle,
 permission rejection and byte/hash equality; screenshots only supplement those checks.
 
@@ -251,6 +253,13 @@ A source edit restarted the watched API during an intermediate run; that run was
 invalidated and stable source was used for final gates. A subsequent combined run
 passed all PI4 and retained workflows but had one pre-login PI1 discovery failure;
 the final combined gate passed all 83 cases without suppressing that case.
+
+Automated review of the initial PR head found one legitimate P2: the memory/demo
+compliance calculation still counted awareness-only guidance as required/outstanding.
+The correction filters compliance failures by acknowledgementRequired and adds awareness
+totals. A focused regression checks reference-only compliance and mixed overdue obligations;
+the full unit suite (152), lint and build passed after the correction. PostgreSQL services,
+schema, browser behavior and retained artifacts are unchanged by this memory-only fix.
 
 ## Definition of Done
 
@@ -289,7 +298,7 @@ All 38 Definition of Done conditions are satisfied. The PR remains subject to ex
 | 29 | Keyboard/accessibility usable | Focus/return paths, native details, descriptive downloads and retained dialogs |
 | 30 | No unapproved migration | No Prisma schema/migration diff |
 | 31 | No retired domain | Stage 24 product-scope tests retained; exclusions unchanged |
-| 32 | Full unit passes | 151 passed |
+| 32 | Full unit passes | 152 passed |
 | 33 | Full PostgreSQL passes | 353 passed, zero skipped |
 | 34 | Playwright passes | General 62 and PostgreSQL 83 passed |
 | 35 | Production audit green | Zero production vulnerabilities |
