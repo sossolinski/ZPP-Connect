@@ -112,7 +112,10 @@ test("pages historical Sessions independently, excludes Active and reads Archive
     const create = await page.request.post(apiUrl + "/after-action-reports", { headers, data: { sessionId: archived.id, title: "Historical Draft", operationId: randomUUID() } });
     expect(create.status()).toBe(201);
     await db.session.update({ where: { id: archived.id }, data: { status: "Archived" } });
-    await login(page, "coordinator@lot.pl"); await page.goto("/reports/after-action");
+    await login(page, "coordinator@lot.pl");
+    // Wait for initial operational context before testing historical selection independence.
+    await expect.poll(() => page.evaluate(() => localStorage.getItem("zpp:activeSessionId"))).toBe(active.id);
+    await page.goto("/reports/after-action");
     const globalBefore = await page.evaluate(() => localStorage.getItem("zpp:activeSessionId"));
     await page.getByLabel("Search report Sessions").fill(marker + "-PAGING");
     const selector = page.getByLabel("Report Session", { exact: true });

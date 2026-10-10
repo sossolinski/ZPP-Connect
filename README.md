@@ -172,3 +172,7 @@ and recovery controls, and must receive the required privacy/security approval.
 Organizational retention periods, legal holds, off-host encrypted backup infrastructure
 and operational approval remain deployment and business-policy responsibilities; the
 application does not automatically purge evidence.
+
+## Local synthetic preview
+
+To inspect the current application with PostgreSQL and development login, see [the local preview guide](docs/local-preview.md). Start with `npm run preview:setup`, then run `npm run preview:api` and `npm run preview:web` in separate terminals.

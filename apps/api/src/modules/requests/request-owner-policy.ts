@@ -1,0 +1,17 @@
+import type { Prisma, PrismaClient } from "@prisma/client";
+import type { Permission } from "@zpp/shared";
+import { EffectiveAccessService } from "../identity/effective-access-service.js";
+
+type Db = PrismaClient | Prisma.TransactionClient;
+export const requestOwnerPermissions: Permission[] = ["session:read", "request:read", "request:update", "request:close"];
+
+/** Active membership is deliberate, including for an administrator proposed as an owner. */
+export async function isSuitableRequestOwner(db: Db, incidentId: string, userId: string): Promise<boolean> {
+  const member = await db.incidentAssignment.count({ where: { incidentId, userId, active: true, user: { status: "Active" } } });
+  return member > 0 && new EffectiveAccessService(db).hasEffectivePermissions(userId, requestOwnerPermissions, { incidentId });
+}
+
+/** One fresh access-graph batch, optionally limited to owners on a queue page. */
+export async function suitableRequestOwnerIds(db: Db, incidentId: string, userIds?: string[]): Promise<Set<string>> {
+  return new Set(await new EffectiveAccessService(db).eligibleUsersForPermissions(requestOwnerPermissions, { incidentId }, userIds));
+}

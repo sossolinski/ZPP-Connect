@@ -1,3 +1,4 @@
+import { useSearchParams } from "react-router-dom";
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
   CheckCircle2,
@@ -68,6 +69,8 @@ const dateInput = (value: unknown) =>
   value ? new Date(String(value)).toISOString().slice(0, 16) : "";
 
 export function RequestsPage() {
+  const [params] = useSearchParams();
+  const requestedId = params.get("requestId");
   const {
     activeSession,
     activeSessionWritable,
@@ -186,7 +189,11 @@ export function RequestsPage() {
     setPage(1);
   }, [activeSession?.id, search, status, priority, owner, due, category]);
 
-  async function open(row: RequestRecord) {
+  useEffect(() => {
+    if (activeSession && requestedId) void open({ id: requestedId });
+  }, [activeSession?.id, requestedId]);
+
+  async function open(row: Pick<RequestRecord, "id">) {
     if (!activeSession) return;
     setMutationError("");
     setAction("");
@@ -346,7 +353,7 @@ export function RequestsPage() {
         key: "owner",
         label: "Owner",
         sortable: true,
-        render: (row: AnyRecord) => String(row.ownerAssignedTo ?? "Unassigned"),
+        render: (row: AnyRecord) => <span>{String(row.ownerAssignedTo ?? "Unassigned")}{row.reassignmentRequired ? <Badge tone="warning">Reassignment required</Badge> : null}</span>,
       },
       {
         key: "dueAt",
@@ -388,6 +395,7 @@ export function RequestsPage() {
 
   return (
     <div className="grid gap-4">
+      <p className="text-sm font-semibold">Support requests: welfare and logistics needs with an accountable owner.</p>
       <Card>
         <div className="grid gap-3 border-b border-border p-4 lg:grid-cols-[minmax(220px,1fr)_repeat(5,minmax(130px,auto))]">
           <div className="relative">
@@ -462,7 +470,7 @@ export function RequestsPage() {
         </div>
         <div className="flex flex-wrap items-center justify-between gap-3 p-4">
           <p className="text-sm font-semibold text-muted-foreground">
-            Server queue · {total} Requests
+            Support requests · {loading ? "Loading…" : error ? "Unavailable" : total}
           </p>
           <div className="flex flex-wrap items-center gap-2">
             <Select
@@ -707,7 +715,9 @@ export function RequestsPage() {
                   <dt className="text-xs font-black uppercase text-muted-foreground">
                     Owner
                   </dt>
-                  <dd>{selected.ownerAssignedTo ?? "Unassigned"}</dd>
+                  <dd>{selected.ownerAssignedTo ?? "Unassigned"}
+                    {selected.reassignmentRequired ? <div role="status" className="mt-2 rounded-md border border-amber-500 p-2"><strong>Reassignment required.</strong> {selected.ownerEligibility === "legacy" ? "Legacy owner needs review." : "This owner can no longer fulfill this support request."} Assign an eligible owner; historical ownership is retained.</div> : null}
+                  </dd>
                 </div>
                 <div>
                   <dt className="text-xs font-black uppercase text-muted-foreground">
@@ -806,7 +816,7 @@ export function RequestsPage() {
                     <>
                       <Button
                         icon={UserCheck}
-                        onClick={() => setAction("assign")}
+                        onClick={() => { setActionOwner(""); setAction("assign"); void loadAssignees(); }}
                       >
                         Assign
                       </Button>
@@ -913,7 +923,7 @@ export function RequestsPage() {
                       value={actionOwner}
                       onChange={(event) => setActionOwner(event.target.value)}
                     >
-                      <option value="">Select owner</option>
+                      <option value="">Select capable owner</option>
                       {assignees.map((item) => (
                         <option key={item.id} value={item.id}>
                           {item.displayName} · {item.email}
@@ -979,7 +989,7 @@ export function RequestsPage() {
                     disabled={
                       busy ||
                       (actionNeedsReason && actionReason.trim().length < 3) ||
-                      (action === "assign" && !actionOwner)
+                      (action === "assign" && !assignees.some(item => item.id === actionOwner))
                     }
                   >
                     {busy ? "Saving…" : "Confirm"}

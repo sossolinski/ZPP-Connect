@@ -35,6 +35,8 @@ export type RequestRecord = {
   requester?: string | null;
   ownerUserId?: string | null;
   ownerAssignedTo?: string | null;
+  ownerEligibility?: "eligible" | "ineligible" | "legacy" | "unassigned" | "historical";
+  reassignmentRequired?: boolean;
   legacyOwnerLabel?: string | null;
   details: string;
   approvalStatus: string;

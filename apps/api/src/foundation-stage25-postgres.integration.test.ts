@@ -68,6 +68,20 @@ pg("Foundation Stage 25 secure real-incident evidence", () => {
     expect(Buffer.from(artifact.content)).toEqual(pdf());
   });
 
+  it("verifies duplicate artifact content inside a live transaction without swallowing a unique violation", async () => {
+    const store = createPrismaEvidenceArtifactStore(db!);
+    const bytes = pdf("transaction replay");
+    const storageKey = `incident-evidence/${randomUUID()}`;
+    const input = { storageKey, bytes, sizeBytes: bytes.length, contentSha256: sha256(bytes) };
+    try {
+      expect(await store.put(input)).toEqual({ created: true });
+      expect(await db!.$transaction(tx => store.inTransaction(tx).put(input))).toEqual({ created: false });
+      const different = pdf("different retained bytes");
+      await expect(db!.$transaction(tx => store.inTransaction(tx).put({ ...input, bytes: different, sizeBytes: different.length, contentSha256: sha256(different) }))).rejects.toMatchObject({ status: 409 });
+      expect((await store.read(storageKey))?.bytes).toEqual(bytes);
+    } finally { await db!.storedArtifact.deleteMany({ where: { storageKey } }); }
+  });
+
   it("handles concurrent upload retry once and rejects operation reuse", async () => {
     const operationId = randomUUID();
     const responses = await Promise.all([upload(firstIncident.id, operationId), upload(firstIncident.id, operationId)]);

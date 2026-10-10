@@ -8,5 +8,5 @@
     "types": ["node"],
     "noEmit": false
   },
-  "include": ["src", "prisma/seed.ts"]
+  "include": ["src", "prisma/seed.ts", "prisma/preview-seed.ts"]
 }

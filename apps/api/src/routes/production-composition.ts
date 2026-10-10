@@ -114,7 +114,7 @@ export function createProductionComposition(options: ProductionCompositionOption
   const effectiveAccess = new EffectiveAccessService(options.db);
   const requireIncidentPermission = createIncidentPermissionGate(effectiveAccess, incidentAccess);
   mount("configuration", "A", "postgres", createDictionaryRouter(options.dictionaryService));
-  mount("production-shared", "E", "postgres", createProductionSharedRouter(options.db, requireIncidentPermission));
+  mount("production-shared", "E", "postgres", createProductionSharedRouter(options.db, requireIncidentPermission, options.documentRepository));
   mount("incidents", "A", "postgres", createIncidentRouter(createIncidentService(options.incidentRepository, incidentAccess), {
     requireIncidentPermission,
     effectiveIncidentIdsForPermission: (userId) => effectiveAccess.effectiveIncidentIdsForPermission(userId, "session:read"),
