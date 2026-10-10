@@ -920,12 +920,14 @@ export function createDocumentRepository(directory: MemberDirectoryRepository) {
       const version = assertVersion(versionId);
       const document = assertDocument(version.documentId);
       const acknowledgement = acknowledgementFor(versionId, member.id);
+      const acknowledgementRequired = sourceRequirements.some(requirement => requirement.acknowledgementRequired);
       const dueAt = sourceRequirements
+        .filter(requirement => requirement.acknowledgementRequired)
         .map((requirement) => requirement.dueAt)
         .filter((value): value is string => Boolean(value))
         .sort()[0] ?? null;
       const available = contentAvailable(version);
-      const status = acknowledgement ? "Acknowledged" : isPastAt(dueAt, evaluationAt) ? "Overdue" : "Required";
+      const status = acknowledgement ? "Acknowledged" : !acknowledgementRequired ? "Awareness" : isPastAt(dueAt, evaluationAt) ? "Overdue" : "Required";
       return {
         id: `${versionId}:${member.id}`,
         documentId: document.id,
@@ -940,6 +942,7 @@ export function createDocumentRepository(directory: MemberDirectoryRepository) {
         contentAvailable: available,
         dueAt,
         status,
+        acknowledgementRequired,
         acknowledgedAt: acknowledgement?.acknowledgedAt ?? null,
         acknowledgement: acknowledgement ? acknowledgementView(acknowledgement) : null,
         reasons: sourceRequirements.map((requirement) => ({
@@ -948,7 +951,7 @@ export function createDocumentRepository(directory: MemberDirectoryRepository) {
           label: requirementTarget(requirement).label
         })),
         sourceRequirementIds: sourceRequirements.map((requirement) => requirement.id),
-        canAcknowledge: !acknowledgement && available && canAcknowledgeOwn(actor)
+        canAcknowledge: !acknowledgement && acknowledgementRequired && available && canAcknowledgeOwn(actor)
       };
     });
   }
@@ -956,16 +959,17 @@ export function createDocumentRepository(directory: MemberDirectoryRepository) {
   function personalDocuments(query: Query, actor: DirectoryActor) {
     assertDocumentRead(actor);
     const member = linkedMember(actor);
-    if (!member) return page([], query, { linkedMemberProfile: null, totals: { required: 0, outstanding: 0, overdue: 0, acknowledged: 0 } });
-    const rows = documentObligationsForMember(member, actor);
+    if (!member) return page([], query, { linkedMemberProfile: null, totals: { required: 0, awareness: 0, outstanding: 0, overdue: 0, acknowledged: 0 } });
+    const rows = documentObligationsForMember(member, actor).filter(row => !query.documentVersionId || row.documentVersionId === query.documentVersionId);
     const search = normalize(query.search ?? query.q);
     const filtered = search ? rows.filter((row) => [row.title, row.code, row.category, row.ownerFunction, row.status].some((value) => normalize(value).includes(search))) : rows;
     filtered.sort((left, right) => Number(left.status === "Acknowledged") - Number(right.status === "Acknowledged") || Number(right.status === "Overdue") - Number(left.status === "Overdue") || String(left.dueAt ?? "9999").localeCompare(String(right.dueAt ?? "9999")) || left.title.localeCompare(right.title));
     return page(filtered, query, {
       linkedMemberProfile: memberSummary(member),
       totals: {
-        required: filtered.length,
-        outstanding: filtered.filter((row) => row.status !== "Acknowledged").length,
+        required: filtered.filter(row => row.acknowledgementRequired).length,
+        awareness: filtered.filter(row => !row.acknowledgementRequired).length,
+        outstanding: filtered.filter((row) => row.acknowledgementRequired && row.status !== "Acknowledged").length,
         overdue: filtered.filter((row) => row.status === "Overdue").length,
         acknowledged: filtered.filter((row) => row.status === "Acknowledged").length
       }
@@ -980,12 +984,13 @@ export function createDocumentRepository(directory: MemberDirectoryRepository) {
       assert(canAccessMember(actor, "document:read-all", directory, member.id) || (canReadOwn(actor) && own), 403, "You do not have access to this member's document requirements.");
       const evaluationAt = options?.evaluationAt ?? referenceNow;
       const obligations = documentObligationsForMember(member, actor, evaluationAt);
+      const required = obligations.filter((item) => item.acknowledgementRequired);
       const status =
         obligations.length === 0
           ? "Not applicable"
-          : obligations.some((item) => item.status === "Overdue" || !item.contentAvailable)
+          : required.some((item) => item.status === "Overdue" || !item.contentAvailable)
             ? "Non-compliant"
-            : obligations.some((item) => item.status !== "Acknowledged")
+            : required.some((item) => item.status !== "Acknowledged")
               ? "Attention"
               : "Compliant";
 
@@ -995,11 +1000,12 @@ export function createDocumentRepository(directory: MemberDirectoryRepository) {
         evaluationAt,
         status,
         totals: {
-          required: obligations.length,
-          outstanding: obligations.filter((item) => item.status !== "Acknowledged").length,
-          overdue: obligations.filter((item) => item.status === "Overdue").length,
+          required: required.length,
+          awareness: obligations.length - required.length,
+          outstanding: required.filter((item) => item.status !== "Acknowledged").length,
+          overdue: required.filter((item) => item.status === "Overdue").length,
           acknowledged: obligations.filter((item) => item.status === "Acknowledged").length,
-          unavailableContent: obligations.filter((item) => !item.contentAvailable).length
+          unavailableContent: required.filter((item) => !item.contentAvailable).length
         },
         items: obligations
       };

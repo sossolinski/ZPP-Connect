@@ -62,6 +62,8 @@ function safeFileComponent(value: string) {
   return value.replace(/[^a-zA-Z0-9_-]/g, "-").replace(/-+/g, "-").slice(0, 80) || "incident";
 }
 
+const provenanceInclude = { preparedBy: { select: { displayName: true } }, incident: { select: { id: true, operationalId: true, status: true, mode: true, endAt: true } } } as const;
+
 function asGeneration(row: {
   id: string;
   operationId: string;
@@ -260,7 +262,7 @@ export function createPrismaExportService(client: PrismaClient, hooks: ExportFai
 
     async get(generationId: string) {
       assertUuid(generationId, "Export generation not found");
-      const generation = await client.exportGeneration.findUnique({ where: { id: generationId } });
+      const generation = await client.exportGeneration.findUnique({ where: { id: generationId }, include: provenanceInclude });
       if (!generation) throw new HttpError(404, "Export generation not found");
       return asGeneration(generation);
     },
@@ -270,9 +272,9 @@ export function createPrismaExportService(client: PrismaClient, hooks: ExportFai
       const where = { incidentId, exportType: { in: exportTypes } };
       const [total, rows] = await Promise.all([
         client.exportGeneration.count({ where }),
-        client.exportGeneration.findMany({ where, orderBy: [{ preparedAt: "desc" }, { id: "desc" }], take: page.limit, skip: page.offset })
+        client.exportGeneration.findMany({ where, orderBy: [{ preparedAt: "desc" }, { id: "desc" }], take: page.limit, skip: page.offset, include: provenanceInclude })
       ]);
-      return { total, data: rows.map(asGeneration) };
+      return { total, data: rows.map(asGeneration), ...page };
     },
 
     async sessionSummary(incidentId: string, actorId: string) {

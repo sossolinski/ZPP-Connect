@@ -13,17 +13,21 @@ export async function clearAuthSession(page: Page) {
 export async function completeDevelopmentLogin(page: Page, email = "admin@lot.pl", expectedUrl: RegExp = /\/dashboard$/) {
   const accountSelect = page.getByLabel("Account");
   await expect(accountSelect).toBeVisible();
-  const value = await accountSelect.locator("option").evaluateAll((options, expectedEmail) => {
-    const normalized = String(expectedEmail).toLowerCase();
-    return options
-      .map((option) => ({ value: (option as HTMLOptionElement).value, text: option.textContent?.toLowerCase() ?? "" }))
-      .find((option) => {
-        const start = option.text.lastIndexOf(normalized);
-        const exactSuffix = start >= 0 && start + normalized.length === option.text.length;
-        const boundary = start === 0 || !/[a-z0-9_-]/.test(option.text[start - 1] ?? "");
-        return exactSuffix && boundary;
-      })?.value;
-  }, email);
+  let value: string | undefined;
+  await expect.poll(async () => {
+    value = await accountSelect.locator("option").evaluateAll((options, expectedEmail) => {
+      const normalized = String(expectedEmail).toLowerCase();
+      return options
+        .map((option) => ({ value: (option as HTMLOptionElement).value, text: option.textContent?.toLowerCase() ?? "" }))
+        .find((option) => {
+          const start = option.text.lastIndexOf(normalized);
+          const exactSuffix = start >= 0 && start + normalized.length === option.text.length;
+          const boundary = start === 0 || !/[a-z0-9_-]/.test(option.text[start - 1] ?? "");
+          return exactSuffix && boundary;
+        })?.value;
+    }, email);
+    return value;
+  }, { message: `Development account for ${email} should be loaded` }).toBeTruthy();
   expect(value, `Development account for ${email} should be available`).toBeTruthy();
   await accountSelect.selectOption(value!);
 

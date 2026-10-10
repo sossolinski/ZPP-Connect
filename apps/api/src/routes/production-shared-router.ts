@@ -250,7 +250,7 @@ export function createProductionSharedRouter(db: PrismaClient, requireIncidentPe
       if ((permissions.has("document:read-own") || permissions.has("document:read-all")) && permissions.has("document:acknowledge-own")) {
         const member = await db.memberProfile.findFirst({ where: { linkedUserId: req.user!.id, status: { not: "Archived" } }, select: { id: true } });
         const compliance = member ? await documents.evaluateMemberCompliance(member.id, { ...req.user!, permissions: [...permissions] }, new Date()) : null;
-        attentionSources.push({ label: "My document acknowledgements", items: (compliance?.items ?? []).filter(item => item.acknowledgementRequired && item.status !== "Acknowledged").slice(0, 5).map(item => ({ key: `document:${item.documentVersionId}`, title: item.title, detail: item.status === "Overdue" ? "Your document acknowledgement is overdue" : "Your document acknowledgement is required", href: "/documents", actionLabel: "Open documents" })) });
+        attentionSources.push({ label: "My document acknowledgements", items: (compliance?.items ?? []).filter(item => item.acknowledgementRequired && item.status !== "Acknowledged").slice(0, 5).map(item => ({ key: `document:${item.documentVersionId}`, title: item.title, detail: item.status === "Overdue" ? "Your document acknowledgement is overdue" : "Your document acknowledgement is required", href: `/documents?versionId=${encodeURIComponent(item.documentVersionId)}&returnTo=%2Fdashboard`, actionLabel: "Open documents" })) });
       }
       const workspace = await readIncidentWorkspace(db, sessionId, req.user!.id, new Date());
       const operationalStatus: DashboardOperationalStatus = {

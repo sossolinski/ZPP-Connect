@@ -11,7 +11,7 @@ const databaseUrl = process.env.DATABASE_URL ?? "";
 
 export default defineConfig({
   testDir: "./tests/smoke",
-  testIgnore: persistenceMode === "postgres" ? [] : ["**/pi3-family-passenger-journey.spec.ts", "**/pi2-incident-workspace.spec.ts", "**/pi1-operational-trust.spec.ts", "**/zz-stage16-imports.spec.ts", "**/zz-stage17-exports.spec.ts", "**/zz-stage21-admin-configuration.spec.ts", "**/zz-stage22-aar.spec.ts", "**/zz-stage25-evidence.spec.ts"],
+  testIgnore: persistenceMode === "postgres" ? [] : ["**/pi4-operational-records-review.spec.ts", "**/pi3-family-passenger-journey.spec.ts", "**/pi2-incident-workspace.spec.ts", "**/pi1-operational-trust.spec.ts", "**/zz-stage16-imports.spec.ts", "**/zz-stage17-exports.spec.ts", "**/zz-stage21-admin-configuration.spec.ts", "**/zz-stage22-aar.spec.ts", "**/zz-stage25-evidence.spec.ts"],
   timeout: 30_000,
   expect: {
     timeout: 10_000

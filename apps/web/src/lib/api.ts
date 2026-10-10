@@ -166,6 +166,10 @@ export const api = {
     assertDashboardDto(value);
     return value;
   },
+  recordIncident: (id: string) => request<SessionRecord>(`/sessions/${encodeURIComponent(id)}`),
+  exportGenerations: (incidentId: string, offset = 0) => request<{data: AnyRecord[]; total: number; limit: number; offset: number}>(`/sessions/${encodeURIComponent(incidentId)}/export-generations${queryString({ limit: 20, offset })}`),
+  exportGeneration: (id: string) => request<AnyRecord>(`/exports/generations/${encodeURIComponent(id)}`),
+  evidenceRecord: (incidentId: string, id: string) => request<EvidenceRecord>(`/sessions/${encodeURIComponent(incidentId)}/evidence/${encodeURIComponent(id)}`),
   sessions: (query?: AnyRecord) => request<ApiList<SessionRecord>>(`/sessions${queryString(query)}`),
   sessionsAll: (query?: AnyRecord, options?: ListAllOptions) =>
     listAllPages<SessionRecord>((pageQuery) => request<ApiList<SessionRecord>>(`/sessions${queryString(pageQuery)}`), query, options),
@@ -321,10 +325,14 @@ export const api = {
   aarCommand: (id: string, action: string, body: AnyRecord, report = false) => request<AarResult>(`/${report ? "after-action-reports" : "after-action-report-versions"}/${id}/${action}`, { method: "POST", body: JSON.stringify(body) }),
   aarHistory: (id: string, offset = 0) => request<AarPage<AarVersion>>(`/after-action-reports/${id}/versions${queryString({ limit: 20, offset })}`),
   aarArtifacts: (id: string, offset = 0) => request<AarPage<AarArtifact>>(`/after-action-report-versions/${id}/pdf-artifacts${queryString({ limit: 20, offset })}`),
+  aarArtifact: (id: string) => request<AarArtifact>(`/after-action-pdf-artifacts/${encodeURIComponent(id)}`),
   aarDownload: async (id: string) => {
     const response = await fetch(`${API_URL}/after-action-pdf-artifacts/${id}/download`, { headers: authHeaders() });
     if (!response.ok) { const e = await response.json().catch(() => null); throw new ApiRequestError(e?.error ?? "Download failed", response.status); }
     const blob = await response.blob();
+    const expected = response.headers.get("x-content-sha256");
+    const actual = Array.from(new Uint8Array(await crypto.subtle.digest("SHA-256", await blob.arrayBuffer()))).map(b => b.toString(16).padStart(2, "0")).join("");
+    if (!expected || actual !== expected) throw new Error("PDF integrity check failed; download blocked. Contact the system administrator.");
     const url = URL.createObjectURL(blob), link = document.createElement("a");
     link.href = url; link.download = response.headers.get("content-disposition")?.match(/filename="([^"]+)"/)?.[1] ?? "aar.pdf";
     link.click(); URL.revokeObjectURL(url);
@@ -349,6 +357,9 @@ export const api = {
     const digest = response.headers.get("x-content-sha256");
     if (digest !== record.contentSha256) throw new ApiRequestError("Downloaded evidence digest header does not match metadata", 500);
     const blob = await response.blob();
+    const expected = response.headers.get("x-content-sha256");
+    const actual = Array.from(new Uint8Array(await crypto.subtle.digest("SHA-256", await blob.arrayBuffer()))).map(b => b.toString(16).padStart(2, "0")).join("");
+    if (!expected || actual !== expected) throw new Error("Evidence integrity check failed; download blocked. Contact the system administrator.");
     const url = URL.createObjectURL(blob), link = document.createElement("a");
     link.href = url; link.download = response.headers.get("content-disposition")?.match(/filename="([^"]+)"/)?.[1] ?? record.fileName;
     link.click(); URL.revokeObjectURL(url);

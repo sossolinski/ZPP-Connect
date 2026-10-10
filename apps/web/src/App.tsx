@@ -355,7 +355,7 @@ export function App() {
       <Route path="/rostering" element={protect("rostering", user ? <RosteringPage user={user} /> : null)} />
       <Route path="/assignments" element={protect("assignments", <SessionDependentPage><AssignmentsPage /></SessionDependentPage>)} />
       <Route path="/documents" element={protect("documents", <DocumentsPage />)} />
-      <Route path="/evidence" element={protect("evidence", <WorkflowPage eyebrow="Operations" title="Incident Evidence" description="Retain, verify and audit source evidence for the selected real incident."><SessionDependentPage><EvidencePage /></SessionDependentPage></WorkflowPage>)} />
+      <Route path="/evidence" element={protect("evidence", <WorkflowPage eyebrow="Operations" title="Incident Evidence" description="Retain, verify and audit source evidence for the selected real incident."><EvidencePage /></WorkflowPage>)} />
       <Route
         path="/files-import"
         element={protect(
@@ -367,7 +367,7 @@ export function App() {
       />
       <Route
         path="/reports/after-action"
-        element={protect("reports", <WorkflowPage eyebrow="Reports" title="After Action Reports" description="Review closed events, record lessons and retain approved evidence."><AfterActionReportsPage /></WorkflowPage>)}
+        element={protect("reports", <WorkflowPage eyebrow="Reports" title="Post-Incident Reports" description="Review closed events, record lessons and retain approved evidence."><AfterActionReportsPage /></WorkflowPage>)}
       />
       <Route
         path="/reports"

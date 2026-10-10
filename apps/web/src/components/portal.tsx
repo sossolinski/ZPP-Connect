@@ -70,7 +70,7 @@ export const navigationItems: NavigationItem[] = [
   { key: "documents", to: "/documents", label: "Documents", group: "Operations", icon: FileText },
   { key: "evidence", to: "/evidence", label: "Incident Evidence", group: "Operations", icon: ShieldCheck },
   { key: "files-import", to: "/files-import", label: "Files / Import", group: "Admin", icon: FileText },
-  { key: "reports", to: "/reports", label: "Reports", group: "Admin", icon: BookOpenCheck },
+  { key: "reports", to: "/reports", label: "Reports & Exports", group: "Operations", icon: BookOpenCheck },
   { key: "users-access", to: "/users-access", label: "Users & Access", group: "Admin", icon: UserCog },
   { key: "roles-permissions", to: "/roles-permissions", label: "Roles & Permissions", group: "Admin", icon: ShieldCheck },
   { key: "audit", to: "/audit", label: "Audit", group: "Admin", icon: ShieldCheck },

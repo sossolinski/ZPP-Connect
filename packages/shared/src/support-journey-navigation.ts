@@ -4,7 +4,9 @@ const routeParams: Record<string, string[]> = {
   '/passenger-src': ['focus','q','status','page','size','sort','direction'],
   '/matching': ['claimId','q','state','relationship','offset'],
   '/release-control': ['releaseId','claimId','q','status','eligibility','actionType','offset'],
-  '/dashboard': ['view'], '/requests': ['requestId'], '/timeline': ['eventId']
+  '/documents': ['versionId','view'], '/evidence': ['incidentId','evidenceId'],
+  '/reports': ['incidentId','generationId'], '/reports/after-action': ['incidentId','revisionId','artifactId'],
+  '/sessions': ['focus'], '/dashboard': ['view'], '/requests': ['requestId'], '/timeline': ['eventId']
 };
 /** A return target is a bounded local specialist/workspace route, never an external URL. */
 export function safeJourneyReturn(value: string | null | undefined): string | null {

@@ -17,7 +17,8 @@ const prisma = databaseUrl ? new PrismaClient({ datasources: { db: { url: databa
 const as = (email: string) => ({ "x-user-email": email });
 
 postgresDescribe("Foundation Stage 14 PostgreSQL Admin and identity access integrity", () => {
-  const marker = `F14-${randomUUID().replaceAll("-", "").slice(0, 10)}`;
+  // A digits-only random token resembles protected phone data to notification policy.
+  const marker = `F14-x${randomUUID().replaceAll("-", "").slice(0, 10)}`;
   const markerEmail = marker.toLowerCase();
   const userIds: string[] = [];
   const roleIds: string[] = [];

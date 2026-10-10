@@ -136,6 +136,11 @@ jobs:
           PLAYWRIGHT_PERSISTENCE_MODE: postgres
         run: npx playwright test tests/smoke/pi3-family-passenger-journey.spec.ts
 
+      - name: PI4 PostgreSQL operational records and review acceptance
+        env:
+          PLAYWRIGHT_PERSISTENCE_MODE: postgres
+        run: npx playwright test tests/smoke/pi4-operational-records-review.spec.ts
+
       - name: Stage 16 PostgreSQL browser workflow
         env:
           PLAYWRIGHT_PERSISTENCE_MODE: postgres

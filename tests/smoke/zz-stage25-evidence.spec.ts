@@ -28,6 +28,8 @@ test("uploads, lists, downloads and withdraws exact incident evidence", async ({
   await page.getByLabel("Description").fill("Browser-retained authority source");
   await page.getByRole("button", { name: "Upload retained evidence" }).click();
   await expect(page.getByText("Browser-retained authority source")).toBeVisible();
+  await expect(page.getByText(/SHA-256:/)).toBeHidden();
+  await page.getByText(/Technical integrity details/).click();
   await expect(page.getByText(/SHA-256:/)).toBeVisible();
 
   const downloadEvent = page.waitForEvent("download");
@@ -38,10 +40,11 @@ test("uploads, lists, downloads and withdraws exact incident evidence", async ({
   expect(downloadedBytes).toEqual(bytes);
   expect(createHash("sha256").update(downloadedBytes).digest("hex")).toBe(createHash("sha256").update(bytes).digest("hex"));
 
-  await page.getByRole("button", { name: "Withdraw", exact: true }).click();
+  await page.getByRole("button", { name: /^Withdraw incident source/ }).click();
   await page.getByLabel("Withdrawal reason").fill("Superseded by authoritative source");
   await page.getByRole("button", { name: "Confirm withdrawal" }).click();
-  await expect(page.getByText("Superseded by authoritative source")).toBeVisible();
+  await page.getByLabel("Include withdrawn history").check();
+  await expect(page.getByText(/Superseded by authoritative source/)).toBeVisible();
   await expect(page.getByRole("button", { name: "Download verified file" })).toHaveCount(0);
 });
 

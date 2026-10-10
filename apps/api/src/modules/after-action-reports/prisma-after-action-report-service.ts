@@ -119,7 +119,7 @@ export function createPrismaAfterActionReportService(client: PrismaClient, hooks
     return { id: r.id, operationalId: r.operationalId, sessionId: r.sessionId, owner: r.owner,
       status: r.status, version: r.version, createdAt: r.createdAt, updatedAt: r.updatedAt,
       archivedAt: r.archivedAt, archivedById: r.archivedById, archiveReason: r.archiveReason,
-      session: { id: r.session.id, operationalId: r.session.operationalId, status: r.session.status, mode: r.session.mode, eventType: r.session.eventType } };
+      session: { id: r.session.id, operationalId: r.session.operationalId, status: r.session.status, mode: r.session.mode, eventType: r.session.eventType, endAt: r.session.endAt } };
   }
   async function bump(tx: Tx, reportId: string, actor: AarActor) {
     await tx.afterActionReport.update({ where: { id: reportId }, data: { version: { increment: 1 }, updatedById: actor.id } });

@@ -1,9 +1,10 @@
 import { useEffect, useState } from "react";
-import { useBlocker } from "react-router-dom";
+import { Link, useBlocker, useSearchParams } from "react-router-dom";
 import { api, ApiRequestError } from "../lib/api";
 import { useApp } from "../lib/app-context";
 import type { ApiList, SessionRecord } from "../lib/types";
 import type { AarVersion, AarPage, AarArtifact, AarResult } from "../lib/aar-types";
+import { RecordsContext } from "../components/RecordsContext";
 import { AlertBox, Button, Card, CardHeader, ConfirmDialog, Field, Input, Loading, Select, StatusBadge, Textarea } from "../components/ui";
 
 type Form = Pick<AarVersion, "title" | "eventDate" | "executiveSummary" | "findings" | "lessons" | "correctiveActions">;
@@ -18,6 +19,9 @@ function reordered<T>(items: T[], index: number, shift: number) {
 }
 export function AfterActionReportsPage() {
   const { can } = useApp();
+  const [params, setParams] = useSearchParams();
+  const requestedIncident = params.get("incidentId");
+  const [contextError, setContextError] = useState("");
   const [sessionId, setSessionId] = useState("");
   const [selectedSession, setSelectedSession] = useState<SessionRecord>();
   const [status, setStatus] = useState("Closed");
@@ -32,20 +36,41 @@ export function AfterActionReportsPage() {
     void api.sessions({ status, search, offset, limit: 20 }).then(result => { if (active) { setChoices(result); setError(""); } }).catch(e => { if (active) setError(e.message); });
     return () => { active = false; };
   }, [status, search, offset]);
-  if (!can("aar:read")) return <AlertBox>You do not have permission to read After Action Reports.</AlertBox>;
-  return <div className="grid gap-5">
-    <Card><CardHeader title="Report Session" description="Choose a closed event for authoring or an archived event for historical review. This does not change the active operational Session." /><div className="grid gap-3 p-4">
-      {error && <AlertBox tone="danger">{error}</AlertBox>}
-      <Field label="Report Session status"><Select disabled={locked} value={status} onChange={e => { setStatus(e.target.value); setOffset(0); setSessionId(""); setSelectedSession(undefined); }}><option>Closed</option><option>Archived</option></Select></Field>
-      <Field label="Search report Sessions"><Input disabled={locked} value={search} onChange={e => { setSearch(e.target.value); setOffset(0); }} /></Field>
-      <Field label="Report Session"><Select disabled={locked} value={sessionId} onChange={e => { setSessionId(e.target.value); setSelectedSession(choices?.data.find(s => s.id === e.target.value)); }}><option value="">Select Session</option>{selectedSession && !choices?.data.some(s => s.id === selectedSession.id) && <option value={selectedSession.id}>{selectedSession.operationalId} · {selectedSession.eventType}</option>}{choices?.data.map(s => <option key={s.id} value={s.id}>{s.operationalId} · {s.eventType}</option>)}</Select></Field>
-      <div className="flex gap-3"><Button disabled={locked || offset === 0} onClick={() => setOffset(offset - 20)}>Previous Sessions</Button><span>{choices?.total ?? 0} total</span><Button disabled={locked || offset + 20 >= (choices?.total ?? 0)} onClick={() => setOffset(offset + 20)}>Next Sessions</Button></div>
-      {locked && <p>Save or reload the report before changing Session.</p>}
+  useEffect(() => {
+    if (requestedIncident === null) return;
+    let active = true;
+    setSelectedSession(undefined); setSessionId(""); setContextError("");
+    if (!requestedIncident || requestedIncident.length > 100) { setContextError("Invalid report incident link."); return; }
+    void api.recordIncident(requestedIncident).then(s => {
+      if (!active) return;
+      if (!["Closed", "Archived"].includes(s.status)) { setContextError("Post-Incident Reporting requires a closed or archived historical event."); return; }
+      setSelectedSession(s); setSessionId(s.id); setStatus(s.status);
+    }).catch(e => { if (active) setContextError("Report incident unavailable: " + e.message); });
+    return () => { active = false; };
+  }, [requestedIncident]);
+  function choose(id: string) {
+    setContextError("");
+    const next = new URLSearchParams(params); next.delete("revisionId"); next.delete("artifactId");
+    if (id) next.set("incidentId", id); else next.delete("incidentId");
+    setSelectedSession(choices?.data.find(s => s.id === id)); setSessionId(id); setParams(next);
+  }
+  if (!can("aar:read")) return <AlertBox>Post-Incident Reports unavailable for your role.</AlertBox>;
+  return <div className="grid min-w-0 gap-5">
+    <RecordsContext incident={selectedSession} />
+    {contextError && <AlertBox tone="danger">{contextError}</AlertBox>}
+    <Card><CardHeader title="Review a historical incident" description="Post-Incident Report · After Action Review (AAR). Choose a closed incident to prepare a report or an archived incident for historical review. The active operational incident does not change. Retained legacy event reports remain read-only." /><div className="grid gap-3 p-4">
+      {error && <AlertBox tone="danger">Historical incidents unavailable: {error}</AlertBox>}
+      <Field label="Report incident status"><Select disabled={locked} value={status} onChange={e => { setStatus(e.target.value); setOffset(0); choose(""); }}><option>Closed</option><option>Archived</option></Select></Field>
+      <Field label="Search report incidents"><Input disabled={locked} value={search} onChange={e => { setSearch(e.target.value); setOffset(0); }} /></Field>
+      <Field label="Report incident"><Select disabled={locked} value={sessionId} onChange={e => choose(e.target.value)}><option value="">Select historical incident</option>{selectedSession && !choices?.data.some(s => s.id === selectedSession.id) && <option value={selectedSession.id}>{selectedSession.operationalId} · {selectedSession.eventType}</option>}{choices?.data.map(s => <option key={s.id} value={s.id}>{s.operationalId} · {s.eventType}</option>)}</Select></Field>
+      {choices ? <div className="flex flex-wrap gap-3"><Button disabled={locked || offset === 0} onClick={() => setOffset(offset - 20)}>Previous incidents</Button><span>{choices.total} historical incidents</span><Button disabled={locked || offset + 20 >= (choices.total ?? choices.data.length)} onClick={() => setOffset(offset + 20)}>Next incidents</Button></div> : !error ? <Loading label="Loading historical incidents" /> : <p>Historical incident source unavailable.</p>}
+      {locked && <p>Save or reload the report before changing incident.</p>}
     </div></Card>
-    {sessionId ? <AfterActionWorkspace key={sessionId} sessionId={sessionId} onDirtyChange={setLocked} /> : <AlertBox>Select a Session to view After Action Reports.</AlertBox>}
+    {sessionId && !contextError ? <AfterActionWorkspace key={sessionId + (params.get("revisionId") ?? "") + (params.get("artifactId") ?? "")} sessionId={sessionId} revisionId={params.get("revisionId")} artifactId={params.get("artifactId")} onDirtyChange={setLocked} /> : !contextError ? <AlertBox>Select a historical incident to view its Post-Incident Report.</AlertBox> : null}
   </div>;
 }
-function AfterActionWorkspace({ sessionId, onDirtyChange }: { sessionId: string; onDirtyChange: (dirty: boolean) => void }) {
+function AfterActionWorkspace({ sessionId, revisionId, artifactId, onDirtyChange }: { sessionId: string; revisionId: string | null; artifactId: string | null; onDirtyChange: (dirty: boolean) => void }) {
+  const [verifiedArtifact, setVerifiedArtifact] = useState("");
   const [version, setVersion] = useState<AarVersion>();
   const [form, setForm] = useState<Form>();
   const [canCreate, setCanCreate] = useState(false);
@@ -67,6 +92,7 @@ function AfterActionWorkspace({ sessionId, onDirtyChange }: { sessionId: string;
   }
   async function loadVersion(id: string) {
     const v = await api.aarVersion(id);
+    if (v.report.sessionId !== sessionId) throw new Error("The selected revision does not belong to this incident.");
     const [h, a] = await Promise.all([api.aarHistory(v.reportId), api.aarArtifacts(id)]);
     setVersion(v); setForm(formFor(v)); setHistory(h); setArtifacts(a); setDirty(false); setError("");
   }
@@ -85,17 +111,24 @@ function AfterActionWorkspace({ sessionId, onDirtyChange }: { sessionId: string;
         if (!active) return;
         setCanCreate(list.capabilities.create);
         if (list.data[0]) {
-          const r = await api.aarReport(list.data[0].id), v = await api.aarVersion(r.latest.id);
+          const r = await api.aarReport(list.data[0].id), v = await api.aarVersion(revisionId ?? r.latest.id);
+          if (v.report.sessionId !== sessionId) throw new Error("The selected revision does not belong to this incident.");
           const [h, a] = await Promise.all([api.aarHistory(r.id), api.aarArtifacts(v.id)]);
+          if (artifactId !== null) {
+            const exact = await api.aarArtifact(artifactId);
+            if (exact.reportVersionId !== v.id) throw new Error("The selected PDF does not belong to this report revision.");
+            if (!a.data.some(item => item.id === exact.id)) a.data = [exact, ...a.data];
+          }
           if (!active) return;
           setVersion(v); setForm(formFor(v)); setHistory(h); setArtifacts(a);
         }
+        if (!list.data[0] && (revisionId !== null || artifactId !== null)) throw new Error("Selected report revision or PDF unavailable.");
         if (active) setLoaded(true);
       } catch (e) { if (active) failure(e); }
       finally { if (active) setLoading(false); }
     })();
     return () => { active = false; };
-  }, [sessionId]);
+  }, [sessionId, revisionId, artifactId]);
   useEffect(() => {
     const protect = (event: BeforeUnloadEvent) => { if (dirty) { event.preventDefault(); event.returnValue = ""; } };
     window.addEventListener("beforeunload", protect); return () => window.removeEventListener("beforeunload", protect);
@@ -128,7 +161,11 @@ function AfterActionWorkspace({ sessionId, onDirtyChange }: { sessionId: string;
       setDecision(undefined);
     } catch (e) { failure(e); } finally { setBusy(false); }
   }
-  const safe = (work: () => Promise<unknown>) => { setError(""); void work().catch(failure); };
+  const safe = (work: () => Promise<unknown>) => {
+    if (busy) return;
+    setError(""); setBusy(true);
+    void work().catch(failure).finally(() => setBusy(false));
+  };
   const pagination = (page: { offset: number; total: number; limit: number }, changePage: (offset: number) => Promise<unknown>) => <div className="flex items-center gap-3">
     <Button disabled={busy || page.offset === 0} onClick={() => safe(() => changePage(Math.max(0, page.offset - page.limit)))}>Previous</Button>
     <span>{page.total} total · {page.offset + 1}–{Math.min(page.offset + page.limit, page.total)}</span>
@@ -137,17 +174,26 @@ function AfterActionWorkspace({ sessionId, onDirtyChange }: { sessionId: string;
   const controls = (index: number, length: number, move: (shift: number) => void, remove: () => void) => <div className="flex gap-2">
     <Button disabled={busy || index === 0} onClick={() => move(-1)}>Move up</Button><Button disabled={busy || index + 1 === length} onClick={() => move(1)}>Move down</Button><Button disabled={busy} onClick={remove}>Remove</Button>
   </div>;
-  if (loading) return <Loading label="Loading After Action Reports" />;
+  if (loading) return <Loading label="Loading Post-Incident Report" />;
   const editable = Boolean(version?.capabilities.edit);
   return <div className="grid gap-5" data-testid="aar-workspace">
     {error && <AlertBox tone="danger">{error}</AlertBox>}
     <div className="flex flex-wrap gap-3"><Button disabled={busy} onClick={() => ask("reload", "Reload report")}>Reload report</Button>{dirty && <span>Unsaved changes</span>}</div>
-    {!version && loaded && <Card><CardHeader title="After Action Reports" description="One report per Session. Authoring is available only after the Session is Closed." /><div className="grid gap-4 p-4">
-      <p>No report is available for this Session.</p>
+    {!version && loaded && <Card><CardHeader title="Post-Incident Report" description="One report per incident. Authoring is available only after the incident is Closed." /><div className="grid gap-4 p-4">
+      <p>No report is available for this incident.</p>
       {canCreate && <><Field label="Report title"><Input value={title} maxLength={500} onChange={e => { setTitle(e.target.value); setCreateOperationId(crypto.randomUUID()); }} /></Field><Button variant="create" disabled={busy || !title.trim()} onClick={() => void create()}>Create report</Button></>}
     </div></Card>}
     {version && form && <>
-      <Card><CardHeader title={version.report.operationalId + " · Revision " + version.revision} description={"Session: " + version.report.session.status + " · Report: " + version.report.status} action={<StatusBadge value={version.status} />} />
+      <AlertBox><strong>Revision {version.revision} · {version.status}</strong><p>{version.status === "Draft" ? editable ? "Draft content can be edited by your role. Save changes before submitting for review." : "Draft authoring is unavailable for your role or historical incident state." : version.status === "Under review" ? "Content is locked during review. An authorized reviewer can return it to Draft; an authorized approver can approve it." : "Approved content is immutable. View the narrative below or prepare a separate new revision if permitted."}</p><p>{version.status === "Draft" ? version.capabilities.submit ? "Next available transition: Submit for review." : "Submission unavailable for your access." : version.status === "Under review" ? version.capabilities.approve ? "Next available transition: Approve report or return to Draft." : "Approval unavailable for your access." : "Retained PDFs belong to this exact approved revision."}</p></AlertBox>
+      {version.status === "Approved" ? <Card><CardHeader title={version.title} description={`${version.report.session.operationalId} · ${version.report.operationalId} · Revision ${version.revision}`} action={<StatusBadge value="Approved — immutable" />} /><article data-testid="approved-report" className="grid min-w-0 gap-5 p-4">
+        <p>Approved {version.approvedAt ? new Date(version.approvedAt).toLocaleString("en-GB") : "date unavailable"} by {version.contextSnapshot.approver ?? "actor unavailable"}. Later changes require a new revision.</p>
+        <p>Event date: {new Date(version.eventDate).toLocaleDateString("en-GB")} · Owner: {version.contextSnapshot.owner ?? version.report.owner.displayName} · Author: {version.contextSnapshot.author ?? "actor unavailable"}</p>
+        <section><h3 className="mb-2 text-lg font-bold">Executive Summary</h3><p className="whitespace-pre-wrap break-words">{version.executiveSummary}</p></section>
+        <section><h3 className="mb-2 text-lg font-bold">Findings</h3>{version.findings.length ? <ol className="grid gap-3">{version.findings.map((f,i) => <li key={i} className="rounded border p-3"><h4 className="font-bold">{i+1}. {f.area} · {f.summary}</h4>{f.detail && <p className="whitespace-pre-wrap break-words">{f.detail}</p>}{f.sourceObservationOperationalId && <p>Observation snapshot: {f.sourceObservationOperationalId} v{f.sourceObservationVersion}</p>}</li>)}</ol> : <p>No findings recorded.</p>}</section>
+        <section><h3 className="mb-2 text-lg font-bold">Lessons Identified</h3>{version.lessons.length ? <ol className="grid gap-2">{version.lessons.map((l,i) => <li key={i} className="whitespace-pre-wrap break-words">{i+1}. {l.statement}</li>)}</ol> : <p>No lessons recorded.</p>}</section>
+        <section><h3 className="mb-2 text-lg font-bold">Corrective Actions / Recommendations</h3><p className="mb-2 text-sm">Approved recommendations are historical snapshots, not live task tracking.</p>{version.correctiveActions.length ? <ol className="grid gap-3">{version.correctiveActions.map((a,i) => <li key={i} className="rounded border p-3"><p className="whitespace-pre-wrap break-words">{i+1}. {a.recommendation}</p><p>Owner: {a.owner || "Not recorded"} · Target: {a.targetDate ? new Date(a.targetDate).toLocaleDateString("en-GB") : "Not recorded"}</p></li>)}</ol> : <p>No recommendations recorded.</p>}</section>
+        <details><summary className="focus-ring cursor-pointer font-bold">Approved content integrity details</summary><p className="break-all text-xs">SHA-256: {version.contentSha256}. Approved source is verified during generation and retained bytes are verified on download; this is not a digital signature.</p></details>
+      </article></Card> : <>      <Card><CardHeader title={version.report.operationalId + " · Revision " + version.revision} description={version.report.session.operationalId + " · " + version.report.session.status + " incident · " + (version.report.status === "Active" ? "Report available" : "Report archived")} action={<StatusBadge value={version.status} />} />
         <div className="grid gap-4 p-4">
           <Field label="Report title"><Input value={form.title} maxLength={500} disabled={!editable || busy} onChange={e => change({ title: e.target.value })} /></Field>
           <Field label="Event date"><Input type="date" value={form.eventDate} disabled={!editable || busy} onChange={e => change({ eventDate: e.target.value })} /></Field>
@@ -181,6 +227,7 @@ function AfterActionWorkspace({ sessionId, onDirtyChange }: { sessionId: string;
         </div>)}
         {editable && <Button disabled={busy || form.correctiveActions.length >= 100} onClick={() => change({ correctiveActions: [...form.correctiveActions, { recommendation: "", owner: "", targetDate: "" }] })}>Add recommendation</Button>}
       </div></Card>
+      </>}
       <div className="flex flex-wrap gap-3">
         {editable && <Button variant="primary" disabled={busy || !dirty} onClick={() => void save()}>Save draft</Button>}
         {version.capabilities.submit && <Button disabled={busy || dirty} onClick={() => ask("submit", "Submit for review")}>Submit for review</Button>}
@@ -188,17 +235,20 @@ function AfterActionWorkspace({ sessionId, onDirtyChange }: { sessionId: string;
         {version.capabilities.approve && <Button disabled={busy} onClick={() => ask("approve", "Approve report")}>Approve report</Button>}
         {version.capabilities.createRevision && <Button disabled={busy} onClick={() => ask("revisions", "Create revision")}>Create revision</Button>}
       </div>
-      {version.capabilities.archive && <Card><div className="grid gap-3 p-4"><Field label="Archive reason"><Input value={reason} maxLength={2000} onChange={e => setReason(e.target.value)} /></Field><Button disabled={busy || !reason.trim()} onClick={() => ask("archive", "Archive report")}>Archive report</Button></div></Card>}
-      <Card><CardHeader title="Versions" /><div className="grid gap-3 p-4">
-        {history?.data.map(v => <div key={v.id} className="flex flex-wrap items-center gap-3"><span>Revision {v.revision} · {v.status}</span><Button disabled={busy || dirty} onClick={() => safe(() => loadVersion(v.id))}>View revision {v.revision}</Button></div>)}
+      {version.capabilities.archive && <details><summary className="focus-ring cursor-pointer font-bold">Archive approved report</summary><Card><div className="grid gap-3 p-4"><Field label="Archive reason"><Input value={reason} maxLength={2000} onChange={e => setReason(e.target.value)} /></Field><Button disabled={busy || !reason.trim()} onClick={() => ask("archive", "Archive report")}>Archive report</Button></div></Card></details>}
+      <Card><CardHeader title="Revision history" /><div className="grid gap-3 p-4">
+        {history?.data.map(v => <div key={v.id} className="flex flex-wrap items-center gap-3"><span>Revision {v.revision} · {v.status}</span><Button disabled={busy || dirty} onClick={() => safe(() => loadVersion(v.id))}>View revision {v.revision}</Button><Link className="focus-ring underline" to={`/reports/after-action?incidentId=${sessionId}&revisionId=${v.id}`}>Link to revision {v.revision}</Link></div>)}
         {history && pagination(history, async offset => setHistory(await api.aarHistory(version.reportId, offset)))}
       </div></Card>
-      <Card><CardHeader title="PDF Export" description="Downloads use the retained, integrity-checked artifact. SHA-256 is not a digital signature." /><div className="grid gap-3 p-4">
+      <Card><CardHeader title="Approved report PDFs" description="Retained historical output for this exact revision. Approved source is verified during generation; downloads automatically verify file integrity. Built-in font fallback displays unsupported Unicode as [U+codepoint]." /><div className="grid gap-3 p-4">
         {version.capabilities.generatePdf && <Button disabled={busy} onClick={() => ask("pdf-artifacts", "Generate PDF")}>Generate PDF</Button>}
-        {artifacts?.data.map(a => <div key={a.id} className="grid gap-2 rounded border p-3">
-          <p>{a.generatedAt} · {a.generatedBy.displayName} · {a.contentSizeBytes} bytes · {a.rendererVersion}</p>
-          <p className="break-all text-xs">Artifact: {a.id}<br />PDF SHA-256: {a.contentSha256}<br />Source SHA-256: {a.sourceContentSha256}</p>
-          <Button disabled={busy} onClick={() => safe(() => api.aarDownload(a.id))}>Download PDF</Button>
+        {artifacts?.data.map(a => <div key={a.id} data-testid={a.id === artifactId ? "selected-report-pdf" : "report-pdf"} className="grid min-w-0 gap-2 rounded border p-3">
+          {a.id === artifactId && <p className="font-bold">Selected retained PDF</p>}
+          <p>{version.report.session.operationalId} · Revision {version.revision} · Approved · Generated {new Date(a.generatedAt).toLocaleString("en-GB")} by {a.generatedBy.displayName} · {a.contentSizeBytes} bytes</p>
+          <details><summary className="focus-ring cursor-pointer font-bold">PDF technical integrity details</summary><p className="break-all text-xs">Artifact: {a.id}<br />PDF SHA-256: {a.contentSha256}<br />Source SHA-256: {a.sourceContentSha256}<br />Renderer: {a.rendererVersion}</p></details>
+          {verifiedArtifact === a.id && <p role="status">PDF integrity verified for downloaded artifact.</p>}
+          <Button aria-label={`Download PDF ${version.report.session.operationalId} revision ${version.revision} generated ${new Date(a.generatedAt).toISOString()}`} disabled={busy} onClick={() => safe(async () => { setVerifiedArtifact(""); await api.aarDownload(a.id); setVerifiedArtifact(a.id); })}>Download PDF</Button>
+          <Link className="focus-ring underline" to={`/reports/after-action?incidentId=${sessionId}&revisionId=${version.id}&artifactId=${a.id}`}>Link to this retained PDF</Link>
         </div>)}
         {artifacts?.total === 0 && <p>No retained PDF artifacts for this revision.</p>}
         {artifacts && pagination(artifacts, async offset => setArtifacts(await api.aarArtifacts(version.id, offset)))}

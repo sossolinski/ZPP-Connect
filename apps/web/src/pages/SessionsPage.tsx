@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { Archive, CheckCircle2, Pencil, Plus, Save, XCircle } from "lucide-react";
-import { useSearchParams } from "react-router-dom";
+import { Link, useSearchParams } from "react-router-dom";
 import { api } from "../lib/api";
 import { useApp } from "../lib/app-context";
 import { isSessionWritable, mostRecentWritableSession } from "../lib/session-safety";
@@ -202,7 +202,7 @@ export function SessionsPage() {
             Use this incident
           </Button>
         ) : row.status === "Closed" || row.status === "Archived" ? (
-          <Badge tone="neutral">Read-only</Badge>
+          <div className="grid gap-2"><Badge tone="neutral">Read-only · historical</Badge>{row.mode === "REAL" && can("aar:read") && <Link className="focus-ring text-sm underline" to={`/reports/after-action?incidentId=${row.id}&returnTo=%2Fsessions`}>Post-Incident Report for {row.operationalId}</Link>}{row.mode === "REAL" && can("evidence:read") && <Link className="focus-ring text-sm underline" to={`/evidence?incidentId=${row.id}&returnTo=%2Fsessions`}>Historical Evidence</Link>}</div>
         ) : (
           <span className="text-xs font-semibold text-muted-foreground">Available</span>
         )

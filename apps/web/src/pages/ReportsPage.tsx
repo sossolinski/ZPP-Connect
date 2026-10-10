@@ -1,66 +1,85 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Download } from "lucide-react";
-import { Link } from "react-router-dom";
+import { Link, useSearchParams } from "react-router-dom";
 import { api } from "../lib/api";
 import { useApp } from "../lib/app-context";
-import { AlertBox, Button, Card } from "../components/ui";
+import { useRecordIncident } from "../lib/use-record-incident";
+import { RecordsContext } from "../components/RecordsContext";
+import { AlertBox, Button, Card, CardHeader, Loading } from "../components/ui";
+import type { AnyRecord } from "../lib/types";
+import type { Permission } from "@zpp/shared";
 
-const exports = [
-  { type: "session-package", label: "Session package CSV" },
-  { type: "enquiry-log", label: "Enquiry log" },
-  { type: "family-register", label: "Family/NOK register" },
-  { type: "passenger-register", label: "Passenger/Crew register" },
-  { type: "matching-log", label: "Matching log" },
-  { type: "requests-log", label: "Requests log" },
-  { type: "audit-log", label: "Audit log" },
-  { type: "pdf-session-summary", label: "PDF session summary" }
+const exports: { type: string; label: string; purpose: string; permission?: Permission }[] = [
+  { type: "session-package", label: "Session package CSV", purpose: "Handover or authorized review: incident context and only datasets available to your role." },
+  { type: "enquiry-log", label: "Enquiry log", purpose: "Telephone desk handover: recorded enquiries and caller-reported information.", permission: "enquiry:read" },
+  { type: "family-register", label: "Family/NOK register", purpose: "Family support review: contact register and recorded relationship verification.", permission: "family:read" },
+  { type: "passenger-register", label: "Passenger/Crew register", purpose: "Source reconciliation: passenger and crew records; source confirmation is separate from relationship verification.", permission: "passenger:read" },
+  { type: "matching-log", label: "Matching log", purpose: "Authorized reconciliation review: recorded matching state and decisions.", permission: "matching:read" },
+  { type: "requests-log", label: "Requests log", purpose: "Handover or follow-up: support requests, owners and current lifecycle state.", permission: "request:read" },
+  { type: "audit-log", label: "Audit log", purpose: "Authorized audit: incident-scoped recorded actions and actor information.", permission: "audit:read" }
 ];
 
 export function ReportsPage() {
-  const { activeSession, can } = useApp();
+  const { can } = useApp();
+  const { incident, loading, error: contextError } = useRecordIncident();
+  const [params] = useSearchParams();
+  const generationId = params.get("generationId");
+  const scopeKey = JSON.stringify([incident?.id, generationId]);
+  const currentScope = useRef(scopeKey); currentScope.current = scopeKey;
   const [error, setError] = useState("");
-
-  async function download(type: string) {
-    setError("");
+  const [busy, setBusy] = useState(false);
+  const [history, setHistory] = useState<{data: AnyRecord[]; total: number; limit: number; offset: number}>();
+  const [selected, setSelected] = useState<AnyRecord>();
+  const seq = useRef(0);
+  async function load(offset = 0) {
+    if (currentScope.current !== scopeKey) return;
+    const current = ++seq.current;
+    if (!incident || !can("export:create")) return;
     try {
-      if (!activeSession?.id) throw new Error("Select an Incident before creating an export.");
-      await api.downloadExport(type, activeSession.id);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Unable to create export.");
-    }
+      const [list, exact] = await Promise.all([api.exportGenerations(incident.id, offset), generationId !== null ? api.exportGeneration(generationId) : Promise.resolve(undefined)]);
+      if (current !== seq.current || currentScope.current !== scopeKey) return;
+      if (exact && exact.incidentId !== incident.id) throw new Error("The selected export does not belong to this incident.");
+      setHistory(list); setSelected(exact); setError("");
+    } catch(e) { if (current === seq.current && currentScope.current === scopeKey) { setHistory(undefined); setSelected(undefined); setError(e instanceof Error ? e.message : "Export history unavailable"); } }
   }
-
-  return (
-    <div className="grid gap-5">
-      <Card>
-        <div className="grid gap-4 p-4">
-          <AlertBox>
-            Export protected information only when it is needed for handover, briefing or authorized review.
-          </AlertBox>
-          {error ? <AlertBox tone="danger">{error}</AlertBox> : null}
-          <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
-            {can("aar:read") && <div className="rounded-md border border-border bg-card p-4 text-foreground">
-              <p className="text-sm font-black">After Action Reports</p>
-              <p className="my-2 text-xs text-muted-foreground">Review findings, approve immutable revisions and download retained PDFs.</p>
-              <Link className="focus-ring font-bold underline" to="/reports/after-action">Open After Action Reports</Link>
-            </div>}
-            {exports.map((item) => {
-              const unavailableFormat = item.type === "pdf-session-summary";
-              return (
-                <div key={item.type} className="rounded-md border border-border bg-card p-4 text-foreground">
-                  <p className="text-sm font-black text-foreground">{item.label}</p>
-                  <p className="mt-1 text-xs font-semibold text-muted-foreground">
-                    {unavailableFormat ? "This report format is not available right now" : "CSV export for authorized operational use"}
-                  </p>
-                  <Button className="mt-3" icon={Download} variant="secondary" disabled={!can("export:create") || unavailableFormat} onClick={() => download(item.type)}>
-                    {unavailableFormat ? "Unavailable" : "Export"}
-                  </Button>
-                </div>
-              );
-            })}
-          </div>
-        </div>
-      </Card>
-    </div>
-  );
+  useEffect(() => { setHistory(undefined); setSelected(undefined); setError(""); void load(); return () => { seq.current++; }; }, [incident?.id, generationId]);
+  async function download(type: string) {
+    if (!incident || busy) return;
+    setError(""); setBusy(true);
+    try { await api.downloadExport(type, incident.id); await load(); }
+    catch (err) { if (currentScope.current === scopeKey) setError(err instanceof Error ? err.message : "Unable to create export."); }
+    finally { setBusy(false); }
+  }
+  const generation = (row: AnyRecord) => <article key={row.id} data-testid="export-generation" className="grid min-w-0 gap-2 rounded border p-3">
+    <h3 className="font-bold">{exports.find(e => e.type === row.exportType)?.label ?? row.exportType} · CSV</h3>
+    <p>{row.incident?.operationalId ?? incident?.operationalId} · Generated {new Date(row.preparedAt).toLocaleString("en-GB")} by {row.preparedBy?.displayName ?? "Actor unavailable"}</p>
+    <p>Source scope: {Array.isArray(row.includedSections) ? row.includedSections.join(" · ") : "Unavailable"} · {row.rowCount} data rows</p>
+    <p>Historical generation record · {row.status}. CSV bytes are not retained; exact historical download is unavailable. A new export uses current data and may differ.</p>
+    <details><summary className="focus-ring cursor-pointer font-bold">Technical provenance details</summary><div className="break-all text-xs"><p>Generation: {row.id} · Schema: {row.schemaVersion}</p><p>Filename: {row.fileName} · {row.contentSizeBytes} bytes</p><p>SHA-256 of generated bytes: {row.contentSha256}</p></div></details>
+    <Link className="focus-ring text-sm underline" to={`/reports?incidentId=${incident?.id}&generationId=${row.id}`}>Link to generation {new Date(row.preparedAt).toLocaleString("en-GB")}</Link>
+  </article>;
+  if (loading) return <Loading label="Loading export incident context" />;
+  if (contextError) return <AlertBox tone="danger">{contextError}</AlertBox>;
+  return <div className="grid min-w-0 gap-5">
+    <RecordsContext incident={incident} />
+    {error && <AlertBox tone="danger">{error}</AlertBox>}
+    <Card><CardHeader title="Reports" description="Structured, reviewed narratives for closed incidents." /><div className="p-4">
+      {can("aar:read") ? <><p>Post-Incident Report · After Action Review (AAR). Draft → Under review → Approved; retained PDFs preserve the approved revision.</p><Link className="focus-ring mt-2 inline-block font-bold underline" to={incident && ["Closed", "Archived"].includes(incident.status) ? `/reports/after-action?incidentId=${incident.id}` : "/reports/after-action"}>Open Post-Incident Reports</Link></> : <p>Post-Incident Reports unavailable for your role.</p>}
+    </div></Card>
+    <Card><CardHeader title="Data exports" description="CSV snapshots for authorized handover, briefing or review. Generation provenance is retained; CSV bytes are delivered once and are not stored." /><div className="grid gap-4 p-4">
+      <AlertBox>{incident ? `Export scope: ${incident.operationalId} · ${incident.status}. Generated from current source data at the time you export.` : "Select an incident before generating exports."} Export protected information only when needed for authorized operational use.</AlertBox>
+      <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">{exports.map(item => <div key={item.type} className="rounded-md border border-border p-4">
+        <p className="text-sm font-black">{item.label}</p><p className="mt-1 text-sm text-muted-foreground">{item.purpose}</p>
+        <Button aria-label={`Export ${item.label}`} className="mt-3" icon={Download} variant="secondary" disabled={busy || !incident || !can("export:create") || (!!item.permission && !can(item.permission))} onClick={() => void download(item.type)}>Export</Button>
+      </div>)}</div>
+    </div></Card>
+    {selected && <Card><CardHeader title="Selected export generation" /><div className="p-4">{generation(selected)}</div></Card>}
+    <Card><CardHeader title="Export generation history" description="Historical provenance for this incident, filtered by your current source permissions." /><div className="grid gap-3 p-4">
+      {!can("export:create") ? <p>Export history unavailable for your role.</p> : !incident ? <p>Select an incident to view generation history.</p> : !history ? error ? <p>Export history unavailable. Retry after the source can be read.</p> : <Loading label="Loading generation history" /> : <>
+        {history.data.filter(row => row.id !== selected?.id).map(generation)}
+        {history.total === 0 && <p>No export generations are visible for your current source permissions in this incident.</p>}
+        <div className="flex flex-wrap items-center gap-3"><Button disabled={busy || (history.offset ?? 0) === 0} onClick={() => void load(Math.max(0, (history.offset ?? 0) - 20))}>Previous generations</Button><span>{history.total} visible generation records</span><Button disabled={busy || (history.offset ?? 0) + 20 >= history.total} onClick={() => void load((history.offset ?? 0) + 20)}>Next generations</Button></div>
+      </>}
+    </div></Card>
+  </div>;
 }

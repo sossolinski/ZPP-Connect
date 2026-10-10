@@ -330,6 +330,7 @@ export function createPrismaDocumentRepository(client: PrismaClient, clock: { no
         const result = await personalObligations(ownId, actor, evaluationAt);
         const search = query.search?.toLowerCase();
         let rows = result.items.filter((row) => !search || [row.title, row.code, row.category, row.ownerFunction, row.status].some((value) => value.toLowerCase().includes(search)));
+        if (query.documentVersionId) rows = rows.filter((row) => row.documentVersionId === query.documentVersionId);
         if (query.status) rows = rows.filter((row) => row.status === query.status);
         if (query.overdue !== undefined) rows = rows.filter((row) => (row.status === "Overdue") === query.overdue);
         const totals: PersonalDocumentTotals = { required: rows.filter((row) => row.acknowledgementRequired).length, awareness: rows.filter((row) => !row.acknowledgementRequired).length, outstanding: rows.filter((row) => row.acknowledgementRequired && row.status !== "Acknowledged").length, overdue: rows.filter((row) => row.status === "Overdue").length, acknowledged: rows.filter((row) => row.status === "Acknowledged").length };

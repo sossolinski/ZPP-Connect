@@ -58,6 +58,7 @@ test("uses server paging, explicit version commands, publication warning and saf
     const request = route.request();
     const url = new URL(request.url());
     if (request.method() === "GET" && url.pathname === "/api/documents") {
+      if (url.searchParams.get("mine") === "true") return json(route, 200, {total:0,data:[],linkedMemberProfile:null});
       documentGets.push(url);
       return json(route, 200, { total: 71, limit: 50, offset: Number(url.searchParams.get("offset") ?? 0), data: [documentRecord], totals: { documents: 71, published: 63, requirements: 207, outstanding: 19, overdue: 8, acknowledged: 188 } });
     }
@@ -76,7 +77,7 @@ test("uses server paging, explicit version commands, publication warning and saf
   expect(documentGets[0]?.searchParams.get("limit")).toBe("50");
   await page.getByLabel("Search documents").fill("playbook");
   await expect.poll(() => documentGets.some((url) => url.searchParams.get("search") === "playbook" && url.searchParams.get("offset") === "0")).toBe(true);
-  await page.getByRole("button", { name: "Next" }).first().click();
+  await page.getByRole("heading", {name: "Operational reference and managed documents"}).locator("xpath=ancestor::section[1]").getByRole("button", { name: "Next", exact: true }).click();
   await expect.poll(() => documentGets.some((url) => url.searchParams.get("offset") === "50")).toBe(true);
 
   await page.getByRole("button", { name: "Versions" }).click();
@@ -109,6 +110,7 @@ test("uses bounded target search and records explicit immutable on-behalf acknow
   await routeLookups(page, memberUrls);
   await page.route("**/api/documents**", async (route) => {
     const url = new URL(route.request().url());
+    if (url.searchParams.get("mine") === "true") return json(route,200,{total:0,data:[],linkedMemberProfile:null});
     if (route.request().method() === "GET" && url.pathname === "/api/documents") await json(route, 200, { total: 1, limit: 50, offset: 0, data: [documentRecord], totals: { documents: 1, published: 1, requirements: 1, outstanding: 1, overdue: 1, acknowledged: 0 } });
     else await route.continue();
   });
