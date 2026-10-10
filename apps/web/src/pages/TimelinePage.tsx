@@ -98,6 +98,13 @@ export function TimelinePage() {
     void load();
   }, [activeSession?.id, searchParams]);
 
+  useEffect(() => {
+    const eventId = searchParams.get("eventId");
+    if (!eventId || loading) return;
+    const event = rows.find(row => row.id === eventId);
+    if (event) setDetailRecord(event);
+  }, [rows, loading, searchParams]);
+
   const eventTypeOptions = useMemo(
     () => Array.from(new Set(rows.map((row) => row.eventType).filter(Boolean).map(String))).sort(collator.compare),
     [rows]

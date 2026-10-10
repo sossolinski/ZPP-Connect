@@ -1,283 +1,44 @@
-import { ageLabel, dashboardStaleAfterMs, type DashboardDto, type DashboardSlice } from "@zpp/shared";
-import { useOperationalClock } from "../lib/use-operational-clock";
-import { useEffect, useState, type ComponentType } from "react";
-import {
-  AlertTriangle,
-  ArrowRight,
-  BookOpenCheck,
-  CalendarDays,
-  CircleHelp,
-  ClipboardList,
-  Database,
-  FileText,
-  FileWarning,
-  Link2,
-  ListTodo,
-  PieChart,
-  PhoneCall,
-  RadioTower,
-  ShieldAlert,
-  UserCheck,
-  UsersRound,
-  X
-} from "lucide-react";
-import { Link } from "react-router-dom";
+import { ageLabel, assertIncidentWorkspace, dashboardStaleAfterMs, type DashboardAvailability, type DashboardDto, type WorkspaceList, type WorkspaceWork } from "@zpp/shared";
+import { useEffect, useState } from "react";
+import { Link, useSearchParams } from "react-router-dom";
 import { api } from "../lib/api";
 import { useApp } from "../lib/app-context";
+import { useOperationalClock } from "../lib/use-operational-clock";
+import { formatDate } from "../lib/format";
 import type { DemoUser, PortalRouteKey } from "../lib/portal-types";
+import { BriefingFreshness } from "../components/BriefingFreshness";
 import { Badge, Button, Card, CardHeader, EmptyState, Loading } from "../components/ui";
 
-type BadgeTone = "neutral" | "info" | "success" | "warning" | "danger" | "exercise";
-type QualityDashboardItem = {
-  label: string;
-  value: number;
-  detail: string;
-  tone: "neutral" | "success" | "warning" | "danger";
-};
-type QuickActionItem = {
-  title: string;
-  detail: string;
-  to: string;
-  icon: ComponentType<{ className?: string }>;
-  primary?: boolean;
-};
-
-function pct(part: number, total: number) {
-  return total > 0 ? Math.round((part / total) * 100) : 0;
-}
-
-function toneFor(value?: string): BadgeTone {
-  if (value === "success" || value === "info" || value === "warning" || value === "danger" || value === "exercise") return value;
-  return "neutral";
-}
-
-function MetricTile({
-  label,
-  value,
-  detail,
-  icon: Icon,
-  tone = "neutral",
-  to
-}: {
-  label: string;
-  value: number | string;
-  detail: string;
-  icon: ComponentType<{ className?: string }>;
-  tone?: "neutral" | "success" | "info" | "warning" | "danger";
-  to?: string;
-}) {
-  const tones = {
-    neutral: "bg-muted text-muted-foreground",
-    success: "bg-emerald-50 text-emerald-800",
-    info: "bg-blue-50 text-blue-800",
-    warning: "bg-amber-50 text-amber-900",
-    danger: "bg-red-50 text-red-800"
-  };
-  const content = (
-    <>
-      <div className="flex items-start justify-between gap-3">
-        <div className="min-w-0">
-          <p className="text-sm font-bold text-muted-foreground">{label}</p>
-          <p className="mt-2 truncate text-3xl font-black leading-none text-foreground">{value}</p>
-          <p className="mt-2 text-sm font-semibold text-muted-foreground">{detail}</p>
-        </div>
-        <div className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-md ${tones[tone]}`}>
-          <Icon className="h-5 w-5" />
-        </div>
-      </div>
-      {to ? (
-        <span className="mt-3 inline-flex items-center gap-1 text-xs font-black text-[#145C63] dark:text-[#7ed7dc]">
-          Open details
-          <ArrowRight className="h-3.5 w-3.5 transition group-hover:translate-x-0.5" />
-        </span>
-      ) : null}
-    </>
-  );
-  const className = "rounded-md border border-border bg-card p-4 text-foreground";
-  return to ? (
-    <Link
-      to={to}
-      aria-label={`Open ${label}`}
-      className={`${className} group transition hover:-translate-y-0.5 hover:border-[#145C63]/40 hover:shadow-panel focus-visible:outline focus-visible:outline-2 focus-visible:outline-[#145C63]`}
-    >
-      {content}
-    </Link>
-  ) : (
-    <div className={className}>{content}</div>
-  );
-}
-
-function CompactStat({
-  label,
-  value,
-  detail,
-  icon: Icon,
-  tone = "neutral"
-}: {
-  label: string;
-  value: number | string;
-  detail: string;
-  icon: ComponentType<{ className?: string }>;
-  tone?: "neutral" | "success" | "info" | "warning" | "danger";
-}) {
-  const tones = {
-    neutral: "bg-card text-muted-foreground",
-    success: "bg-emerald-50 text-emerald-800",
-    info: "bg-blue-50 text-blue-800",
-    warning: "bg-amber-50 text-amber-900",
-    danger: "bg-red-50 text-red-800"
-  };
-  return (
-    <div className="flex min-w-0 items-start gap-3 rounded-md border border-border bg-muted p-3 text-foreground">
-      <div className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-md ${tones[tone]}`}>
-        <Icon className="h-4 w-4" />
-      </div>
-      <div className="min-w-0">
-        <p className="text-xs font-bold text-muted-foreground">{label}</p>
-        <p className="mt-1 truncate text-2xl font-black leading-none text-foreground">{value}</p>
-        <p className="mt-1 line-clamp-2 text-xs font-semibold text-muted-foreground">{detail}</p>
-      </div>
-    </div>
-  );
-}
-
-function MatchingProgressSummary({ slices, total, complete }: { slices: DashboardSlice[]; total: number; complete: number }) {
-  const completePercent = pct(complete, total);
-  const segmentTotal = Math.max(
-    total,
-    slices.reduce((sum, slice) => sum + slice.value, 0),
-    1
-  );
-  const visibleSegments = slices.filter((slice) => slice.value > 0);
-  return (
-    <div className="grid gap-3">
-      <div className="min-w-0">
-        <p className="text-3xl font-black leading-none text-foreground">{completePercent}%</p>
-        <p className="mt-1 text-xs font-bold uppercase text-muted-foreground">complete</p>
-      </div>
-
-      <div className="flex h-3 overflow-hidden rounded-full bg-muted">
-        {visibleSegments.length ? (
-          visibleSegments.map((slice) => (
-            <span
-              key={slice.key}
-              className="h-full"
-              style={{
-                width: `${Math.max((slice.value / segmentTotal) * 100, 2)}%`,
-                backgroundColor: slice.color
-              }}
-            />
-          ))
-        ) : (
-          <span className="h-full w-full bg-muted" />
-        )}
-      </div>
-
-      {visibleSegments.length ? (
-        <div className="flex flex-wrap gap-2">
-          {visibleSegments.map((slice) => (
-            <span key={slice.key} className="inline-flex min-w-0 items-center gap-2 rounded-full border border-border bg-muted px-2.5 py-1 text-xs font-bold text-muted-foreground">
-              <span className="h-2 w-2 shrink-0 rounded-full" style={{ backgroundColor: slice.color }} />
-              <span className="truncate">{slice.label}</span>
-              <Badge tone={toneFor(slice.tone)} className="px-1.5">
-                {slice.value}
-              </Badge>
-            </span>
-          ))}
-        </div>
-      ) : null}
-    </div>
-  );
-}
-
-function QualityItem({ label, value, detail, tone = "neutral" }: { label: string; value: number; detail: string; tone?: "neutral" | "success" | "warning" | "danger" }) {
-  return (
-    <div className="rounded-md border border-border bg-muted p-3 text-foreground">
-      <div className="flex items-center justify-between gap-3">
-        <p className="text-sm font-bold text-muted-foreground">{label}</p>
-        <Badge tone={tone}>{value}</Badge>
-      </div>
-      <p className="mt-2 text-xs font-semibold text-muted-foreground">{detail}</p>
-    </div>
-  );
-}
-
-function QuickActionCard({ action, step }: { action: QuickActionItem; step: number }) {
-  const Icon = action.icon;
-  return (
-    <Link
-      to={action.to}
-      className={[
-        "group flex min-w-0 items-start gap-3 rounded-md border p-3 transition hover:-translate-y-0.5 hover:shadow-panel focus-visible:outline focus-visible:outline-2 focus-visible:outline-[#145C63]",
-        action.primary
-          ? "border-[#145C63]/25 bg-[#145C63]/10 text-foreground"
-          : "border-border bg-muted text-foreground hover:bg-card"
-      ].join(" ")}
-    >
-      <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md bg-card text-[#145C63] shadow-sm shadow-slate-950/[0.03]">
-        <Icon className="h-4 w-4" />
-      </span>
-      <span className="min-w-0">
-        <span className="mb-1 inline-flex rounded-full border border-border bg-card px-2 py-0.5 text-[10px] font-black uppercase tracking-wide text-muted-foreground">
-          Step {step}
-        </span>
-        <span className="block text-sm font-black text-foreground">{action.title}</span>
-        <span className="mt-1 block text-xs font-semibold leading-5 text-muted-foreground">{action.detail}</span>
-      </span>
-      <ArrowRight className="ml-auto mt-2 h-4 w-4 shrink-0 text-muted-foreground transition group-hover:translate-x-0.5 group-hover:text-[#145C63]" />
-    </Link>
-  );
-}
-
-const acronymGuide = [
-  { term: "TEC", detail: "Telephone Enquiry Center: call intake without confirming passenger status." },
-  { term: "NOK", detail: "Next of kin or family contact record." },
-  { term: "PAX", detail: "Passenger or crew record from the manifest." },
-  { term: "SRC", detail: "Source confirmation for passenger or crew information." },
-  { term: "FAM", detail: "Family/NOK record used during matching." }
-];
-
-function AcronymGuide() {
-  return (
-    <div className="rounded-md border border-border bg-muted p-3">
-      <h3 className="text-sm font-black text-foreground">Common shorthand</h3>
-      <dl className="mt-3 grid gap-2">
-        {acronymGuide.map((item) => (
-          <div key={item.term} className="grid grid-cols-[3.25rem_minmax(0,1fr)] gap-2 text-xs">
-            <dt className="font-black text-[#145C63]">{item.term}</dt>
-            <dd className="font-semibold leading-5 text-muted-foreground">{item.detail}</dd>
-          </div>
-        ))}
-      </dl>
-    </div>
-  );
+const workAvailable = (sections: DashboardAvailability<WorkspaceList<WorkspaceWork>>[]) => sections.some(section => section.status === "available");
+function WorkList({ title, testId, sections }: { title: string; testId: string; sections: DashboardAvailability<WorkspaceList<WorkspaceWork>>[] }) {
+  const visible = sections.flatMap(section => section.status === "available" ? [section.value] : []);
+  return <section data-testid={testId} aria-label={title}><Card><CardHeader title={title} />
+    <div role="region" aria-label={`${title} list`} tabIndex={0} className="focus-ring grid max-h-[32rem] gap-4 overflow-y-auto p-4">{visible.length ? visible.map(section => <div key={section.scope}>
+      <p className="mb-2 text-xs font-semibold text-muted-foreground">{section.scope} · {section.items.length} of {section.total} shown</p>
+      {section.items.length ? <ul className="grid gap-2">{section.items.map(item => <li key={`${item.type}:${item.id}`}>
+        <Link to={item.href} className="focus-ring block rounded-md border border-border p-3">
+          <div className="flex flex-wrap items-center gap-2"><span className="text-xs font-bold">{item.type} · {item.operationalId}</span><Badge tone={item.priority === "Urgent" || item.overdue ? "warning" : "neutral"}>{item.priority}</Badge><span className="text-xs">{item.state}</span></div>
+          <h3 className="mt-1 font-bold">{item.title}</h3>
+          <p className="mt-1 text-sm">Owner: {item.owner ?? "Unassigned"} · {item.dueAt ? `Due ${formatDate(item.dueAt)}` : "No due date"}</p>
+          {item.overdue ? <p className="text-sm font-bold text-amber-800 dark:text-amber-300">Overdue</p> : null}
+          {item.warning ? <p className="text-sm font-bold text-amber-800 dark:text-amber-300">{item.warning}</p> : null}
+          <span className="mt-1 block text-sm font-semibold underline">{item.nextAction}</span>
+        </Link>
+      </li>)}</ul> : <p className="text-sm">No open work in this scope.</p>}
+    </div>) : <p>Work information unavailable for your role.</p>}</div>
+  </Card></section>;
 }
 
 export function DashboardPage({ portalUser, canAccessRoute }: { portalUser: DemoUser; canAccessRoute: (route: PortalRouteKey) => boolean }) {
   const { activeSession, reload } = useApp();
+  const [params, setParams] = useSearchParams();
+  const handover = params.get("view") === "handover";
   const [snapshot, setSnapshot] = useState<{ sessionId: string; data?: DashboardDto; error: string; refreshing: boolean }>({ sessionId: "", error: "", refreshing: false });
   const [refresh, setRefresh] = useState(0);
   const now = useOperationalClock();
   const dashboard = snapshot.sessionId === activeSession?.id ? snapshot.data : undefined;
   const error = snapshot.sessionId === activeSession?.id ? snapshot.error : "";
-  const loading = Boolean(activeSession && (!dashboard && !error));
   const refreshDashboard = () => setRefresh(value => value + 1);
-  const onboardingStorageKey = `zpp:ui-tip:dashboard-start:v1:${portalUser.email}:${portalUser.role}`;
-  const [showGettingStarted, setShowGettingStarted] = useState(() => localStorage.getItem(onboardingStorageKey) !== "dismissed");
-
-  useEffect(() => {
-    setShowGettingStarted(localStorage.getItem(onboardingStorageKey) !== "dismissed");
-  }, [onboardingStorageKey]);
-
-  function hideGettingStarted() {
-    localStorage.setItem(onboardingStorageKey, "dismissed");
-    setShowGettingStarted(false);
-  }
-
-  function showGettingStartedAgain() {
-    localStorage.removeItem(onboardingStorageKey);
-    setShowGettingStarted(true);
-  }
 
   useEffect(() => {
     const sessionId = activeSession?.id;
@@ -285,7 +46,7 @@ export function DashboardPage({ portalUser, canAccessRoute }: { portalUser: Demo
     if (!sessionId) { setSnapshot({ sessionId: "", error: "", refreshing: false }); return; }
     setSnapshot(previous => ({ sessionId, data: previous.sessionId === sessionId ? previous.data : undefined, error: "", refreshing: true }));
     api.dashboard(sessionId).then(data => {
-      if (!data.operationalStatus) throw new Error("Dashboard status could not be verified. Retry.");
+      assertIncidentWorkspace(data.workspace);
       if (!cancelled) setSnapshot({ sessionId, data, error: "", refreshing: false });
     }).catch((err: Error) => {
       if (!cancelled) setSnapshot(previous => ({ ...previous, error: err.message, refreshing: false }));
@@ -293,222 +54,71 @@ export function DashboardPage({ portalUser, canAccessRoute }: { portalUser: Demo
     return () => { cancelled = true; };
   }, [activeSession?.id, refresh]);
 
-  const specialist = dashboard?.operationalStatus.specialist;
-  const manifest = specialist?.status === "available" ? specialist.value.manifestCoverage : undefined;
-  const matching = specialist?.status === "available" ? specialist.value.matchingProgress : undefined;
-  const quality = specialist?.status === "available" ? specialist.value.dataQuality : undefined;
-  const slices = matching?.slices ?? [];
-  // Values are used only inside the available specialist section below.
-  const expectedTotal = manifest?.expectedTotal ?? 0;
-  const inDatabaseTotal = manifest?.inDatabaseTotal ?? 0;
-  const reviewedTotal = manifest?.reviewedTotal ?? 0;
-  const notReviewedTotal = manifest?.notReviewedTotal ?? 0;
-  const manifestGapTotal = (manifest?.notLoadedTotal ?? 0) + (manifest?.invalidTotal ?? 0);
-  const totalPax = matching?.totalPax ?? 0;
-  const donePax = matching?.done ?? 0;
-  const attention = dashboard?.operationalStatus.attention;
-  const attentionItems = attention?.status === "available" ? attention.value.items : [];
-  const stale = Boolean(dashboard && (error || now - Date.parse(dashboard.operationalStatus.loadedAt) >= dashboardStaleAfterMs));
-  const qualityItems = quality ? ([
-    { label: "Missing case link", value: quality.missingCaseId, detail: "records without a usable case/passenger link", tone: "warning" },
-    { label: "DOB / age missing", value: quality.missingDobOrAge, detail: "PAX or crew without age context", tone: "warning" },
-    { label: "Seat missing", value: quality.missingSeat, detail: "passenger rows without seat assignment", tone: "warning" },
-    { label: "SRC pending", value: quality.srcPending, detail: "loaded people not yet SRC-confirmed", tone: "warning" },
-    { label: "Unknown condition", value: quality.unknownCondition, detail: "people without condition/status update", tone: "warning" },
-    { label: "Family contact gaps", value: quality.familyContactMissing, detail: "family/NOK rows without phone or email", tone: "warning" },
-    { label: "Open release actions", value: quality.openReleaseActions, detail: "prepared actions not completed or cancelled", tone: "warning" },
-    { label: "Release checklist", value: quality.releaseChecklistPending, detail: "identity or hold checks still pending", tone: "warning" }
-  ] satisfies QualityDashboardItem[]).filter((item) => item.value > 0) : [];
-  const qualityGapCount = qualityItems.reduce((sum, item) => sum + item.value, 0);
-  const roleLabel = portalUser.roles.join(" + ");
-  const userRoles = new Set(portalUser.roles);
-  const isVolunteer = userRoles.has("ZPP Member");
-  const isTec = userRoles.has("TEC Member") || userRoles.has("TEC Group Leader") || userRoles.has("TEC Coordinator");
-  const isViewer = userRoles.has("Observer");
-  const isAdmin = userRoles.has("System Admin");
-  const configuredQuickActions: QuickActionItem[] = isVolunteer
-    ? [
-        { title: "Check my assignments", detail: "Start with tasks assigned to you or waiting to be claimed.", to: "/assignments", icon: ListTodo, primary: true },
-        { title: "Review my roster", detail: "Confirm where you are expected and what function you support.", to: "/rostering", icon: CalendarDays },
-        { title: "Read guidance", detail: "Use approved documents for procedures and handover notes.", to: "/documents", icon: FileText }
-      ]
-    : isTec
-      ? [
-          { title: "Open active briefing", detail: "Read the current event posture before handling calls.", to: "/active-event", icon: RadioTower, primary: true },
-          { title: "Record TEC enquiry", detail: "Capture caller details without disclosing passenger status.", to: "/tec-intake", icon: PhoneCall },
-          { title: "Review support requests", detail: "Track welfare or logistics requests linked to enquiries.", to: "/requests", icon: ClipboardList },
-          { title: "Check timeline", detail: "Review recent operational notes and case events.", to: "/timeline", icon: ListTodo }
-        ]
-      : isViewer
-        ? [
-            { title: "Open active briefing", detail: "Start with the current event posture and latest updates.", to: "/active-event", icon: RadioTower, primary: true },
-            { title: "Review roster coverage", detail: "See current coverage without changing assignments.", to: "/rostering", icon: CalendarDays },
-            { title: "Read guidance", detail: "Open approved documents for the current response.", to: "/documents", icon: FileText },
-            { title: "Review reports", detail: "Open authorized operational reports and retained evidence.", to: "/reports", icon: PieChart }
-          ]
-        : isAdmin
-          ? [
-              { title: "Review system settings", detail: "Check the current profile, sign-in and privacy configuration.", to: "/settings", icon: Database, primary: true },
-              { title: "Review audit activity", detail: "Verify recent changes, actors and operational records.", to: "/audit", icon: ShieldAlert },
-              { title: "Review documents", detail: "Check document status and restricted review items.", to: "/documents", icon: FileText },
-              { title: "Open reports", detail: "Prepare an authorized briefing, handover or audit export.", to: "/reports", icon: PieChart }
-            ]
-          : [
-            { title: "Open active briefing", detail: "Confirm the current posture, functions and coordination notes.", to: "/active-event", icon: RadioTower, primary: true },
-            { title: "Review assignments", detail: "See owner, due time and status for operational tasks.", to: "/assignments", icon: ListTodo },
-            { title: "Handle support requests", detail: "Prioritize welfare and logistics work that needs action.", to: "/requests", icon: ClipboardList },
-            { title: "Review matching", detail: "Check family-to-passenger links, holds and verification status.", to: "/matching", icon: Link2 }
-            ];
-  const routeKeyByPath = new Map<string, PortalRouteKey>([
-    ["/active-event", "active-event"],
-    ["/assignments", "assignments"],
-    ["/audit", "audit"],
-    ["/documents", "documents"],
-    ["/evidence", "evidence"],
-    ["/family-nok", "family-nok"],
-    ["/matching", "matching"],
-    ["/passenger-src", "passenger-src"],
-    ["/reports", "reports"],
-    ["/requests", "requests"],
-    ["/rostering", "rostering"],
-    ["/settings", "settings"],
-    ["/tec-intake", "tec-intake"],
-    ["/timeline", "timeline"]
-  ]);
-  const quickActions = configuredQuickActions.filter((action) => {
-    const routeKey = routeKeyByPath.get(action.to);
-    return routeKey ? canAccessRoute(routeKey) : false;
-  });
-  const manifestTarget = canAccessRoute("files-import") ? "/files-import" : canAccessRoute("passenger-src") ? "/passenger-src" : undefined;
-  const processingTarget = canAccessRoute("passenger-src") ? "/passenger-src" : undefined;
-  const matchingTarget = canAccessRoute("matching") ? "/matching" : undefined;
+  if (!activeSession) return <EmptyState title="No active incident" detail="Select an incident to open its operational workspace." action={canAccessRoute("sessions") ? <Link className="focus-ring underline" to="/sessions">Open incidents</Link> : <Button onClick={() => void reload()}>Retry operational context</Button>} />;
+  if (!dashboard && !error) return <Loading label="Loading incident workspace" />;
+  if (error && !dashboard) return <EmptyState title="Dashboard unavailable" detail={`Incident workspace could not load. ${error}`} action={<Button onClick={refreshDashboard}>Retry</Button>} />;
+  if (!dashboard?.workspace) return <EmptyState title="Incident workspace unavailable" action={<Button onClick={refreshDashboard}>Retry</Button>} />;
+  const workspace = dashboard.workspace, incident = workspace.incident;
+  const briefing = workspace.briefing.status === "available" ? workspace.briefing.value : undefined;
+  const attention = dashboard.operationalStatus.attention;
+  const attentionItems = attention.status === "available" ? attention.value.items : [];
+  const specialist = dashboard.operationalStatus.specialist;
+  const stale = Boolean(error || now - Date.parse(dashboard.operationalStatus.loadedAt) >= dashboardStaleAfterMs);
+  const own = [workspace.myTasks, workspace.myRequests], team = [workspace.teamTasks, workspace.teamRequests];
 
-  if (loading) return <Loading label="Loading dashboard" />;
-  if (error && !dashboard) {
-    return (
-      <EmptyState
-        title="Dashboard unavailable"
-        detail={error}
-        action={<Button onClick={refreshDashboard}>Retry</Button>}
-      />
-    );
-  }
-  if (!activeSession) {
-    return (
-      <EmptyState
-        title="No active session"
-        detail={canAccessRoute("sessions") ? "Select or create an operational session before opening live work." : "Ask a coordinator to select an operational session, then retry."}
-        action={
-          canAccessRoute("sessions") ? (
-            <Link className="focus-ring inline-flex h-9 items-center rounded-md bg-[#0B1F3A] px-3 text-sm font-bold text-white hover:bg-[#145C63]" to="/sessions">
-              Open sessions
-            </Link>
-          ) : (
-            <Button onClick={() => void reload()}>Retry operational context</Button>
-          )
-        }
-      />
-    );
-  }
-  if (!dashboard) return <EmptyState title="No dashboard data" action={<Button onClick={refreshDashboard}>Retry</Button>} />;
-
-  return (
-    <div className="grid gap-5">
-      <div role="status" data-testid="dashboard-freshness" className="rounded-md border border-border p-3 text-sm font-semibold">
-        {snapshot.refreshing ? "Refreshing…" : error ? "Refresh failed — showing previously loaded data." : stale ? "Data may be stale — loaded more than 5 minutes ago." : "Data loaded successfully."}
-        <span className="ml-2">Last loaded {new Date(dashboard.operationalStatus.loadedAt).toLocaleString()} · {ageLabel(dashboard.operationalStatus.loadedAt, now)}. Refresh to check for changes.</span>
+  return <div className="grid min-w-0 gap-5" data-testid="incident-workspace">
+    <section aria-labelledby="incident-context-heading" data-testid="workspace-incident" className="rounded-md border border-border bg-card p-4">
+      <div className="flex flex-wrap items-start justify-between gap-3"><div className="min-w-0">
+        <p className="text-xs font-bold uppercase tracking-wide text-muted-foreground">Incident {incident.operationalId}</p>
+        <h2 id="incident-context-heading" className="mt-1 text-xl font-black">{incident.name}</h2>
+        <p className="mt-1 text-sm">{[incident.location, incident.flight, incident.route].filter(Boolean).join(" · ") || "Location / flight context not recorded"}</p>
+        {incident.description ? <p className="mt-1 text-sm text-muted-foreground">{incident.description}</p> : null}
+        <p className="mt-2 text-xs font-semibold">Needs attention: {attention.status === "available" ? `${attentionItems.length} shown in the checked snapshot` : "Unavailable for your role"}</p>
+        <p className="mt-2 text-xs">{portalUser.displayName} · {incident.roles.join(" · ") || "No operational role"}</p>
+      </div><div className="flex flex-wrap items-center gap-2"><Badge tone={incident.status === "Active" ? "info" : "neutral"}>{incident.status}</Badge><Button size="sm" variant="secondary" aria-pressed={handover} onClick={() => setParams(handover ? {} : { view: "handover" })}>{handover ? "Return to workspace" : "Read handover"}</Button></div></div>
+      <div role="status" data-testid="dashboard-freshness" className="mt-3 flex flex-wrap items-center justify-between gap-2 border-t border-border pt-3 text-xs font-semibold">
+        <div><p>{snapshot.refreshing ? "Refreshing…" : error ? "Refresh failed — showing previously loaded data." : stale ? "Data may be stale — loaded more than 5 minutes ago." : "Data loaded successfully."}</p><p>Last loaded {formatDate(dashboard.operationalStatus.loadedAt)} · {ageLabel(dashboard.operationalStatus.loadedAt, now)}. Refresh to check for changes.</p></div>
         <Button size="sm" variant="secondary" disabled={snapshot.refreshing} onClick={refreshDashboard}>{error ? "Retry" : "Refresh dashboard"}</Button>
       </div>
-      {showGettingStarted ? (
-        <Card>
-          <CardHeader
-            title="Start here: do these in order"
-            description="If you are unsure, start with Step 1 and continue down the list until your own work is clear."
-            action={
-              <div className="flex items-center gap-2">
-                <Badge tone="neutral">{roleLabel}</Badge>
-                <Button icon={X} size="icon" variant="ghost" aria-label="Hide getting-started help" title="Hide getting-started help" onClick={hideGettingStarted} />
-              </div>
-            }
-          />
-          <div className="grid gap-4 p-4 xl:grid-cols-[minmax(0,1.35fr)_minmax(18rem,0.65fr)]">
-            <section className="min-w-0">
-              <h3 className="text-sm font-black text-foreground">Your next steps</h3>
-              <p className="mt-1 text-sm font-semibold leading-6 text-muted-foreground">
-                Do not search the whole system first. Open the first card, finish what it asks, then move to the next card only if needed.
-              </p>
-              <div className="mt-3 grid gap-3 sm:grid-cols-2">
-                {quickActions.map((action, index) => (
-                  <QuickActionCard key={action.title} action={action} step={index + 1} />
-                ))}
-              </div>
-            </section>
-            <AcronymGuide />
-          </div>
-        </Card>
-      ) : (
-        <div className="flex justify-end">
-          <Button icon={CircleHelp} size="sm" variant="ghost" onClick={showGettingStartedAgain}>
-            Show getting-started help
-          </Button>
-        </div>
-      )}
-
-      <section data-testid="dashboard-metrics" className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-        {specialist?.status === "available" ? <>
-        <MetricTile label="Manifest" value={expectedTotal} detail={`${inDatabaseTotal} records loaded · ${manifestGapTotal} gaps`} icon={ClipboardList} tone={manifestGapTotal ? "warning" : "info"} to={manifestTarget} />
-        <MetricTile label="Processing" value={`${reviewedTotal}/${inDatabaseTotal}`} detail={`${notReviewedTotal} not reviewed`} icon={Database} tone={notReviewedTotal ? "warning" : "success"} to={processingTarget} />
-        <MetricTile label="Matching" value={`${donePax}/${totalPax}`} detail={`${matching!.completionRate}% verified or ready`} icon={PieChart} tone={donePax === totalPax && totalPax > 0 ? "success" : "info"} to={matchingTarget} />
-        </> : <div className="rounded-md border border-border p-4 md:col-span-2 xl:col-span-3"><p className="font-bold">Specialist metrics</p><p>Not available for your role</p></div>}
-        <MetricTile label="Needs attention" value={attention?.status === "available" ? `${attentionItems.length} shown` : "Unavailable"} detail={attention?.status === "available" ? "Permitted queues and personal obligations" : "Not available for your role"} icon={AlertTriangle} tone={attentionItems.length ? "warning" : "neutral"} />
-      </section>
-
-      {specialist?.status === "available" ? <Card>
-        <CardHeader title="Operations Snapshot" />
-        <div className="dashboard-progress-grid">
-          <section className="grid min-w-0 gap-3 border-b border-border p-4 xl:border-b-0 xl:border-r xl:border-border">
-            <div className="flex items-center justify-between gap-3">
-              <h3 className="text-sm font-black text-foreground">Manifest coverage</h3>
-              <Badge tone={manifestGapTotal ? "warning" : "success"}>{pct(inDatabaseTotal, expectedTotal)}% loaded</Badge>
-            </div>
-            <div className="grid gap-2 sm:grid-cols-2">
-              <CompactStat label="PAX" value={manifest!.passengersInDatabase} detail="passenger records" icon={UsersRound} />
-              <CompactStat label="Crew" value={manifest!.crewInDatabase} detail="crew records" icon={UserCheck} />
-              {manifestGapTotal ? <CompactStat label="Import gaps" value={manifestGapTotal} detail={`${manifest!.invalidTotal} invalid rows`} icon={FileWarning} tone="warning" /> : null}
-            </div>
-          </section>
-
-          <section className="grid min-w-0 content-start gap-3 p-4">
-            <h3 className="text-sm font-black text-foreground">Matching progress</h3>
-            <MatchingProgressSummary slices={slices} total={totalPax} complete={donePax} />
-          </section>
-        </div>
-      </Card> : null}
-
-      <section data-testid="dashboard-attention"><Card>
-        <CardHeader title="Current Attention" action={<Badge tone={attentionItems.length ? "warning" : "neutral"}>{attention?.status === "available" ? `${attentionItems.length} shown` : "Unavailable"}</Badge>} />
-        <div className="p-4">
-          {attention?.status === "available" ? <>
-            <p className="mb-3 text-sm text-muted-foreground">Checked: {attention.value.checkedSources.join(" · ")}. Up to {attention.value.limitPerSource} items per queue; personal documents apply across incidents. This is a scoped snapshot.</p>
-            {attentionItems.length ? <div className="grid gap-3 md:grid-cols-2">{attentionItems.map(item => <Link key={item.key} to={item.href} className="focus-ring rounded-md border border-border p-3"><p className="font-bold">{item.title}</p><p className="text-sm">{item.detail}</p><span className="text-sm underline">{item.actionLabel ?? "Open record"}</span></Link>)}</div> : <EmptyState title="No attention items in the checked queues" detail="Other work may exist. Review the appropriate work queue or briefing for your role." />}
-          </> : <EmptyState title="Attention information unavailable" detail="Not available for your role. Read the operational briefing for incident context." />}
-        </div>
+    </section>
+    {handover ? <section data-testid="workspace-handover" className="rounded-md border border-border bg-muted p-4"><h2 className="font-black">Incident handover</h2><p className="mt-1 text-sm">Read the published situation, unresolved priorities, responsibilities, current staffing and recent changes below. This handover reflects your permitted sources at the last load; refresh before handing over.</p>{stale ? <p className="mt-1 text-sm font-bold">Snapshot may be stale — refresh before relying on this handover.</p> : null}</section> : null}
+    <div className="grid min-w-0 items-start gap-5 xl:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
+      <section data-testid="workspace-briefing" aria-label="Latest authoritative briefing"><Card><CardHeader title="Latest authoritative briefing" action={workspace.briefing.status === "available" && canAccessRoute("active-event") ? <Link className="focus-ring text-sm font-bold underline" to="/active-event">Read full briefing</Link> : undefined} />
+        <div className="p-4">{briefing ? <>
+          <h3 className="text-lg font-black">{briefing.title}</h3><p className="mt-2 whitespace-pre-wrap text-sm">{briefing.situation}</p>
+          <BriefingFreshness publishedAt={briefing.publishedAt} nextUpdateDueAt={briefing.nextUpdateDueAt} />
+          <h3 className="mt-4 text-sm font-black">Key priorities</h3>{briefing.priorities.length ? <ul className="mt-2 grid gap-2">{briefing.priorities.map((item, index) => <li key={index} className="rounded-md bg-muted p-2 text-sm"><p className="font-bold">{item.description}</p><p>{item.status} · {item.responsible ?? "Owner not recorded"}{item.dueAt ? ` · Due ${formatDate(item.dueAt)}` : ""}</p></li>)}</ul> : <p className="mt-1 text-sm">No priorities recorded in the published briefing.</p>}
+          {briefing.risks.length ? <><h3 className="mt-3 text-sm font-black">Material risks</h3><ul className="mt-1 grid gap-1">{briefing.risks.map((risk, index) => <li key={index} className="text-sm">{risk.severity}: {risk.description}{risk.mitigation ? ` · ${risk.mitigation}` : ""}</li>)}</ul></> : null}
+        </> : <p>{workspace.briefing.status === "available" ? "No published briefing for this incident. Drafts are not an authoritative situation." : "Briefing not available for your role."}</p>}</div>
       </Card></section>
-
-      {specialist?.status === "available" ? <Card>
-        <CardHeader title="Data Quality" action={<Badge tone={qualityGapCount ? "warning" : "success"}>{qualityGapCount ? `${qualityGapCount} gaps` : "clear"}</Badge>} />
-        {qualityItems.length ? (
-          <div className="grid gap-3 p-4 md:grid-cols-2 xl:grid-cols-3">
-            {qualityItems.map((item) => (
-              <QualityItem key={item.label} {...item} />
-            ))}
-          </div>
-        ) : (
-          <div className="p-4">
-            <EmptyState title="No data quality gaps" detail="Monitored checks are clear." />
-          </div>
-        )}
-      </Card> : null}
+      <section data-testid="dashboard-attention" aria-label="Needs attention"><Card><CardHeader title="Needs attention" action={<Badge tone={attentionItems.length ? "warning" : "neutral"}>{attention.status === "available" ? `${attentionItems.length} shown` : "Unavailable"}</Badge>} />
+        <div className="p-4">{attention.status === "available" ? <>
+          <p className="mb-3 text-xs text-muted-foreground">Checked: {attention.value.checkedSources.join(" · ")}. Up to {attention.value.limitPerSource} items per queue; personal documents apply across incidents. This is a scoped snapshot.</p>
+          {attentionItems.length ? <ul aria-label="Permitted attention items" tabIndex={0} className="focus-ring grid max-h-[26rem] gap-2 overflow-y-auto">{attentionItems.map(item => <li key={item.key}><Link to={item.href} className="focus-ring block rounded-md border border-border p-3"><h3 className="text-sm font-bold">{item.title}</h3><p className="text-sm">{item.detail}</p><span className="text-xs font-semibold underline">{item.actionLabel ?? "Open record"}</span></Link></li>)}</ul> : <p>No attention items in the checked queues. Other work may exist.</p>}
+        </> : <p>Attention information unavailable. Not available for your role. Read the operational briefing for incident context.</p>}</div>
+      </Card></section>
     </div>
-  );
+    <div className="grid min-w-0 items-start gap-5 xl:grid-cols-2">
+      {handover && workAvailable(team) ? <WorkList title="Team work / coordination" testId="workspace-team-work" sections={team} /> : null}
+      {workAvailable(own) ? <WorkList title="My work" testId="workspace-my-work" sections={own} /> : null}
+      {!handover && workAvailable(team) ? <WorkList title="Team work / coordination" testId="workspace-team-work" sections={team} /> : null}
+    </div>
+    <div className="grid min-w-0 items-start gap-5 xl:grid-cols-2">
+      <section data-testid="workspace-coverage" aria-label="Current staffing"><Card><CardHeader title="Current staffing" action={workspace.coverage.status === "available" && canAccessRoute("rostering") ? <Link className="focus-ring text-sm underline" to="/rostering">Open rostering</Link> : undefined} />
+        <div className="p-4">{workspace.coverage.status === "available" ? <><p className="mb-2 text-xs text-muted-foreground">{workspace.coverage.value.scope} · {workspace.coverage.value.items.length} of {workspace.coverage.value.total} shown. Status at the last load.</p>
+          {workspace.coverage.value.items.length ? <ul className="grid gap-2">{workspace.coverage.value.items.map(shift => <li key={shift.id}><Link className="focus-ring block rounded-md border border-border p-3" to={shift.href}><h3 className="font-bold">{shift.functionName} · {shift.title}</h3><p className="text-sm">{shift.person ?? "No assigned person"}{shift.group ? ` · ${shift.group}` : ""}</p><p className="text-sm font-semibold">{shift.state}</p><p className="text-xs">{shift.location} · {formatDate(shift.startAt)} – {formatDate(shift.endAt)}</p><span className="text-xs underline">Review shift</span></Link></li>)}</ul> : <p>No published or confirmed duties in the current permitted period. This does not confirm full coverage.</p>}</> : <p>Staffing information not available for your role.</p>}</div>
+      </Card></section>
+      <section data-testid="workspace-activity" aria-label="Recent significant activity"><Card><CardHeader title="Recent significant activity" action={workspace.activity.status === "available" && canAccessRoute("timeline") ? <Link className="focus-ring text-sm underline" to="/timeline">Full timeline</Link> : undefined} />
+        <div className="p-4">{workspace.activity.status === "available" ? <><p className="mb-2 text-xs text-muted-foreground">{workspace.activity.value.scope}</p>{workspace.activity.value.items.length ? <ul className="grid gap-3">{workspace.activity.value.items.map(item => <li key={item.id} className="border-b border-border pb-3 last:border-0"><h3 className="text-sm font-bold">{item.title}</h3><p className="mt-1 text-xs">{formatDate(item.occurredAt)} · {item.actor}</p>{item.summary ? <p className="mt-1 text-sm">{item.summary}</p> : null}<Link className="focus-ring text-sm underline" to={item.href}>{item.actionLabel}</Link></li>)}</ul> : <p>No recent significant events in the checked sources.</p>}</> : <p>Activity information not available for your role.</p>}</div>
+      </Card></section>
+    </div>
+    <details data-testid="dashboard-metrics" className="rounded-md border border-border bg-card p-4"><summary className="focus-ring cursor-pointer font-bold">Specialist family / passenger metrics{specialist.status === "unavailable" ? " — Not available for your role" : ""}</summary>
+      {specialist.status === "available" ? <div className="mt-3 grid gap-3 md:grid-cols-3">
+        <div className="rounded-md bg-muted p-3"><h3 className="font-bold">Manifest coverage</h3><p className="mt-1 text-2xl font-black">{specialist.value.manifestCoverage.expectedTotal}</p><p>{specialist.value.manifestCoverage.inDatabaseTotal} records loaded</p><p>{specialist.value.manifestCoverage.notLoadedTotal} not loaded · {specialist.value.manifestCoverage.invalidTotal} invalid rows</p></div>
+        <div className="rounded-md bg-muted p-3"><h3 className="font-bold">Matching progress</h3><p className="mt-1 text-2xl font-black">{specialist.value.matchingProgress.done}/{specialist.value.matchingProgress.totalPax}</p><p>{specialist.value.matchingProgress.completionRate}% verified or ready</p><p>{specialist.value.matchingProgress.onHold} on hold · {specialist.value.matchingProgress.noCandidate} without a candidate</p></div>
+        <div className="rounded-md bg-muted p-3"><h3 className="font-bold">Data Quality</h3>{Object.entries(specialist.value.dataQuality).map(([key, value]) => <p key={key} className="text-sm">{({ missingCaseId: "Missing case link", missingDobOrAge: "DOB / age missing", missingSeat: "Seat missing", srcPending: "SRC pending", unknownCondition: "Unknown condition", familyContactMissing: "Family contact gaps", openReleaseActions: "Open release actions", releaseChecklistPending: "Release checklist pending" } as Record<string, string>)[key]}: {value}</p>)}</div>
+      </div> : <p className="mt-2">Specialist metrics are not available for your role.</p>}
+    </details>
+    <details className="rounded-md border border-border p-4"><summary className="focus-ring cursor-pointer font-bold">Getting-started help and terms</summary><div className="mt-3 grid gap-3 text-sm"><p>Start with the published briefing, review Needs attention and My work, then open the relevant record to continue. Team coordination and staffing reflect your permitted scope.</p><p>Notifications in the header show delivered updates and read state. Tasks and Support Requests show the current work state.</p><p>TEC: telephone enquiry centre; capture calls without confirming passenger status. NOK: next of kin or family contact. PAX: passenger or crew manifest record. SRC: source confirmation for passenger or crew information. FAM: family/NOK record used during matching. Matching suggestions support an explicit human decision; they do not authorize release.</p><div className="flex flex-wrap gap-3">{workspace.briefing.status === "available" && canAccessRoute("active-event") ? <Link className="focus-ring underline" to="/active-event">Operational Briefing</Link> : null}{canAccessRoute("documents") ? <Link className="focus-ring underline" to="/documents">Approved guidance and documents</Link> : null}</div></div></details>
+  </div>;
 }

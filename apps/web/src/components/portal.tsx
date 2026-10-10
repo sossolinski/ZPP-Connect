@@ -53,20 +53,20 @@ type NavigationItem = {
 };
 
 export const navigationItems: NavigationItem[] = [
-  { key: "dashboard", to: "/dashboard", label: "Dashboard", group: "Command", icon: LayoutDashboard },
-  { key: "active-event", to: "/active-event", label: "Active Event", group: "Command", icon: RadioTower },
-  { key: "sessions", to: "/sessions", label: "Sessions", group: "Command", icon: Gauge },
+  { key: "dashboard", to: "/dashboard", label: "Incident Workspace", group: "Command", icon: LayoutDashboard },
+  { key: "active-event", to: "/active-event", label: "Operational Briefing", group: "Command", icon: RadioTower },
+  { key: "sessions", to: "/sessions", label: "Incidents", group: "Command", icon: Gauge },
   { key: "tec-intake", to: "/tec-intake", label: "TEC Intake", group: "Case Work", icon: ClipboardList },
   { key: "family-nok", to: "/family-nok", label: "Family / NOK", group: "Case Work", icon: HeartHandshake },
   { key: "passenger-src", to: "/passenger-src", label: "Passenger / SRC", group: "Case Work", icon: UsersRound },
   { key: "matching", to: "/matching", label: "Matching", group: "Case Work", icon: ShieldCheck },
   { key: "release-control", to: "/release-control", label: "Release Control", group: "Case Work", icon: ShieldCheck },
-  { key: "requests", to: "/requests", label: "Requests", group: "Case Work", icon: ClipboardList },
+  { key: "requests", to: "/requests", label: "Support Requests", group: "Case Work", icon: ClipboardList },
   { key: "timeline", to: "/timeline", label: "Timeline", group: "Case Work", icon: Gauge },
   { key: "members", to: "/members", label: "Members", group: "People", icon: UsersRound },
   { key: "groups", to: "/groups", label: "Groups", group: "People", icon: UsersRound },
   { key: "rostering", to: "/rostering", label: "Rostering", group: "People", icon: CalendarDays },
-  { key: "assignments", to: "/assignments", label: "Assignments", group: "People", icon: ClipboardList },
+  { key: "assignments", to: "/assignments", label: "Tasks", group: "People", icon: ClipboardList },
   { key: "documents", to: "/documents", label: "Documents", group: "Operations", icon: FileText },
   { key: "evidence", to: "/evidence", label: "Incident Evidence", group: "Operations", icon: ShieldCheck },
   { key: "files-import", to: "/files-import", label: "Files / Import", group: "Admin", icon: FileText },
@@ -404,7 +404,7 @@ function SessionContext({
   className?: string;
   compact?: boolean;
 }) {
-  const mode = session?.mode ?? "NO SESSION";
+  const mode = session?.mode ?? "NO INCIDENT";
   const tone: BadgeTone = mode === "REAL" ? "danger" : mode === "EXERCISE" ? "gold" : mode === "TRAINING" ? "petrol" : "warning";
   const content = (
     <>
@@ -412,7 +412,7 @@ function SessionContext({
         {mode}
       </Badge>
       <span className={clsx("min-w-0 truncate font-bold text-white/75", compact ? "text-[11px]" : "text-xs")}>
-        {session?.operationalId ?? "Select a session"}
+        {session?.operationalId ?? "Select an incident"}
       </span>
     </>
   );
@@ -420,13 +420,13 @@ function SessionContext({
   return canOpenSessions ? (
     <NavLink
       to="/sessions"
-      aria-label={session ? `Current session ${mode} ${session.operationalId}. Open Sessions.` : "No active session. Open Sessions."}
+      aria-label={session ? `Current incident ${mode} ${session.operationalId}. Open Incidents.` : "No active incident. Open Incidents."}
       className={clsx("focus-ring min-w-0 items-center gap-1.5 rounded-md hover:bg-white/10", compact ? "flex max-w-[14rem] px-1 py-0.5" : "px-1.5 py-1", className)}
     >
       {content}
     </NavLink>
   ) : (
-    <div aria-label={session ? `Current session ${mode} ${session.operationalId}` : "No active session"} className={clsx("min-w-0 items-center gap-1.5", compact ? "flex max-w-[14rem]" : "flex", className)}>
+    <div aria-label={session ? `Current incident ${mode} ${session.operationalId}` : "No active incident"} className={clsx("min-w-0 items-center gap-1.5", compact ? "flex max-w-[14rem]" : "flex", className)}>
       {content}
     </div>
   );

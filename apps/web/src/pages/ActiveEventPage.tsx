@@ -359,7 +359,7 @@ export function ActiveEventPage() {
     <>
       <PageIntro
         eyebrow="Emergency response coordination"
-        title="Active Event"
+        title="Operational Briefing"
         description="Current briefing, confirmed information, priorities and risks for the selected session."
       >
         {activeSession ? <Badge tone={activeSession.mode === "REAL" ? "danger" : activeSession.mode === "TRAINING" ? "gold" : "petrol"}>{activeSession.mode}</Badge> : null}
@@ -373,7 +373,7 @@ export function ActiveEventPage() {
 
       {!activeSession ? (
         <EmptyState
-          title="No active session selected"
+          title="No active incident selected"
           detail="Select an open session before using Active Event information for operational work."
         />
       ) : loading ? (

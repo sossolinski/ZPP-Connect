@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { CalendarDays, CheckCircle2, Edit3, Plus, RefreshCcw, Send, Trash2, XCircle } from "lucide-react";
+import { useSearchParams } from "react-router-dom";
 import type { DemoUser } from "../lib/portal-types";
 import { PageIntro } from "../components/portal";
 import { AlertBox, Badge, Button, Card, CardHeader, EmptyState, ErrorSummary, Field, Input, Loading, Select, StatusBadge, Table, Textarea } from "../components/ui";
@@ -202,6 +203,8 @@ export function RosteringPage({ user }: { user: DemoUser }) {
   const [rosterTotal, setRosterTotal] = useState(0);
   const [availabilityOffset, setAvailabilityOffset] = useState(0);
   const [availabilityTotal, setAvailabilityTotal] = useState(0);
+  const [searchParams] = useSearchParams();
+  const focusShiftId = searchParams.get("shiftId") ?? "";
   const [drawer, setDrawer] = useState<{ mode: "create" | "edit" | "view"; shift?: RosterShift } | null>(null);
   const [shiftForm, setShiftForm] = useState<ShiftForm>(() => shiftFormFromRecord());
   const [shiftBaseline, setShiftBaseline] = useState<ShiftForm>(() => shiftFormFromRecord());
@@ -291,6 +294,15 @@ export function RosteringPage({ user }: { user: DemoUser }) {
     setShiftBaseline(nextForm);
     setShiftError("");
   };
+
+  useEffect(() => {
+    if (!focusShiftId || !sessionId) return;
+    let cancelled = false;
+    api.rosterShift(focusShiftId, { sessionId }).then(record => {
+      if (!cancelled) openShiftDrawer("view", record as RosterShift);
+    }).catch((cause: Error) => { if (!cancelled) setError(cause.message); });
+    return () => { cancelled = true; };
+  }, [focusShiftId, sessionId]);
 
   const closeShiftDrawer = () => {
     setDrawer(null);
