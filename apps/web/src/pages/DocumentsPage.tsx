@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { BookOpenCheck, CheckCircle2, Edit3, ExternalLink, Layers3, Plus, ShieldCheck, XCircle } from "lucide-react";
+import { Link, useSearchParams } from "react-router-dom";
+import { RecordsContext } from "../components/RecordsContext";
 import { PageIntro } from "../components/portal";
 import { AlertBox, Badge, Button, Card, CardHeader, EmptyState, ErrorSummary, Field, Input, Loading, Select, StatusBadge, Table, Textarea } from "../components/ui";
 import { DialogSurface } from "../components/DialogSurface";
@@ -86,6 +88,7 @@ type PersonalDocument = AnyRecord & {
   status: "Awareness" | "Required" | "Overdue" | "Acknowledged";
   acknowledgedAt?: string | null;
   reasons: Array<{ id: string; label: string; targetType: string }>;
+  acknowledgementRequired: boolean;
   canAcknowledge: boolean;
 };
 
@@ -193,6 +196,11 @@ function requirementFormFrom(requirement?: DocumentRequirement, fallbackVersionI
 
 export function DocumentsPage() {
   const { can } = useApp();
+  const [params] = useSearchParams();
+  const versionId = params.get("versionId");
+  const [ownError, setOwnError] = useState("");
+  const [personalTotal, setPersonalTotal] = useState(0);
+  const [ownHistory, setOwnHistory] = useState<AnyRecord[]>([]);
   const canReadAll = can("document:read-all");
   const canManageDocuments = can("document:manage");
   const canManageVersions = can("document:version:manage");
@@ -255,10 +263,10 @@ export function DocumentsPage() {
       if (canReadAll) {
         const [documentList, requirementList, acknowledgementList, memberList, groupList] = await Promise.all([
           api.documentsPage({ search: search || undefined, limit: pageSize, offset: documentOffset }),
-          api.documentRequirementsPage({ limit: pageSize, offset: requirementOffset }).catch(() => ({ total: 0, data: [] })),
-          api.documentAcknowledgementsPage({ limit: pageSize, offset: acknowledgementOffset }).catch(() => ({ total: 0, data: [] })),
-          api.memberProfilesPage({ status: "Active", limit: 50, offset: 0 }).catch(() => ({ total: 0, data: [] })),
-          api.groupsPage({ status: "Active", limit: 50, offset: 0 }).catch(() => ({ total: 0, data: [] }))
+          api.documentRequirementsPage({ limit: pageSize, offset: requirementOffset }),
+          api.documentAcknowledgementsPage({ limit: pageSize, offset: acknowledgementOffset }),
+          can("member:read") ? api.memberProfilesPage({ status: "Active", limit: 50, offset: 0 }) : Promise.resolve({data: []}),
+          can("group:read") ? api.groupsPage({ status: "Active", limit: 50, offset: 0 }) : Promise.resolve({data: []})
         ]);
         setDocuments(documentList.data as DocumentSummary[]);
         setRequirements(requirementList.data as DocumentRequirement[]);
@@ -269,12 +277,17 @@ export function DocumentsPage() {
         setTotals((documentList as AnyRecord).totals ?? {});
         setMembers(memberList.data as MemberOption[]);
         setGroups(groupList.data as GroupOption[]);
-        setPersonalDocuments([]);
-        setLinkedMember(null);
+        if (can("document:read-own")) {
+          try {
+            const own = await api.documentsPage({ mine: true, search: search || undefined, limit: pageSize, offset: documentOffset });
+            setPersonalDocuments(own.data as PersonalDocument[]); setPersonalTotal(own.total ?? own.data.length); setLinkedMember((own as AnyRecord).linkedMemberProfile ?? null); setOwnError("");
+          } catch(e) { setOwnError(errorMessage(e)); setPersonalDocuments([]); }
+        }
       } else {
         const personal = await api.documentsPage({ mine: true, search: search || undefined, limit: pageSize, offset: documentOffset });
         setPersonalDocuments(personal.data as PersonalDocument[]);
         setLinkedMember((personal as AnyRecord).linkedMemberProfile ?? null);
+        setPersonalTotal(personal.total ?? personal.data.length);
         setDocumentTotal(personal.total ?? personal.data.length);
         setTotals((personal as AnyRecord).totals ?? {});
         setDocuments([]);
@@ -282,6 +295,8 @@ export function DocumentsPage() {
         setAcknowledgements([]);
         setMembers([]);
         setGroups([]);
+        const history = await api.documentAcknowledgementsPage({ limit: pageSize, offset: acknowledgementOffset });
+        setOwnHistory(history.data); setAcknowledgementTotal(history.total ?? history.data.length);
       }
     } catch (err) {
       setError(errorMessage(err));
@@ -390,6 +405,26 @@ export function DocumentsPage() {
       setDrawerError(errorMessage(err));
     }
   };
+
+  useEffect(() => {
+    if (versionId === null) return;
+    let active = true;
+    setContentRecord(null); setDrawerError(""); setDrawer({ type: "content", title: "Selected document version" });
+    void (async () => {
+      try {
+        if (!versionId || versionId.length > 100) throw new Error("Invalid document version link.");
+        const content = await api.documentVersionContent(versionId);
+        let obligation: PersonalDocument | undefined;
+        if (can("document:read-own")) {
+          try { const own = await api.documentsPage({mine: true, documentVersionId: versionId, limit: 1}); obligation = own.data[0] as PersonalDocument | undefined; }
+          catch(e) { if (active) setOwnError(errorMessage(e)); }
+        }
+        if (!active) return;
+        setContentRecord(content); setDrawer({type: "content", title: content.title, obligation});
+      } catch(e) { if (active) setDrawerError(errorMessage(e)); }
+    })();
+    return () => { active = false; };
+  }, [versionId]);
 
   const saveDocument = async () => {
     if (drawer?.type !== "document") return;
@@ -574,19 +609,76 @@ export function DocumentsPage() {
     ? Number(totals.outstanding ?? 0)
     : Number(totals.outstanding ?? 0);
 
+  const personalView = (
+          <Card>
+            <CardHeader
+              title="Required for me and operational reference"
+              description={linkedMember ? `${linkedMember.displayName} · ${linkedMember.memberId}` : "Your linked member profile controls this list."}
+            />
+            <div className="grid gap-4 p-4">
+              <Field label="Search my documents"><Input aria-label="Search my documents" value={search} placeholder="Title, code, category" onChange={(event) => { setDocumentOffset(0); setSearch(event.target.value); }} /></Field>
+              {!linkedMember ? (
+                <EmptyState title="No linked member profile" detail="Ask a coordinator to link your account before personal documents appear." />
+              ) : filteredPersonalDocuments.length ? (
+                <div className="grid gap-3">
+                  {filteredPersonalDocuments.map((document) => (
+                    <div key={document.id} className="rounded-lg border border-border bg-card p-4">
+                      <div className="grid gap-3 lg:grid-cols-[minmax(0,1fr)_auto] lg:items-start">
+                        <div className="min-w-0">
+                          <div className="flex flex-wrap items-center gap-2">
+                            <Badge tone="neutral">{document.acknowledgementRequired ? "Required for me" : "Operational reference"}</Badge>
+                            <StatusBadge value={document.status === "Awareness" ? "Read for awareness — no acknowledgement required" : document.status} />
+                            <Badge tone="neutral">Current published · {document.versionLabel}</Badge>
+                            <Badge tone="info">{document.contentMode}</Badge>
+                          </div>
+                          <h2 className="mt-3 text-lg font-black text-foreground">{document.title}</h2>
+                          <p className="mt-1 text-sm font-semibold text-muted-foreground">{document.code} · {document.category}</p>
+                          <p className="mt-2 font-bold">{document.canAcknowledge ? "Action required: read and acknowledge this version." : document.acknowledgedAt ? "This version is acknowledged." : document.acknowledgementRequired ? "Acknowledgement unavailable for your access or content state." : "Reference guidance; acknowledgement is not required."}</p>
+                          <p className="mt-2 text-sm text-muted-foreground">{document.description}</p>
+                          <div className="mt-3 flex flex-wrap gap-2">
+                            {document.reasons.map((reason) => <Badge key={reason.id} tone="info">{reason.label}</Badge>)}
+                            <Badge tone="neutral">Due: {formatDateTime(document.dueAt)}</Badge>
+                            {document.acknowledgedAt ? <Badge tone="success">Acknowledged: {formatDateTime(document.acknowledgedAt)}</Badge> : null}
+                          </div>
+                        </div>
+                        <div className="flex flex-wrap gap-2 lg:justify-end">
+                          <Link className="focus-ring text-sm underline" to={`/documents?versionId=${encodeURIComponent(document.documentVersionId)}`}>Link to {document.title} {document.versionLabel}</Link>
+                          <Button variant="secondary" icon={BookOpenCheck} onClick={() => openContent(document.documentVersionId, document.title, document)}>Read</Button>
+                          {document.canAcknowledge ? <Button variant="create" icon={CheckCircle2} disabled={saving} onClick={() => void acknowledge(document)}>Acknowledge</Button> : null}
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <EmptyState title="No documents assigned" detail="Required documents will appear here when they are assigned to your profile, group or role." />
+              )}
+              <div className="flex items-center justify-between gap-3">
+                <span className="text-sm font-bold text-muted-foreground">{personalTotal ? documentOffset + 1 : 0}–{Math.min(documentOffset + personalDocuments.length, personalTotal)} of {personalTotal}</span>
+                <div className="flex gap-2"><Button size="sm" variant="secondary" disabled={documentOffset === 0 || loading} onClick={() => setDocumentOffset((value) => Math.max(0, value - pageSize))}>Previous</Button><Button size="sm" variant="secondary" disabled={documentOffset + pageSize >= personalTotal || loading} onClick={() => setDocumentOffset((value) => value + pageSize)}>Next</Button></div>
+              </div>
+            </div>
+          </Card>
+  );
+
   return (
     <>
       <PageIntro
         eyebrow="Operational documentation"
         title="Documents"
-        description={canReadAll ? "Manage published guidance, version history and required acknowledgements." : "Read and acknowledge the documents required for your current role, group or profile."}
+        description={canReadAll ? "Read operational guidance and view organization-wide compliance. Management controls appear only for authorized users." : "Read and acknowledge the documents required for your current role, group or profile."}
       />
 
-      <div className="grid gap-4">
+      <div className="grid min-w-0 gap-4">
+        <RecordsContext />
+        <AlertBox>Documents are controlled organizational guidance across incidents. Only acknowledgement of the applicable current version satisfies its requirement; earlier acknowledgements remain historical evidence.</AlertBox>
         {success ? <AlertBox tone="success" dismissible>{success}</AlertBox> : null}
         {error ? <AlertBox tone="danger">{error}</AlertBox> : null}
 
-        {loading ? (
+        {ownError && <AlertBox>Personal document obligations unavailable: {ownError}. Organization-wide guidance below remains separate from your own work.</AlertBox>}
+        {!loading && !error && !ownError && can("document:read-own") ? personalView : null}
+        {!canReadAll && !loading && !error ? <Card><CardHeader title="My acknowledgement history" description="Immutable evidence for each exact version, including superseded guidance." /><div className="grid gap-3 p-4">{ownHistory.map(a => <article key={a.id} className="rounded border p-3"><p>{a.document?.title} · {a.version?.versionLabel} · {a.version?.status === "Superseded" ? "Superseded — historical acknowledgement" : a.version?.status}</p><p>Acknowledged {formatDateTime(a.acknowledgedAt)}</p><Link className="focus-ring underline" to={`/documents?versionId=${encodeURIComponent(a.documentVersionId)}`}>Read acknowledged version {a.version?.versionLabel}</Link></article>)}{acknowledgementTotal === 0 && <p>No acknowledgement history.</p>}<div className="flex gap-2"><Button disabled={acknowledgementOffset === 0} onClick={() => setAcknowledgementOffset(value => Math.max(0, value - pageSize))}>Previous acknowledgements</Button><Button disabled={acknowledgementOffset + pageSize >= acknowledgementTotal} onClick={() => setAcknowledgementOffset(value => value + pageSize)}>Next acknowledgements</Button></div></div></Card> : null}
+        {error ? <AlertBox>Document sources unavailable. Retry when access or the source is restored.</AlertBox> : loading ? (
           <Card><div className="p-5"><Loading label="Loading documents" /></div></Card>
         ) : canReadAll ? (
           <>
@@ -594,13 +686,13 @@ export function DocumentsPage() {
               <Card><div className="p-4"><p className="text-xs font-black uppercase text-muted-foreground">Documents</p><p className="mt-2 text-3xl font-black">{totals.documents ?? documentTotal}</p></div></Card>
               <Card><div className="p-4"><p className="text-xs font-black uppercase text-muted-foreground">Published</p><p className="mt-2 text-3xl font-black">{totals.published ?? 0}</p></div></Card>
               <Card><div className="p-4"><p className="text-xs font-black uppercase text-muted-foreground">Requirements</p><p className="mt-2 text-3xl font-black">{totals.requirements ?? requirementTotal}</p></div></Card>
-              <Card><div className="p-4"><p className="text-xs font-black uppercase text-muted-foreground">To acknowledge</p><p className="mt-2 text-3xl font-black">{totalOutstanding}</p></div></Card>
+              <Card><div className="p-4"><p className="text-xs font-black uppercase text-muted-foreground">Outstanding across organization</p><p className="mt-2 text-3xl font-black">{totalOutstanding}</p></div></Card>
             </div>
 
             <Card>
               <CardHeader
-                title="Document library"
-                description="Open the current published version, or manage drafts and historical versions."
+                title="Operational reference and managed documents"
+                description="Published guidance is current reference material. Draft-only and archived items are managed configuration; personal requirements appear separately above."
                 action={canManageDocuments ? <Button variant="create" icon={Plus} onClick={() => openDocumentDrawer("create")}>New document</Button> : null}
               />
               <div className="grid gap-4 p-4">
@@ -624,9 +716,9 @@ export function DocumentsPage() {
                   columns={[
                     { key: "title", label: "Document", render: (row) => <div><p className="font-black">{(row as DocumentSummary).title}</p><p className="text-xs font-bold text-muted-foreground">{(row as DocumentSummary).code} · {(row as DocumentSummary).category}</p></div> },
                     { key: "currentVersion", label: "Current version", render: (row) => (row as DocumentSummary).currentVersion ? <StatusBadge value={(row as DocumentSummary).currentVersion!.versionLabel} /> : <StatusBadge value="No published version" /> },
-                    { key: "ownerFunction", label: "Owner" },
+                    { key: "ownerFunction", label: "Purpose / owner", render: row => <div><p>{(row as DocumentSummary).currentVersion && (row as DocumentSummary).active ? "Operational reference" : "Managed / configuration"}</p><p className="text-xs">{row.ownerFunction}</p></div> },
                     { key: "activeRequirementCount", label: "Requirements", render: (row) => String((row as DocumentSummary).activeRequirementCount ?? 0) },
-                    { key: "outstandingCount", label: "To acknowledge", render: (row) => String((row as DocumentSummary).outstandingCount ?? 0) },
+                    { key: "outstandingCount", label: "Outstanding (organization)", render: (row) => String((row as DocumentSummary).outstandingCount ?? 0) },
                     { key: "status", label: "State", render: (row) => <StatusBadge value={(row as DocumentSummary).status} /> }
                   ]}
                 />
@@ -681,7 +773,7 @@ export function DocumentsPage() {
                       { key: "member", label: "Member", render: (row) => (row as AnyRecord).member?.displayName ?? "" },
                       { key: "document", label: "Document", render: (row) => <div><p className="font-black">{(row as AnyRecord).document?.title}</p><p className="text-xs font-bold text-muted-foreground">{(row as AnyRecord).version?.versionLabel}</p></div> },
                       { key: "acknowledgedAt", label: "Acknowledged", render: (row) => formatDateTime((row as AnyRecord).acknowledgedAt) },
-                      { key: "onBehalf", label: "Mode / evidence", render: (row) => { const acknowledgement = row as AnyRecord; return <div><p className="font-bold">{acknowledgement.onBehalf ? `On behalf · actor ${acknowledgement.acknowledgedById}` : "Self acknowledgement"}</p><p className="text-xs font-bold text-muted-foreground">{acknowledgement.legacyImported ? "Legacy evidence unavailable" : `Sources: ${acknowledgement.sourceRequirementIds?.join(", ") || "None"}`}</p></div>; } }
+                      { key: "onBehalf", label: "Mode / evidence", render: (row) => { const acknowledgement = row as AnyRecord; return <div><p className="font-bold">{acknowledgement.onBehalf ? "Acknowledged on behalf of member" : "Self acknowledgement"}</p><p className="text-xs font-bold text-muted-foreground">{acknowledgement.legacyImported ? "Legacy evidence unavailable" : `Requirement reasons: ${acknowledgement.sourceRequirements?.map((r: AnyRecord) => r.targetLabel).join(", ") || "None recorded"}`}</p></div>; } }
                     ]}
                   />
                   <div className="mt-3 flex items-center justify-between gap-3">
@@ -693,52 +785,7 @@ export function DocumentsPage() {
             </div>
           </>
         ) : (
-          <Card>
-            <CardHeader
-              title="My documents"
-              description={linkedMember ? `${linkedMember.displayName} · ${linkedMember.memberId}` : "Your linked member profile controls this list."}
-            />
-            <div className="grid gap-4 p-4">
-              <Field label="Search my documents"><Input aria-label="Search my documents" value={search} placeholder="Title, code, category" onChange={(event) => { setDocumentOffset(0); setSearch(event.target.value); }} /></Field>
-              {!linkedMember ? (
-                <EmptyState title="No linked member profile" detail="Ask a coordinator to link your account before personal documents appear." />
-              ) : filteredPersonalDocuments.length ? (
-                <div className="grid gap-3">
-                  {filteredPersonalDocuments.map((document) => (
-                    <div key={document.id} className="rounded-lg border border-border bg-card p-4">
-                      <div className="grid gap-3 lg:grid-cols-[minmax(0,1fr)_auto] lg:items-start">
-                        <div className="min-w-0">
-                          <div className="flex flex-wrap items-center gap-2">
-                            <StatusBadge value={document.status} />
-                            <Badge tone="neutral">{document.versionLabel}</Badge>
-                            <Badge tone="info">{document.contentMode}</Badge>
-                          </div>
-                          <h2 className="mt-3 text-lg font-black text-foreground">{document.title}</h2>
-                          <p className="mt-1 text-sm font-semibold text-muted-foreground">{document.code} · {document.category}</p>
-                          <p className="mt-2 text-sm text-muted-foreground">{document.description}</p>
-                          <div className="mt-3 flex flex-wrap gap-2">
-                            {document.reasons.map((reason) => <Badge key={reason.id} tone="info">{reason.label}</Badge>)}
-                            <Badge tone="neutral">Due: {formatDateTime(document.dueAt)}</Badge>
-                            {document.acknowledgedAt ? <Badge tone="success">Acknowledged: {formatDateTime(document.acknowledgedAt)}</Badge> : null}
-                          </div>
-                        </div>
-                        <div className="flex flex-wrap gap-2 lg:justify-end">
-                          <Button variant="secondary" icon={BookOpenCheck} onClick={() => openContent(document.documentVersionId, document.title, document)}>Read</Button>
-                          {document.canAcknowledge ? <Button variant="create" icon={CheckCircle2} disabled={saving} onClick={() => void acknowledge(document)}>Acknowledge</Button> : null}
-                        </div>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              ) : (
-                <EmptyState title="No documents assigned" detail="Required documents will appear here when they are assigned to your profile, group or role." />
-              )}
-              <div className="flex items-center justify-between gap-3">
-                <span className="text-sm font-bold text-muted-foreground">{documentTotal ? documentOffset + 1 : 0}–{Math.min(documentOffset + personalDocuments.length, documentTotal)} of {documentTotal}</span>
-                <div className="flex gap-2"><Button size="sm" variant="secondary" disabled={documentOffset === 0 || loading} onClick={() => setDocumentOffset((value) => Math.max(0, value - pageSize))}>Previous</Button><Button size="sm" variant="secondary" disabled={documentOffset + pageSize >= documentTotal || loading} onClick={() => setDocumentOffset((value) => value + pageSize)}>Next</Button></div>
-              </div>
-            </div>
-          </Card>
+          null
         )}
       </div>
 
@@ -752,7 +799,7 @@ export function DocumentsPage() {
             <div className="flex items-start justify-between gap-3">
               <div>
                 <h2 data-dialog-heading="true" tabIndex={-1} className="text-xl font-black text-foreground">{drawer.title}</h2>
-                {contentRecord ? <p className="mt-1 text-sm font-semibold text-muted-foreground">{contentRecord.versionLabel} · {contentRecord.contentMode}</p> : null}
+                {contentRecord ? <p className="mt-1 text-sm font-semibold text-muted-foreground">{contentRecord.versionLabel} · {contentRecord.status === "Published" ? "Current published" : contentRecord.status === "Superseded" ? "Superseded — historical; does not satisfy newer requirements" : contentRecord.status} · {contentRecord.contentMode}</p> : null}
               </div>
               <Button variant="ghost" onClick={() => setDrawer(null)}>Close</Button>
             </div>
@@ -828,7 +875,7 @@ export function DocumentsPage() {
             <div className="flex items-start justify-between gap-3">
               <div>
                 <h2 data-dialog-heading="true" tabIndex={-1} className="text-xl font-black text-foreground">{drawer.document.title}</h2>
-                <p className="mt-1 text-sm font-semibold text-muted-foreground">Version history and draft controls.</p>
+                <p className="mt-1 text-sm font-semibold text-muted-foreground">Current and superseded guidance. Historical acknowledgements remain tied to their exact version.</p>
               </div>
               <div className="flex gap-2">
                 {canManageVersions ? <Button variant="create" icon={Plus} onClick={() => void openVersionDrawer("create", drawer.document.id)}>New version</Button> : null}
@@ -857,7 +904,7 @@ export function DocumentsPage() {
               actionWidth="w-80"
               columns={[
                 { key: "versionLabel", label: "Version", render: (row) => <div><p className="font-black">{(row as DocumentVersion).versionLabel}</p><p className="text-xs font-bold text-muted-foreground">{(row as DocumentVersion).changeSummary || "No summary"}</p></div> },
-                { key: "status", label: "State", render: (row) => <StatusBadge value={(row as DocumentVersion).status} /> },
+                { key: "status", label: "State", render: (row) => <StatusBadge value={(row as DocumentVersion).status === "Published" ? "Current published" : (row as DocumentVersion).status === "Superseded" ? "Superseded — historical" : (row as DocumentVersion).status} /> },
                 { key: "contentMode", label: "Content" },
                 { key: "publishedAt", label: "Published / withdrawn", render: (row) => { const version = row as DocumentVersion; return <div><p>{version.publishedAt ? `${formatDateTime(version.publishedAt)} · ${version.publishedById ?? "actor unavailable"}` : "Not published"}</p>{version.withdrawnAt ? <p className="text-xs font-bold text-muted-foreground">Withdrawn {formatDateTime(version.withdrawnAt)} · {version.withdrawnById ?? "actor unavailable"}{version.withdrawReason ? ` · ${version.withdrawReason}` : ""}</p> : null}</div>; } },
                 { key: "reviewDueAt", label: "Review due", render: (row) => formatDateTime((row as DocumentVersion).reviewDueAt) }
