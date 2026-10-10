@@ -44,7 +44,7 @@ test("separates a Family/NOK claim from the human decision and surfaces stale de
   const row = page.getByRole("row").filter({ hasText: family.operationalId });
   await expect(row).toBeVisible();
   await row.getByRole("button", { name: "Edit" }).click();
-  const drawer = page.getByRole("dialog", { name: "Edit family/NOK record" });
+  const drawer = page.getByRole("dialog", { name: "Edit family contact" });
   await expect(drawer.getByText("Claimed: Sibling")).toBeVisible();
   await expect(drawer.getByText(/Passenger link or Matching suggestion does not verify/)).toBeVisible();
   await expect(drawer.locator("#record-firstName")).toHaveAttribute("readonly", "");

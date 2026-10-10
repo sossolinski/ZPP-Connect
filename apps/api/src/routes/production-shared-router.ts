@@ -1,4 +1,6 @@
 import type { PrismaClient } from "@prisma/client";
+import { z } from "zod";
+import { journeyReadPermission, readSupportJourney } from "../modules/support-journey/support-journey-reader.js";
 import { defaultProfile, workflowStates, type DashboardSpecialist, type DashboardOperationalStatus } from "@zpp/shared";
 import { Router, type Request } from "express";
 import swaggerUi from "swagger-ui-express";
@@ -160,6 +162,11 @@ export function createTechnicalReadinessRouter(db: PrismaClient, probe: () => Pr
 export function createProductionSharedRouter(db: PrismaClient, requireIncidentPermission: IncidentPermissionGate, documents: FoundationDocumentRepository) {
   const router = Router();
   router.get("/config/profile", (_req, res) => res.json(defaultProfile));
+  const journeyQuery = z.object({ sessionId: z.string().uuid(), entity: z.enum(["enquiry", "family", "passenger", "claim", "release"]), id: z.string().uuid() }).strict();
+  router.get("/support-journey", requireIncidentPermission(req => journeyReadPermission[journeyQuery.parse(req.query).entity], req => journeyQuery.parse(req.query).sessionId), asyncHandler(async (req, res) => {
+    const query = journeyQuery.parse(req.query);
+    res.json({ status: "available", value: await readSupportJourney(db, req.incidentContext!, query.entity, query.id) });
+  }));
 
   router.get(
     "/dashboard",

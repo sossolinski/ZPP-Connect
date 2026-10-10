@@ -1,4 +1,7 @@
-import { useEffect, useMemo, useState } from "react";
+import { useSearchParams } from "react-router-dom";
+import { SupportJourneyPanel, JourneyReturnLink } from "../components/SupportJourneyPanel";
+import { useQueueText, useQueueNumber } from "../lib/use-journey-queue";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { AlertTriangle, CheckCircle2, ChevronLeft, ChevronRight, FilePlus2, RefreshCw, Search, ShieldCheck, UserCheck, XCircle } from "lucide-react";
 import { ApiRequestError, api } from "../lib/api";
 import { useApp } from "../lib/app-context";
@@ -62,24 +65,29 @@ function commandTitle(type: CommandType, actionType: string) {
 }
 
 export function ReleasePage() {
+  const [params] = useSearchParams();
+  const linkedClaimId = params.get("claimId") ?? "";
+  const contextSequence = useRef(0), scopeRef = useRef("");
   const { activeSession, activeSessionWritable, dictionaries, can, verifyActiveSessionWrite } = useApp();
   const sessionId = activeSession?.id ?? "";
-  const [queue, setQueue] = useState<AnyRecord[]>([]);
+  const [storedQueue, setQueue] = useState<AnyRecord[]>([]);
   const [total, setTotal] = useState(0);
-  const [offset, setOffset] = useState(0);
-  const [searchDraft, setSearchDraft] = useState("");
-  const [search, setSearch] = useState("");
-  const [status, setStatus] = useState("");
-  const [eligibility, setEligibility] = useState("");
-  const [actionType, setActionType] = useState("");
-  const [selectedId, setSelectedId] = useState("");
-  const [context, setContext] = useState<AnyRecord | null>(null);
-  const [candidates, setCandidates] = useState<AnyRecord[]>([]);
+  const [offset, setOffset] = useQueueNumber("offset", 0, 100000);
+  const [searchDraft, setSearchDraft] = useState(params.get("q") ?? "");
+  const [search, setSearch] = useQueueText("q");
+  const [status, setStatus] = useQueueText("status");
+  const [eligibility, setEligibility] = useQueueText("eligibility");
+  const [actionType, setActionType] = useQueueText("actionType");
+  const [selectedId, setSelectedId] = useQueueText("releaseId");
+  scopeRef.current = `${sessionId}:${selectedId}`;
+  const [storedContext, setContext] = useState<AnyRecord | null>(null);
+  const [storedCandidates, setCandidates] = useState<AnyRecord[]>([]);
   const [candidateTotal, setCandidateTotal] = useState(0);
   const [candidateOffset, setCandidateOffset] = useState(0);
   const [candidateSearchDraft, setCandidateSearchDraft] = useState("");
   const [candidateSearch, setCandidateSearch] = useState("");
   const [loadingQueue, setLoadingQueue] = useState(true);
+  const [queueLoaded,setQueueLoaded] = useState(false), [candidatesLoaded,setCandidatesLoaded] = useState(false);
   const [loadingContext, setLoadingContext] = useState(false);
   const [loadingCandidates, setLoadingCandidates] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -88,10 +96,21 @@ export function ReleasePage() {
   const [prepare, setPrepare] = useState<PrepareState | null>(null);
   const [command, setCommand] = useState<CommandState | null>(null);
 
+  const context = storedContext && storedContext.id === selectedId && storedContext.incidentId === sessionId ? storedContext : null;
+  const queueScope = JSON.stringify([sessionId, linkedClaimId, search, status, eligibility, actionType, offset]);
+  const candidateScope = JSON.stringify([sessionId, linkedClaimId, candidateSearch, candidateOffset]);
+  const queueScopeRef = useRef(queueScope), candidateScopeRef = useRef(candidateScope);
+  queueScopeRef.current = queueScope; candidateScopeRef.current = candidateScope;
+  const queueSequence = useRef(0), candidateSequence = useRef(0);
+  const [loadedQueueScope, setLoadedQueueScope] = useState("");
+  const [loadedCandidateScope, setLoadedCandidateScope] = useState("");
+  const queue = loadedQueueScope === queueScope ? storedQueue : [];
+  const candidates = loadedCandidateScope === candidateScope ? storedCandidates : [];
   const candidateById = useMemo(() => new Map(candidates.map((item) => [item.matchDecisionId, item])), [candidates]);
   const selectedCandidate = prepare ? candidateById.get(prepare.candidateId) : null;
 
   async function loadQueue(preferredId = selectedId) {
+    const sequence = ++queueSequence.current, scope = queueScope;
     if (!sessionId) {
       setQueue([]);
       setTotal(0);
@@ -99,17 +118,18 @@ export function ReleasePage() {
       setLoadingQueue(false);
       return;
     }
-    setLoadingQueue(true);
+    setQueueLoaded(false); setLoadingQueue(true);
     setError("");
     try {
-      const result = await api.list("releases/queue", { sessionId, search, status, eligibility, actionType, sortDirection: "desc", limit: pageSize, offset });
-      setQueue(result.data);
+      const result = await api.list("releases/queue", { sessionId, relationshipClaimId: linkedClaimId || undefined, search, status, eligibility, actionType, sortDirection: "desc", limit: pageSize, offset });
+      if (sequence !== queueSequence.current || scope !== queueScopeRef.current) return;
+      setLoadedQueueScope(scope); setQueueLoaded(true); setQueue(result.data);
       setTotal(result.total ?? result.data.length);
-      if (!preferredId || !result.data.some((item) => item.id === preferredId)) setSelectedId(result.data[0]?.id ?? "");
+      if (!preferredId && scopeRef.current === `${sessionId}:${preferredId}`) setSelectedId(result.data[0]?.id ?? "");
     } catch (loadError) {
-      setError(errorMessage(loadError, "Unable to load the release queue"));
+      if (sequence === queueSequence.current && scope === queueScopeRef.current) setError(errorMessage(loadError, "Unable to load the release queue"));
     } finally {
-      setLoadingQueue(false);
+      if (sequence === queueSequence.current && scope === queueScopeRef.current) setLoadingQueue(false);
     }
   }
 
@@ -118,49 +138,52 @@ export function ReleasePage() {
       setContext(null);
       return;
     }
-    setLoadingContext(true);
+    const sequence = ++contextSequence.current, scope = `${sessionId}:${id}`;
+    setContext(null); setLoadingContext(true);
     setError("");
     try {
-      setContext(await api.record("releases", id, { sessionId }));
+      const result = await api.record("releases", id, { sessionId });
+      if (sequence === contextSequence.current && scope === scopeRef.current) setContext(result);
     } catch (loadError) {
+      if (sequence !== contextSequence.current || scope !== scopeRef.current) return;
       setContext(null);
       setError(errorMessage(loadError, "Unable to load release decision context"));
     } finally {
-      setLoadingContext(false);
+      if (sequence === contextSequence.current && scope === scopeRef.current) setLoadingContext(false);
     }
   }
 
   async function loadCandidates() {
+    const sequence = ++candidateSequence.current, scope = candidateScope;
     if (!sessionId) {
       setCandidates([]);
       setCandidateTotal(0);
       return;
     }
-    setLoadingCandidates(true);
+    setCandidatesLoaded(false); setLoadingCandidates(true);
     try {
-      const result = await api.list("releases/candidates", { sessionId, search: candidateSearch, sortDirection: "asc", limit: candidatePageSize, offset: candidateOffset });
-      setCandidates(result.data);
+      const result = await api.list("releases/candidates", { sessionId, relationshipClaimId: linkedClaimId || undefined, search: candidateSearch, sortDirection: "asc", limit: candidatePageSize, offset: candidateOffset });
+      if (sequence !== candidateSequence.current || scope !== candidateScopeRef.current) return;
+      setLoadedCandidateScope(scope); setCandidatesLoaded(true); setCandidates(result.data);
       setCandidateTotal(result.total ?? result.data.length);
     } catch (loadError) {
-      setError(errorMessage(loadError, "Unable to load current human matches"));
+      if (sequence === candidateSequence.current && scope === candidateScopeRef.current) setError(errorMessage(loadError, "Unable to load current human matches"));
     } finally {
-      setLoadingCandidates(false);
+      if (sequence === candidateSequence.current && scope === candidateScopeRef.current) setLoadingCandidates(false);
     }
   }
 
   useEffect(() => {
-    setOffset(0);
     setCandidateOffset(0);
-    setSelectedId("");
     setContext(null);
     setPrepare(null);
     setCommand(null);
     setNotice("");
   }, [sessionId]);
 
-  useEffect(() => { void loadQueue(); }, [sessionId, search, status, eligibility, actionType, offset]);
+  useEffect(() => { void loadQueue(); }, [sessionId, linkedClaimId, search, status, eligibility, actionType, offset]);
   useEffect(() => { void loadContext(); }, [sessionId, selectedId]);
-  useEffect(() => { void loadCandidates(); }, [sessionId, candidateSearch, candidateOffset]);
+  useEffect(() => { void loadCandidates(); }, [sessionId, linkedClaimId, candidateSearch, candidateOffset]);
 
   function openPrepare(candidate?: AnyRecord) {
     setPrepare({ candidateId: candidate?.matchDecisionId ?? candidates[0]?.matchDecisionId ?? "", actionType: "REUNIFICATION", releaseDestination: "", receivingParty: "", transportMode: "", notes: "", operationId: newOperationId(), error: "" });
@@ -230,6 +253,10 @@ export function ReleasePage() {
 
   return (
     <div className="grid gap-4">
+      <JourneyReturnLink />
+      {linkedClaimId && !context && can("matching:read") ? <SupportJourneyPanel entity="claim" id={linkedClaimId} /> : null}
+      {linkedClaimId && !can("matching:read") ? <AlertBox>Matching context is unavailable for your account. An authorized match reviewer must resolve missing relationship or human-decision prerequisites.</AlertBox> : null}
+      {candidatesLoaded && !candidateSearch && !candidates.length ? <AlertBox>No current human-confirmed, verified relationship match is available{linkedClaimId ? " for this claim" : ""}. A system suggestion or passenger link cannot satisfy these prerequisites. {can("matching:read") ? <a className="focus-ring font-bold underline" href={linkedClaimId ? `/matching?claimId=${encodeURIComponent(linkedClaimId)}` : "/matching"}>Review human matching</a> : "An authorized match reviewer must continue."} {can("family:read") && !linkedClaimId ? <a className="focus-ring font-bold underline" href="/family-nok">Review relationship verification</a> : null}</AlertBox> : null}
       <Card>
         <CardHeader
           title="Release / Reunification Control"
@@ -237,17 +264,17 @@ export function ReleasePage() {
           action={<Button icon={FilePlus2} variant="create" disabled={!activeSessionWritable || !can("release:prepare") || !candidates.length} onClick={() => openPrepare()}>Prepare action</Button>}
         />
         <div className="grid gap-3 border-b border-border p-4 lg:grid-cols-[minmax(220px,1fr)_180px_180px_180px_auto]">
-          <form className="flex gap-2" onSubmit={(event) => { event.preventDefault(); setOffset(0); setSearch(searchDraft.trim()); }}>
+          <form className="flex gap-2" onSubmit={(event) => { event.preventDefault(); setSearch(searchDraft.trim(), { offset: null }); }}>
             <Input aria-label="Search release queue" value={searchDraft} onChange={(event) => setSearchDraft(event.target.value)} placeholder="Release, Passenger or NOK" />
             <Button icon={Search} type="submit" size="icon" aria-label="Search" />
           </form>
-          <Select aria-label="Release status" value={status} onChange={(event) => { setStatus(event.target.value); setOffset(0); }}>
+          <Select aria-label="Release status" value={status} onChange={(event) => { setStatus(event.target.value, { offset: null }); }}>
             <option value="">All states</option><option value="PREPARED">Prepared</option><option value="AUTHORIZED">Authorized</option><option value="COMPLETED">Completed</option><option value="CANCELLED">Cancelled</option>
           </Select>
-          <Select aria-label="Eligibility" value={eligibility} onChange={(event) => { setEligibility(event.target.value); setOffset(0); }}>
+          <Select aria-label="Eligibility" value={eligibility} onChange={(event) => { setEligibility(event.target.value, { offset: null }); }}>
             <option value="">Eligible and blocked</option><option value="eligible">All checks pass</option><option value="blocked">Blocked / stale</option>
           </Select>
-          <Select aria-label="Action type" value={actionType} onChange={(event) => { setActionType(event.target.value); setOffset(0); }}>
+          <Select aria-label="Action type" value={actionType} onChange={(event) => { setActionType(event.target.value, { offset: null }); }}>
             <option value="">Both action types</option><option value="REUNIFICATION">Reunification</option><option value="RELEASE">Release</option>
           </Select>
           <Button icon={RefreshCw} onClick={() => void refreshCurrent()}>Refresh</Button>
@@ -265,7 +292,7 @@ export function ReleasePage() {
                   {row.blockers?.length ? <p className="mt-2 line-clamp-2 text-xs font-semibold text-amber-800">{row.blockers[0]}</p> : null}
                 </button>
               ))}
-            </div> : <EmptyState title="No release actions" detail="Prepare an action from a current human match." />}
+            </div> : queueLoaded ? <EmptyState title="No release actions" detail="Prepare an action from a current human match." /> : <p className="text-sm">Release queue unavailable. Refresh to retry.</p>}
             <div className="mt-3 flex items-center justify-between border-t border-border pt-3">
               <Button icon={ChevronLeft} size="icon" aria-label="Previous page" disabled={offset === 0} onClick={() => setOffset(Math.max(0, offset - pageSize))} />
               <span className="text-xs font-bold text-muted-foreground">{total ? offset + 1 : 0}–{queueEnd} of {total}</span>
@@ -275,6 +302,7 @@ export function ReleasePage() {
 
           <div className="min-w-0 p-4">
             {loadingContext ? <Loading /> : context ? <div className="grid gap-4">
+              <SupportJourneyPanel entity="release" id={context.id} revision={context.version} />
               <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
                 <div><div className="flex flex-wrap items-center gap-2"><h2 className="text-xl font-black">{context.operationalId}</h2><StatusBadge value={context.status} /><Badge tone={tone(context.effectiveState)}>{context.effectiveState}</Badge></div><p className="mt-1 text-sm text-muted-foreground">{context.actionType} · version {context.version} · prepared {formatDate(context.preparedAt)}</p></div>
                 <div className="flex flex-wrap gap-2">
@@ -302,15 +330,15 @@ export function ReleasePage() {
                 {context.checks?.length ? context.checks.map((check: AnyRecord) => <div key={check.id} className="rounded-md border border-border p-3"><div className="flex flex-wrap items-center gap-2"><Badge tone={check.result === "PASS" ? "success" : "danger"}>{check.type} {check.result}</Badge><Badge tone={check.current ? "success" : "warning"}>{check.current ? "CURRENT" : "STALE"}</Badge><span className="text-xs text-muted-foreground">{check.actorDisplayName ?? "Unknown actor"} · {formatDate(check.checkedAt)}</span></div><p className="mt-2 text-sm">{check.basis}</p>{check.evidenceReference ? <p className="mt-1 text-xs text-muted-foreground">Evidence reference: {check.evidenceReference}</p> : null}</div>) : <EmptyState title="No independent checks" detail="Identity and hold review are explicit recorded events, not editable checkboxes." />}
               </div></section>
 
-              {context.passenger?.holdStatus !== "No hold" ? <AlertBox>BLOCKED — active Passenger hold. Release Control cannot clear it. {can("passenger:control") ? <a className="font-black underline" href={`/records?focus=${encodeURIComponent(context.passengerRecordId)}`}>Open the Passenger workflow.</a> : null}</AlertBox> : null}
-            </div> : <EmptyState title="Select a release action" detail="The backend context will show Passenger, NOK, match, checks and current blockers separately." />}
+              {context.passenger?.holdStatus !== "No hold" ? <AlertBox>BLOCKED — active Passenger hold. Release Control cannot clear it. {can("passenger:control") ? <a className="font-black underline" href={`/passenger-src?focus=${encodeURIComponent(context.passengerRecordId)}`}>Open the Passenger workflow.</a> : null}</AlertBox> : null}
+            </div> : <EmptyState title="Select a release action" detail="The backend context will show Passenger, relationship, human match, checks and current blockers separately." />}
           </div>
         </div>
       </Card>
 
       {prepare ? <DialogSurface title="Prepare release action" description="Preparation is not authorization" onClose={() => setPrepare(null)} busy={saving} dirty={Boolean(prepare.notes || prepare.releaseDestination || prepare.receivingParty)} initialFocus="first-control" className="fixed inset-y-0 right-0 z-50 flex w-full max-w-xl flex-col border-l border-border bg-card shadow-2xl">
         {({ requestClose }) => <><div className="border-b border-border p-5"><h2 data-dialog-heading="true" tabIndex={-1} className="text-lg font-black">Prepare release / reunification</h2><p className="mt-1 text-sm text-muted-foreground">Creates a versioned PREPARED action only. It does not record checks, authorize or complete an outcome.</p></div><div className="grid flex-1 content-start gap-4 overflow-y-auto p-5"><ErrorSummary title="Action could not be prepared" errors={prepare.error ? [{ message: prepare.error }] : []} />
-          <form className="flex gap-2" onSubmit={(event) => { event.preventDefault(); setCandidateOffset(0); setCandidateSearch(candidateSearchDraft.trim()); }}><Input data-dialog-initial-focus="true" value={candidateSearchDraft} onChange={(event) => setCandidateSearchDraft(event.target.value)} placeholder="Search current human matches" /><Button type="submit" icon={Search}>Search</Button></form>
+          <form className="flex gap-2" onSubmit={(event) => { event.preventDefault(); setCandidateOffset(0); setCandidateSearch(candidateSearchDraft.trim()); }}><Input aria-label="Search current human matches" data-dialog-initial-focus="true" value={candidateSearchDraft} onChange={(event) => setCandidateSearchDraft(event.target.value)} placeholder="Search current human matches" /><Button type="submit" icon={Search}>Search</Button></form>
           <Field label="Current human match" required><Select value={prepare.candidateId} onChange={(event) => setPrepare({ ...prepare, candidateId: event.target.value })}><option value="">Select match</option>{candidates.map((item) => <option key={item.matchDecisionId} value={item.matchDecisionId}>{item.passenger.operationalId} · {person(item.passenger)} ↔ {person(item.family)}{item.eligible ? "" : " · BLOCKED"}</option>)}</Select></Field>
           {loadingCandidates ? <Loading /> : selectedCandidate ? <div className="rounded-md border border-border p-3"><div className="flex flex-wrap gap-2"><Badge tone={selectedCandidate.eligible ? "success" : "warning"}>{selectedCandidate.eligible ? "ELIGIBLE NOW" : "PREPARED WILL BE BLOCKED"}</Badge><span className="text-sm font-bold">Passenger hold: {selectedCandidate.passengerHold}</span></div>{selectedCandidate.blockers?.length ? <p className="mt-2 text-sm text-amber-800">{selectedCandidate.blockers.join("; ")}</p> : null}</div> : null}
           <div className="flex items-center justify-between"><Button icon={ChevronLeft} size="icon" disabled={candidateOffset === 0} onClick={() => setCandidateOffset(Math.max(0, candidateOffset - candidatePageSize))} /><span className="text-xs font-bold">{candidateTotal ? candidateOffset + 1 : 0}–{Math.min(candidateOffset + candidates.length, candidateTotal)} of {candidateTotal}</span><Button icon={ChevronRight} size="icon" disabled={candidateOffset + candidates.length >= candidateTotal} onClick={() => setCandidateOffset(candidateOffset + candidatePageSize)} /></div>
@@ -323,8 +351,8 @@ export function ReleasePage() {
       </DialogSurface> : null}
 
       {command && context ? <DialogSurface title={commandTitle(command.type, context.actionType)} description="Controlled human release decision" onClose={() => setCommand(null)} busy={saving} dirty={Boolean(command.basis)} initialFocus="first-control" layer="nested" className="fixed left-1/2 top-1/2 z-[90] flex max-h-[90vh] w-[min(94vw,680px)] -translate-x-1/2 -translate-y-1/2 flex-col rounded-lg border border-border bg-card shadow-2xl">
-        {({ requestClose }) => <><div className="border-b border-border p-5"><div className="flex items-start gap-3">{["authorize", "complete"].includes(command.type) ? <AlertTriangle className="mt-0.5 h-5 w-5 text-amber-700" /> : <ShieldCheck className="mt-0.5 h-5 w-5 text-[#145C63]" />}<div><h2 data-dialog-heading="true" tabIndex={-1} className="text-lg font-black">{commandTitle(command.type, context.actionType)}</h2><p className="mt-1 text-sm text-muted-foreground">{context.operationalId} · Passenger {person(context.passenger)} · NOK {person(context.relationship?.family)}</p></div></div></div><div className="grid gap-4 overflow-y-auto p-5"><ErrorSummary title="Command was not recorded" errors={command.error ? [{ message: command.error }] : []} />
-          {real && ["authorize", "complete"].includes(command.type) ? <AlertBox>REAL INCIDENT — this is an operational human decision. Review the Passenger, NOK, action type and every current critical precondition below.</AlertBox> : null}
+        {({ requestClose }) => <><div className="border-b border-border p-5"><div className="flex items-start gap-3">{["authorize", "complete"].includes(command.type) ? <AlertTriangle className="mt-0.5 h-5 w-5 text-amber-700" /> : <ShieldCheck className="mt-0.5 h-5 w-5 text-[#145C63]" />}<div><h2 data-dialog-heading="true" tabIndex={-1} className="text-lg font-black">{commandTitle(command.type, context.actionType)}</h2><p className="mt-1 text-sm text-muted-foreground">{context.operationalId} · Passenger {person(context.passenger)} · Family contact {person(context.relationship?.family)}</p></div></div></div><div className="grid gap-4 overflow-y-auto p-5"><ErrorSummary title="Command was not recorded" errors={command.error ? [{ message: command.error }] : []} />
+          {real && ["authorize", "complete"].includes(command.type) ? <AlertBox>REAL INCIDENT — this is an operational human decision. Review the Passenger, relationship, action type and every current critical precondition below.</AlertBox> : null}
           {["authorize", "complete"].includes(command.type) ? <div className="grid gap-2 sm:grid-cols-2">{context.preconditions.map((item: AnyRecord) => <div key={item.key} className="rounded-md border border-border p-2"><div className="flex justify-between gap-2 text-sm font-bold"><span>{item.label}</span><Badge tone={tone(item.state)}>{item.state}</Badge></div><p className="mt-1 text-xs text-muted-foreground">{item.detail}</p></div>)}</div> : null}
           {command.type === "identity" ? <><Field label="Identity result"><Select value={command.result} onChange={(event) => setCommand({ ...command, result: event.target.value as "PASS" | "FAIL" })}><option value="PASS">PASS</option><option value="FAIL">FAIL</option></Select></Field><Field label="Evidence reference or type" helperText="Do not enter document numbers or copy identity documents here."><Input value={command.evidenceReference} onChange={(event) => setCommand({ ...command, evidenceReference: event.target.value })} /></Field></> : null}
           {command.type === "hold" ? <AlertBox>The result is derived from the current Passenger hold state. This check cannot clear or alter the hold.</AlertBox> : null}

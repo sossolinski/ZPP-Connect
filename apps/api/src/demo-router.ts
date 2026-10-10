@@ -1,3 +1,4 @@
+import { journeyReadPermission } from "./modules/support-journey/support-journey-reader.js";
 import type { AssignmentRecord } from "./modules/assignments/assignment-types.js";
 import type { RequestRecord } from "./modules/requests/request-types.js";
 import type { IncidentWorkspace, WorkspaceWork, WorkspaceList, DashboardAvailability } from "@zpp/shared";
@@ -2343,6 +2344,7 @@ export function createDemoRouter(options: {
     _hydrateEnquiryCompatibility = false,
     requireWritable = false
   ) => requireIncidentPermission(required, resolveIncidentId, { requireWritable });
+  router.get("/support-journey", incidentPermissionGate(req => journeyReadPermission[req.query.entity as keyof typeof journeyReadPermission] ?? "session:read", req => String(req.query.sessionId ?? "")), (_req,res) => res.json({ status: "unavailable" }));
   if (options.notificationService) router.use(createNotificationRouter(options.notificationService));
   else router.get("/notifications", requirePermission("session:read"), (req, res) => res.json(notifications!.list(req.user, req.query)));
   if (!options.notificationService) router.get("/notifications/counts", requirePermission("session:read"), (req, res) => res.json(notifications!.counts(req.user)));

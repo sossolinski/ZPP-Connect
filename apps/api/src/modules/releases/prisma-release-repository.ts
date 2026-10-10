@@ -253,6 +253,7 @@ export function createPrismaReleaseRepository(client: PrismaClient): ReleaseRepo
 
     async listQueue(context, query) {
       const filters: Prisma.Sql[] = [Prisma.sql`action."incidentId" = ${context.incidentId}::uuid`];
+      if (query.relationshipClaimId) filters.push(Prisma.sql`action."relationshipClaimId" = ${query.relationshipClaimId}::uuid`);
       if (query.status) filters.push(Prisma.sql`action."status" = ${query.status}`);
       if (query.actionType) filters.push(Prisma.sql`action."actionType" = ${query.actionType}`);
       if (query.search) filters.push(Prisma.sql`(action."operationalId" ILIKE ${`%${query.search}%`} OR passenger."operationalId" ILIKE ${`%${query.search}%`} OR passenger."firstName" ILIKE ${`%${query.search}%`} OR passenger."lastName" ILIKE ${`%${query.search}%`} OR family."operationalId" ILIKE ${`%${query.search}%`} OR family."firstName" ILIKE ${`%${query.search}%`} OR family."lastName" ILIKE ${`%${query.search}%`})`);
@@ -282,6 +283,7 @@ export function createPrismaReleaseRepository(client: PrismaClient): ReleaseRepo
 
     async listCandidates(context, query) {
       const filters: Prisma.Sql[] = [Prisma.sql`decision."incidentId" = ${context.incidentId}::uuid`, Prisma.sql`decision."decision" = 'CONFIRMED'`, Prisma.sql`decision."validity" = 'CURRENT'`, Prisma.sql`decision."isCurrent" = true`, Prisma.sql`claim."isCurrent" = true`, Prisma.sql`claim."status" = 'VERIFIED'`];
+      if (query.relationshipClaimId) filters.push(Prisma.sql`decision."relationshipClaimId" = ${query.relationshipClaimId}::uuid`);
       if (query.search) filters.push(Prisma.sql`(passenger."operationalId" ILIKE ${`%${query.search}%`} OR passenger."firstName" ILIKE ${`%${query.search}%`} OR passenger."lastName" ILIKE ${`%${query.search}%`} OR family."operationalId" ILIKE ${`%${query.search}%`} OR family."firstName" ILIKE ${`%${query.search}%`} OR family."lastName" ILIKE ${`%${query.search}%`})`);
       const eligible = Prisma.sql`(decision."claimVersion" = claim."version" AND decision."passengerVersion" = passenger."version" AND (passenger."holdStatus" IS NULL OR passenger."holdStatus" = 'No hold') AND (matching."holdCheck" IS NULL OR matching."holdCheck" = 'No hold'))`;
       if (query.eligibility === "eligible") filters.push(eligible);

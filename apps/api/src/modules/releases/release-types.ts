@@ -120,6 +120,7 @@ export type ReleaseCandidateRecord = {
 };
 
 export type ReleaseQueueQuery = {
+  relationshipClaimId?: string;
   search?: string;
   status?: ReleaseStatus;
   eligibility?: "eligible" | "blocked";
@@ -130,6 +131,7 @@ export type ReleaseQueueQuery = {
 };
 
 export type ReleaseCandidateQuery = {
+  relationshipClaimId?: string;
   search?: string;
   eligibility?: "eligible" | "blocked";
   sortDirection: "asc" | "desc";

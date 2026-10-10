@@ -12,6 +12,7 @@ const basis = z.string().trim().min(3).max(2_000);
 const optionalText = z.string().trim().max(500).optional().nullable();
 const scope = z.object({ sessionId: id }).strict();
 const queue = scope.extend({
+  relationshipClaimId: z.string().uuid().optional(),
   search: z.string().trim().max(200).optional(),
   status: z.enum(["PREPARED", "AUTHORIZED", "COMPLETED", "CANCELLED"]).optional(),
   eligibility: z.enum(["eligible", "blocked"]).optional(),
@@ -20,7 +21,7 @@ const queue = scope.extend({
   limit: z.coerce.number().int().min(1).max(200).default(50),
   offset: z.coerce.number().int().min(0).default(0)
 });
-const candidates = scope.extend({ search: z.string().trim().max(200).optional(), eligibility: z.enum(["eligible", "blocked"]).optional(), sortDirection: z.enum(["asc", "desc"]).default("asc"), limit: z.coerce.number().int().min(1).max(200).default(50), offset: z.coerce.number().int().min(0).default(0) });
+const candidates = scope.extend({ relationshipClaimId: z.string().uuid().optional(), search: z.string().trim().max(200).optional(), eligibility: z.enum(["eligible", "blocked"]).optional(), sortDirection: z.enum(["asc", "desc"]).default("asc"), limit: z.coerce.number().int().min(1).max(200).default(50), offset: z.coerce.number().int().min(0).default(0) });
 const prepare = z.object({ sessionId: id, matchDecisionId: id, actionType: z.enum(["REUNIFICATION", "RELEASE"]), releaseDestination: optionalText, receivingParty: optionalText, transportMode: optionalText, notes: z.string().trim().max(2_000).optional().nullable(), operationId }).strict();
 const identity = z.object({ sessionId: id, result: z.enum(["PASS", "FAIL"]), basis, evidenceReference: z.string().trim().max(500).optional().nullable(), expectedVersion: z.coerce.number().int().min(1), operationId }).strict();
 const hold = z.object({ sessionId: id, basis, expectedVersion: z.coerce.number().int().min(1), operationId }).strict();
