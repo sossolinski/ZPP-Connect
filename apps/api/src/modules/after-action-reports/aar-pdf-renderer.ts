@@ -29,14 +29,13 @@ export function renderAarPdf(view: AarPdfView, byteLimit = aarPdfLimit): Promise
     const heading = (value: string) => { if (doc.y > 710) doc.addPage(); doc.moveDown().font("Helvetica-Bold").fontSize(13).text(pdfPlainText(value)); doc.font("Helvetica").fontSize(10); };
     const line = (value: string) => doc.text(pdfPlainText(value), { width: 495 });
     const { version: v, context: c } = view;
-    doc.font("Helvetica-Bold").fontSize(20).text("Post-Incident Report");
+    doc.font("Helvetica-Bold").fontSize(20).text("After Action Report");
     doc.font("Helvetica").fontSize(10);
-    line("After Action Review (AAR)");
     line(c.operationalId + " / Revision " + v.revision + " / Approved");
     line("Artifact: " + view.artifactId);
     line("Template: aar-pdf-v1");
     line("Unsupported font characters are preserved as [U+codepoint].");
-    line("Incident: " + c.sessionOperationalId + " / " + c.mode + " / " + c.eventType);
+    line("Session: " + c.sessionOperationalId + " / " + c.mode + " / " + c.eventType);
     line("Event date: " + v.eventDate.toISOString());
     line("Owner: " + c.owner + " / Author: " + c.author);
     line("Approved by: " + c.approver + " / " + v.approvedAt!.toISOString());

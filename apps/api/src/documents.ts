@@ -920,12 +920,14 @@ export function createDocumentRepository(directory: MemberDirectoryRepository) {
       const version = assertVersion(versionId);
       const document = assertDocument(version.documentId);
       const acknowledgement = acknowledgementFor(versionId, member.id);
+      const acknowledgementRequired = sourceRequirements.some(requirement => requirement.acknowledgementRequired);
       const dueAt = sourceRequirements
+        .filter(requirement => requirement.acknowledgementRequired)
         .map((requirement) => requirement.dueAt)
         .filter((value): value is string => Boolean(value))
         .sort()[0] ?? null;
       const available = contentAvailable(version);
-      const status = acknowledgement ? "Acknowledged" : isPastAt(dueAt, evaluationAt) ? "Overdue" : "Required";
+      const status = acknowledgement ? "Acknowledged" : !acknowledgementRequired ? "Awareness" : isPastAt(dueAt, evaluationAt) ? "Overdue" : "Required";
       return {
         id: `${versionId}:${member.id}`,
         documentId: document.id,
@@ -940,6 +942,7 @@ export function createDocumentRepository(directory: MemberDirectoryRepository) {
         contentAvailable: available,
         dueAt,
         status,
+        acknowledgementRequired,
         acknowledgedAt: acknowledgement?.acknowledgedAt ?? null,
         acknowledgement: acknowledgement ? acknowledgementView(acknowledgement) : null,
         reasons: sourceRequirements.map((requirement) => ({
@@ -948,7 +951,7 @@ export function createDocumentRepository(directory: MemberDirectoryRepository) {
           label: requirementTarget(requirement).label
         })),
         sourceRequirementIds: sourceRequirements.map((requirement) => requirement.id),
-        canAcknowledge: !acknowledgement && available && canAcknowledgeOwn(actor)
+        canAcknowledge: !acknowledgement && acknowledgementRequired && available && canAcknowledgeOwn(actor)
       };
     });
   }
@@ -964,8 +967,9 @@ export function createDocumentRepository(directory: MemberDirectoryRepository) {
     return page(filtered, query, {
       linkedMemberProfile: memberSummary(member),
       totals: {
-        required: filtered.length,
-        outstanding: filtered.filter((row) => row.status !== "Acknowledged").length,
+        required: filtered.filter(row => row.acknowledgementRequired).length,
+        awareness: filtered.filter(row => !row.acknowledgementRequired).length,
+        outstanding: filtered.filter((row) => row.acknowledgementRequired && row.status !== "Acknowledged").length,
         overdue: filtered.filter((row) => row.status === "Overdue").length,
         acknowledged: filtered.filter((row) => row.status === "Acknowledged").length
       }

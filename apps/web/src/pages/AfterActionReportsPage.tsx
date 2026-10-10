@@ -169,7 +169,7 @@ function AfterActionWorkspace({ sessionId, revisionId, artifactId, onDirtyChange
   const controls = (index: number, length: number, move: (shift: number) => void, remove: () => void) => <div className="flex gap-2">
     <Button disabled={busy || index === 0} onClick={() => move(-1)}>Move up</Button><Button disabled={busy || index + 1 === length} onClick={() => move(1)}>Move down</Button><Button disabled={busy} onClick={remove}>Remove</Button>
   </div>;
-  if (loading) return <Loading label="Loading After Action Reports" />;
+  if (loading) return <Loading label="Loading Post-Incident Report" />;
   const editable = Boolean(version?.capabilities.edit);
   return <div className="grid gap-5" data-testid="aar-workspace">
     {error && <AlertBox tone="danger">{error}</AlertBox>}
@@ -188,7 +188,7 @@ function AfterActionWorkspace({ sessionId, revisionId, artifactId, onDirtyChange
         <section><h3 className="mb-2 text-lg font-bold">Lessons Identified</h3>{version.lessons.length ? <ol className="grid gap-2">{version.lessons.map((l,i) => <li key={i} className="whitespace-pre-wrap break-words">{i+1}. {l.statement}</li>)}</ol> : <p>No lessons recorded.</p>}</section>
         <section><h3 className="mb-2 text-lg font-bold">Corrective Actions / Recommendations</h3><p className="mb-2 text-sm">Approved recommendations are historical snapshots, not live task tracking.</p>{version.correctiveActions.length ? <ol className="grid gap-3">{version.correctiveActions.map((a,i) => <li key={i} className="rounded border p-3"><p className="whitespace-pre-wrap break-words">{i+1}. {a.recommendation}</p><p>Owner: {a.owner || "Not recorded"} · Target: {a.targetDate ? new Date(a.targetDate).toLocaleDateString("en-GB") : "Not recorded"}</p></li>)}</ol> : <p>No recommendations recorded.</p>}</section>
         <details><summary className="focus-ring cursor-pointer font-bold">Approved content integrity details</summary><p className="break-all text-xs">SHA-256: {version.contentSha256}. Approved source is verified during generation and retained bytes are verified on download; this is not a digital signature.</p></details>
-      </article></Card> : <>      <Card><CardHeader title={version.report.operationalId + " · Revision " + version.revision} description={"Session: " + version.report.session.status + " · Report: " + version.report.status} action={<StatusBadge value={version.status} />} />
+      </article></Card> : <>      <Card><CardHeader title={version.report.operationalId + " · Revision " + version.revision} description={version.report.session.operationalId + " · " + version.report.session.status + " incident · " + (version.report.status === "Active" ? "Report available" : "Report archived")} action={<StatusBadge value={version.status} />} />
         <div className="grid gap-4 p-4">
           <Field label="Report title"><Input value={form.title} maxLength={500} disabled={!editable || busy} onChange={e => change({ title: e.target.value })} /></Field>
           <Field label="Event date"><Input type="date" value={form.eventDate} disabled={!editable || busy} onChange={e => change({ eventDate: e.target.value })} /></Field>
@@ -237,7 +237,8 @@ function AfterActionWorkspace({ sessionId, revisionId, artifactId, onDirtyChange
       </div></Card>
       <Card><CardHeader title="Approved report PDFs" description="Retained historical output for this exact revision. Approved source is verified during generation; downloads automatically verify file integrity. Built-in font fallback displays unsupported Unicode as [U+codepoint]." /><div className="grid gap-3 p-4">
         {version.capabilities.generatePdf && <Button disabled={busy} onClick={() => ask("pdf-artifacts", "Generate PDF")}>Generate PDF</Button>}
-        {artifacts?.data.map(a => <div key={a.id} className="grid gap-2 rounded border p-3">
+        {artifacts?.data.map(a => <div key={a.id} data-testid={a.id === artifactId ? "selected-report-pdf" : "report-pdf"} className="grid min-w-0 gap-2 rounded border p-3">
+          {a.id === artifactId && <p className="font-bold">Selected retained PDF</p>}
           <p>{version.report.session.operationalId} · Revision {version.revision} · Approved · Generated {new Date(a.generatedAt).toLocaleString("en-GB")} by {a.generatedBy.displayName} · {a.contentSizeBytes} bytes</p>
           <details><summary className="focus-ring cursor-pointer font-bold">PDF technical integrity details</summary><p className="break-all text-xs">Artifact: {a.id}<br />PDF SHA-256: {a.contentSha256}<br />Source SHA-256: {a.sourceContentSha256}<br />Renderer: {a.rendererVersion}</p></details>
           {verifiedArtifact === a.id && <p role="status">PDF integrity verified for downloaded artifact.</p>}

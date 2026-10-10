@@ -749,7 +749,7 @@ export function DocumentsPage() {
                     actionWidth="w-64"
                     columns={[
                       { key: "document", label: "Document", render: (row) => <div><p className="font-black">{(row as DocumentRequirement).document.title}</p><p className="text-xs font-bold text-muted-foreground">{(row as DocumentRequirement).version.versionLabel}</p></div> },
-                      { key: "targetLabel", label: "Target", render: (row) => `${(row as DocumentRequirement).targetType}: ${(row as DocumentRequirement).targetLabel}` },
+                      { key: "targetLabel", label: "Target", render: (row) => `${(row as DocumentRequirement).targetType === "MemberProfile" ? "Member" : (row as DocumentRequirement).targetType}: ${(row as DocumentRequirement).targetLabel}` },
                       { key: "dueAt", label: "Due", render: (row) => formatDateTime((row as DocumentRequirement).dueAt) },
                       { key: "active", label: "State", render: (row) => <StatusBadge value={(row as DocumentRequirement).active ? "Active" : "Ended"} /> }
                     ]}
@@ -906,7 +906,7 @@ export function DocumentsPage() {
                 { key: "versionLabel", label: "Version", render: (row) => <div><p className="font-black">{(row as DocumentVersion).versionLabel}</p><p className="text-xs font-bold text-muted-foreground">{(row as DocumentVersion).changeSummary || "No summary"}</p></div> },
                 { key: "status", label: "State", render: (row) => <StatusBadge value={(row as DocumentVersion).status === "Published" ? "Current published" : (row as DocumentVersion).status === "Superseded" ? "Superseded — historical" : (row as DocumentVersion).status} /> },
                 { key: "contentMode", label: "Content" },
-                { key: "publishedAt", label: "Published / withdrawn", render: (row) => { const version = row as DocumentVersion; return <div><p>{version.publishedAt ? `${formatDateTime(version.publishedAt)} · ${version.publishedById ?? "actor unavailable"}` : "Not published"}</p>{version.withdrawnAt ? <p className="text-xs font-bold text-muted-foreground">Withdrawn {formatDateTime(version.withdrawnAt)} · {version.withdrawnById ?? "actor unavailable"}{version.withdrawReason ? ` · ${version.withdrawReason}` : ""}</p> : null}</div>; } },
+                { key: "publishedAt", label: "Published / withdrawn", render: (row) => { const version = row as DocumentVersion; return <div><p>{version.publishedAt ? formatDateTime(version.publishedAt) : "Not published"}</p>{version.withdrawnAt ? <p className="text-xs font-bold text-muted-foreground">Withdrawn {formatDateTime(version.withdrawnAt)}{version.withdrawReason ? ` · ${version.withdrawReason}` : ""}</p> : null}<details><summary className="focus-ring cursor-pointer">Technical publication actors</summary><p className="break-all text-xs">Published actor: {version.publishedById ?? "Unavailable"} · Withdrawn actor: {version.withdrawnById ?? "Not withdrawn"}</p></details></div>; } },
                 { key: "reviewDueAt", label: "Review due", render: (row) => formatDateTime((row as DocumentVersion).reviewDueAt) }
               ]}
             />
