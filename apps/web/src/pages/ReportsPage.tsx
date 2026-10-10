@@ -77,8 +77,8 @@ export function ReportsPage() {
     <Card><CardHeader title="Export generation history" description="Historical provenance for this incident, filtered by your current source permissions." /><div className="grid gap-3 p-4">
       {!can("export:create") ? <p>Export history unavailable for your role.</p> : !incident ? <p>Select an incident to view generation history.</p> : !history ? error ? <p>Export history unavailable. Retry after the source can be read.</p> : <Loading label="Loading generation history" /> : <>
         {history.data.filter(row => row.id !== selected?.id).map(generation)}
-        {history.total === 0 && <p>No exports have been generated for this incident.</p>}
-        <div className="flex flex-wrap items-center gap-3"><Button disabled={busy || (history.offset ?? 0) === 0} onClick={() => void load(Math.max(0, (history.offset ?? 0) - 20))}>Previous generations</Button><span>{history.total} generation records</span><Button disabled={busy || (history.offset ?? 0) + 20 >= history.total} onClick={() => void load((history.offset ?? 0) + 20)}>Next generations</Button></div>
+        {history.total === 0 && <p>No export generations are visible for your current source permissions in this incident.</p>}
+        <div className="flex flex-wrap items-center gap-3"><Button disabled={busy || (history.offset ?? 0) === 0} onClick={() => void load(Math.max(0, (history.offset ?? 0) - 20))}>Previous generations</Button><span>{history.total} visible generation records</span><Button disabled={busy || (history.offset ?? 0) + 20 >= history.total} onClick={() => void load((history.offset ?? 0) + 20)}>Next generations</Button></div>
       </>}
     </div></Card>
   </div>;

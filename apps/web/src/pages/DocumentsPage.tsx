@@ -666,7 +666,7 @@ export function DocumentsPage() {
       <PageIntro
         eyebrow="Operational documentation"
         title="Documents"
-        description={canReadAll ? "Read operational guidance and view organization-wide compliance. Management controls appear only for authorized users." : "Read and acknowledge the documents required for your current role, group or profile."}
+        description={canReadAll ? "Read operational guidance and view compliance in your permitted organizational scope. Management controls appear only for authorized users." : "Read and acknowledge the documents required for your current role, group or profile."}
       />
 
       <div className="grid min-w-0 gap-4">
@@ -686,7 +686,7 @@ export function DocumentsPage() {
               <Card><div className="p-4"><p className="text-xs font-black uppercase text-muted-foreground">Documents</p><p className="mt-2 text-3xl font-black">{totals.documents ?? documentTotal}</p></div></Card>
               <Card><div className="p-4"><p className="text-xs font-black uppercase text-muted-foreground">Published</p><p className="mt-2 text-3xl font-black">{totals.published ?? 0}</p></div></Card>
               <Card><div className="p-4"><p className="text-xs font-black uppercase text-muted-foreground">Requirements</p><p className="mt-2 text-3xl font-black">{totals.requirements ?? requirementTotal}</p></div></Card>
-              <Card><div className="p-4"><p className="text-xs font-black uppercase text-muted-foreground">Outstanding across organization</p><p className="mt-2 text-3xl font-black">{totalOutstanding}</p></div></Card>
+              <Card><div className="p-4"><p className="text-xs font-black uppercase text-muted-foreground">Outstanding in permitted library</p><p className="mt-2 text-3xl font-black">{totalOutstanding}</p></div></Card>
             </div>
 
             <Card>
@@ -718,7 +718,7 @@ export function DocumentsPage() {
                     { key: "currentVersion", label: "Current version", render: (row) => (row as DocumentSummary).currentVersion ? <StatusBadge value={(row as DocumentSummary).currentVersion!.versionLabel} /> : <StatusBadge value="No published version" /> },
                     { key: "ownerFunction", label: "Purpose / owner", render: row => <div><p>{(row as DocumentSummary).currentVersion && (row as DocumentSummary).active ? "Operational reference" : "Managed / configuration"}</p><p className="text-xs">{row.ownerFunction}</p></div> },
                     { key: "activeRequirementCount", label: "Requirements", render: (row) => String((row as DocumentSummary).activeRequirementCount ?? 0) },
-                    { key: "outstandingCount", label: "Outstanding (organization)", render: (row) => String((row as DocumentSummary).outstandingCount ?? 0) },
+                    { key: "outstandingCount", label: "Outstanding (permitted scope)", render: (row) => String((row as DocumentSummary).outstandingCount ?? 0) },
                     { key: "status", label: "State", render: (row) => <StatusBadge value={(row as DocumentSummary).status} /> }
                   ]}
                 />
@@ -745,13 +745,13 @@ export function DocumentsPage() {
                     minWidth="min-w-[820px] w-full"
                     emptyTitle="No document requirements found"
                     emptyDetail="Required documents will appear here when they are assigned."
-                    rowAction={(row) => { const requirement = row as DocumentRequirement; return <div className="flex flex-wrap justify-end gap-2">{canAcknowledgeAll && requirement.active && requirement.acknowledgementRequired ? <Button size="sm" variant="create" icon={CheckCircle2} onClick={() => openOnBehalfDrawer(requirement)}>Acknowledge on behalf</Button> : null}{canManageRequirements ? <Button size="sm" variant="secondary" icon={Edit3} onClick={() => openRequirementDrawer("edit", requirement)}>Edit</Button> : null}</div>; }}
+                    rowAction={(row) => { const requirement = row as DocumentRequirement; return <div className="flex flex-wrap justify-end gap-2">{canAcknowledgeAll && requirement.active && requirement.effective !== false && requirement.version.status === "Published" && requirement.version.contentAvailable && requirement.acknowledgementRequired ? <Button size="sm" variant="create" icon={CheckCircle2} onClick={() => openOnBehalfDrawer(requirement)}>Acknowledge on behalf</Button> : null}{canManageRequirements ? <Button size="sm" variant="secondary" icon={Edit3} onClick={() => openRequirementDrawer("edit", requirement)}>Edit</Button> : null}</div>; }}
                     actionWidth="w-64"
                     columns={[
                       { key: "document", label: "Document", render: (row) => <div><p className="font-black">{(row as DocumentRequirement).document.title}</p><p className="text-xs font-bold text-muted-foreground">{(row as DocumentRequirement).version.versionLabel}</p></div> },
                       { key: "targetLabel", label: "Target", render: (row) => `${(row as DocumentRequirement).targetType === "MemberProfile" ? "Member" : (row as DocumentRequirement).targetType}: ${(row as DocumentRequirement).targetLabel}` },
                       { key: "dueAt", label: "Due", render: (row) => formatDateTime((row as DocumentRequirement).dueAt) },
-                      { key: "active", label: "State", render: (row) => <StatusBadge value={(row as DocumentRequirement).active ? "Active" : "Ended"} /> }
+                      { key: "active", label: "State", render: (row) => <StatusBadge value={!(row as DocumentRequirement).active ? "Ended" : (row as DocumentRequirement).version.status === "Superseded" ? "Historical — superseded guidance" : (row as DocumentRequirement).version.status === "Withdrawn" ? "Historical — withdrawn guidance" : (row as DocumentRequirement).effective === false ? "Not currently applicable" : (row as DocumentRequirement).acknowledgementRequired ? "Current requirement" : "Operational reference"} /> }
                     ]}
                   />
                   <div className="mt-3 flex items-center justify-between gap-3">
@@ -807,16 +807,17 @@ export function DocumentsPage() {
           <div className="scrollbar-soft grid flex-1 content-start gap-4 overflow-y-auto p-5">
             <ErrorSummary title="Document could not be opened" errors={drawerError ? [{ message: drawerError }] : []} />
             {!contentRecord && !drawerError ? <Loading label="Loading document" /> : null}
-            {contentRecord?.contentMode === "Internal text" ? (
+            {contentRecord && !contentRecord.contentAvailable ? <AlertBox tone="warning">Content is unavailable for this version. Acknowledgement cannot be completed until guidance is available.</AlertBox> : null}
+            {contentRecord?.contentAvailable && contentRecord.contentMode === "Internal text" ? (
               <div className="whitespace-pre-wrap rounded-lg border border-border bg-muted p-4 text-sm font-semibold leading-7 text-foreground">{contentRecord.contentBody}</div>
-            ) : contentRecord?.externalUrl ? (
+            ) : contentRecord?.contentAvailable && contentRecord.externalUrl ? (
               <a className="focus-ring inline-flex items-center gap-2 rounded-md border border-border bg-muted px-3 py-2 text-sm font-black text-foreground hover:bg-card" href={contentRecord.externalUrl} target="_blank" rel="noopener noreferrer">
                 <ExternalLink className="h-4 w-4" />
                 Open external document
               </a>
             ) : null}
           </div>
-          {drawer.obligation?.canAcknowledge ? (
+          {drawer.obligation?.canAcknowledge && contentRecord?.contentAvailable && contentRecord.status === "Published" ? (
             <div className="border-t border-border bg-card p-4">
               <Button variant="create" icon={CheckCircle2} disabled={saving} className="w-full" onClick={() => void acknowledge(drawer.obligation!)}>{saving ? "Saving..." : "Acknowledge"}</Button>
             </div>

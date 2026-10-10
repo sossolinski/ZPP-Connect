@@ -88,7 +88,7 @@ test("permitted CSV export downloads current bytes and shows historical provenan
 test("observer receives restricted states and server rejects protected reads",async({page})=>{
   await ready(page,"viewer@lot.pl");for(const path of ["/evidence","/reports","/reports/after-action"]){await page.goto(path);await expect(page.getByText("Access is restricted for the active operational profile.")).toBeVisible();await expect(page.getByTestId("approved-report")).toHaveCount(0);}
   for(const path of [`/sessions/${activeId}/evidence`,`/sessions/${closedId}/export-generations`,`/after-action-reports?sessionId=${closedId}`]){const r=await page.request.get(apiUrl+path,{headers:{"x-user-email":"viewer@lot.pl"}});expect(r.status()).toBe(403);expect((await r.json()).data).toBeUndefined();}
-  await page.goto("/documents");await expect(page.getByText("Outstanding across organization")).toBeVisible();await expect(page.getByRole("button",{name:"New document"})).toHaveCount(0);await expect(page.getByRole("button",{name:"Acknowledge",exact:true})).toHaveCount(0);
+  await page.goto("/documents");await expect(page.getByText("Outstanding in permitted library")).toBeVisible();await expect(page.getByRole("button",{name:"New document"})).toHaveCount(0);await expect(page.getByRole("button",{name:"Acknowledge",exact:true})).toHaveCount(0);
 });
 
 test("historical evidence is read-only and mismatched exact incident links fail",async({page})=>{
@@ -100,7 +100,7 @@ test("historical evidence is read-only and mismatched exact incident links fail"
 
 test("failed sources remain unavailable rather than empty or zero",async({page})=>{
   await ready(page);
-  for(const [route,path,empty] of [["**/api/sessions/*/evidence?**",`/evidence?incidentId=${activeId}`,"No active evidence"],["**/api/sessions/*/export-generations?**",`/reports?incidentId=${closedId}`,"No exports have been generated"]]){
+  for(const [route,path,empty] of [["**/api/sessions/*/evidence?**",`/evidence?incidentId=${activeId}`,"No active evidence"],["**/api/sessions/*/export-generations?**",`/reports?incidentId=${closedId}`,"No export generations are visible"]]){
     await page.route(route!,r=>r.fulfill({status:500,contentType:"application/json",body:JSON.stringify({error:"Controlled source unavailable"})}));await page.goto(path!);await expect(page.getByText(/Controlled source unavailable/)).toBeVisible();await expect(page.getByText(new RegExp(empty!))).toHaveCount(0);await page.unroute(route!);
   }
   await page.route("**/api/document-requirements?**",r=>r.fulfill({status:403,contentType:"application/json",body:JSON.stringify({error:"Requirements source restricted"})}));await page.goto("/documents");await expect(page.getByText("Requirements source restricted")).toBeVisible();await expect(page.getByText("No document requirements found")).toHaveCount(0);
@@ -165,4 +165,30 @@ test("revision read locks authoring until the selected revision finishes loading
   let release!:()=>void,entered!:()=>void;const held=new Promise<void>(r=>release=r),seen=new Promise<void>(r=>entered=r);
   await page.route(`**/api/after-action-report-versions/${revisionId}`,async route=>{const response=await route.fetch();entered();await held;await route.fulfill({response});});
   await page.getByRole("button",{name:"View revision 1",exact:true}).click();await seen;await expect(page.getByLabel("Executive Summary")).toBeDisabled();await expect(page.getByRole("button",{name:"View revision 2",exact:true})).toBeDisabled();release();await expect(page.getByTestId("approved-report")).toContainText("Reviewed summary");await expect(page.getByLabel("Executive Summary")).toHaveCount(0);
+});
+
+test("empty visible export history does not claim hidden generations do not exist",async({page})=>{
+  const coordinator=await db.user.findUniqueOrThrow({where:{email:"coordinator@lot.pl"}}),email=marker.toLowerCase()+"-limited@example.invalid";
+  const role=await db.role.create({data:{name:marker.toLowerCase()+"-limited-exports",displayName:"PI4 limited export reader",permissions:["session:read","reports:read","export:create","passenger:read"]}});
+  const user=await db.user.create({data:{email,displayName:"PI4 limited export reader",status:"Active",roles:{create:{roleId:role.id,scopeType:"GLOBAL",assignedBy:marker}}}});
+  const incident=await db.session.create({data:{operationalId:marker+"-FILTERED",mode:"REAL",status:"Draft",eventType:"Scoped exports",createdById:coordinator.id}});
+  for(const id of [user.id,coordinator.id])await db.incidentAssignment.create({data:{incidentId:incident.id,userId:id,function:marker,createdById:coordinator.id}});
+  const prepared=await page.request.post(`${apiUrl}/exports/family-register`,{headers,data:{sessionId:incident.id,operationId:randomUUID()}});expect(prepared.status()).toBe(200);
+  await login(page,email);await page.goto(`/reports?incidentId=${incident.id}`);
+  await expect(page.getByText("No export generations are visible for your current source permissions in this incident.",{exact:true})).toBeVisible();await expect(page.getByText("0 visible generation records",{exact:true})).toBeVisible();await expect(page.getByText("No exports have been generated for this incident.",{exact:true})).toHaveCount(0);
+  const denied=await page.request.get(`${apiUrl}/exports/generations/${prepared.headers()["x-export-generation-id"]}`,{headers:{"x-user-email":email}});expect(denied.status()).toBe(404);expect((await denied.json()).data).toBeUndefined();
+});
+
+test("unavailable or freshly superseded document content cannot offer acknowledgement",async({page})=>{
+  const member=await db.memberProfile.findFirstOrThrow({where:{linkedUser:{email:"volunteer@lot.pl"}}});
+  const d=await post(page,"/documents",{code:marker+"-CONTENT",title:marker+" content availability",category:"Operational",ownerFunction:"ZPP"},201);
+  const draft=await post(page,`/documents/${d.id}/versions`,{versionLabel:"v1",contentMode:"Internal text",contentBody:"Available guidance"},201);
+  const version=await post(page,`/document-versions/${draft.id}/publish`,{expectedVersion:draft.version,operationId:randomUUID()});
+  await post(page,"/document-requirements",{documentVersionId:version.id,targetType:"MemberProfile",memberProfileId:member.id,acknowledgementRequired:true,effectiveFrom:"2019-01-01T00:00:00.000Z",dueAt:"2020-01-01T00:00:00.000Z"},201);
+  await ready(page,"volunteer@lot.pl");
+  for(const content of [{status:"Published",contentAvailable:false,contentBody:""},{status:"Superseded",contentAvailable:true,contentBody:"Historical guidance"}]){
+    await page.route(`**/api/document-versions/${version.id}/content`,async route=>{const response=await route.fetch();await route.fulfill({response,json:{...await response.json(),...content}});});
+    await page.goto(`/documents?versionId=${version.id}`);const dialog=page.getByRole("dialog");await expect(dialog).toContainText(content.contentAvailable ? "Superseded — historical" : "Content is unavailable for this version.");await expect(dialog.getByRole("button",{name:"Acknowledge",exact:true})).toHaveCount(0);
+    await page.unroute(`**/api/document-versions/${version.id}/content`);
+  }
 });
