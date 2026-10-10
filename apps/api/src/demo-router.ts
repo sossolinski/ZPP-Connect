@@ -1,3 +1,7 @@
+import type { AssignmentRecord } from "./modules/assignments/assignment-types.js";
+import type { RequestRecord } from "./modules/requests/request-types.js";
+import type { IncidentWorkspace, WorkspaceWork, WorkspaceList, DashboardAvailability } from "@zpp/shared";
+import { operationalActivityText } from "./modules/workspace/incident-workspace-reader.js";
 import { dashboardAttention } from "./modules/dashboard/dashboard-attention.js";
 import { createHash, randomUUID } from "node:crypto";
 import { readFileSync } from "node:fs";
@@ -2459,7 +2463,46 @@ export function createDemoRouter(options: {
     return result.briefing;
   }));
 
-  router.get("/dashboard", incidentPermissionGate("session:read", activeSessionId, true), (req, res) => res.json(dashboard(req, activeSessionId(req))));
+  router.get("/dashboard", incidentPermissionGate("session:read", activeSessionId, true), asyncHandler(async (req, res) => {
+    const sessionId = activeSessionId(req), result = dashboard(req, sessionId), currentTime = new Date();
+    const actor = { ...req.user!, permissions: req.incidentPermissions ?? req.user!.permissions };
+    const has = (permission: string) => actor.permissions.includes(permission as Permission);
+    const unavailable = { status: "unavailable" } as const;
+    const available = <T,>(value: T): DashboardAvailability<T> => ({ status: "available", value });
+    async function work(type: "Task" | "Support request", mine: boolean): Promise<DashboardAvailability<WorkspaceList<WorkspaceWork>>> {
+      const permission = type === "Task" ? "assignment:read" : "request:read";
+      const scope = permissionScope(actor, type === "Task" ? "assignment:assign" : "request:assign");
+      if (!has(permission) || (!mine && !scope.global)) return unavailable;
+      const statuses = type === "Task" ? ["Open", "In Progress", "Escalated"] : ["OPEN", "ASSIGNED", "IN_PROGRESS", "WAITING"];
+      const pages = await Promise.all(statuses.map(status => type === "Task"
+        ? assignmentService.listQueue(actor, sessionId, { status: status as never, mine, sortBy: "dueAt", sortDirection: "asc", limit: 6, offset: 0 })
+        : requestService.listQueue(actor, sessionId, { status: status as never, ...(mine ? { ownerUserId: actor.id } : {}), sortBy: "dueAt", sortDirection: "asc", limit: 6, offset: 0 })));
+      const rows = pages.flatMap<AssignmentRecord | RequestRecord>(page => page.data).sort((a, b) => new Date(a.dueAt ?? "2100-01-01").getTime() - new Date(b.dueAt ?? "2100-01-01").getTime()).slice(0, 6);
+      const items: WorkspaceWork[] = rows.map(row => ({ id: row.id, operationalId: row.operationalId, title: "title" in row ? row.title : `${row.category} support`, type,
+        priority: row.priority, owner: "assignedUserDisplayName" in row ? row.assignedUserDisplayName ?? null : "ownerAssignedTo" in row ? row.ownerAssignedTo ?? null : null,
+        dueAt: row.dueAt ? new Date(row.dueAt).toISOString() : null, state: row.status.replaceAll("_", " "), overdue: row.overdue,
+        warning: row.status === "Escalated" ? "Escalated — coordination needed" : "reassignmentRequired" in row && row.reassignmentRequired ? "Reassignment required" : row.status === "WAITING" ? "Waiting — follow-up needed" : null,
+        href: type === "Task" ? `/assignments?assignmentId=${encodeURIComponent(row.id)}` : `/requests?requestId=${encodeURIComponent(row.id)}`, nextAction: type === "Task" ? "Review task" : "Review support request" }));
+      return available({ items, total: pages.reduce((sum, page) => sum + page.total, 0), limit: 6, scope: mine ? `Your open ${type === "Task" ? "tasks" : "support requests"} in this incident` : `Open incident ${type === "Task" ? "tasks" : "support requests"}, including unassigned work` });
+    }
+    const [myTasks, myRequests, teamTasks, teamRequests, event] = await Promise.all([work("Task", true), work("Support request", true), work("Task", false), work("Support request", false), has("briefing:read") ? activeEvent.getActiveEvent(sessionId, actor) : null]);
+    const published = event?.currentBriefing;
+    const session = result.session!;
+    const workspace: IncidentWorkspace = {
+      incident: { operationalId: String(session.operationalId), name: String(session.eventType), description: session.description ? String(session.description) : null, status: String(session.status), location: session.airportLocation ? String(session.airportLocation) : null, flight: session.flightNumber ? String(session.flightNumber) : null, route: session.route ? String(session.route) : null, roles: actor.roles.map(role => roleDisplayName(role)) },
+      briefing: !has("briefing:read") ? unavailable : available(published ? { title: published.title, situation: published.situationSummary, publishedAt: published.publishedAt ?? null, nextUpdateDueAt: published.nextUpdateDueAt ?? null, priorities: published.priorities.slice(0, 3).map((row: any) => ({ description: row.description, responsible: row.responsible ?? null, dueAt: row.dueAt ?? null, status: row.status })), risks: published.risks.filter((row: any) => !["Closed", "Resolved"].includes(row.status)).slice(0, 3).map((row: any) => ({ description: row.description, severity: row.severity, mitigation: row.mitigation ?? null })) } : null),
+      myTasks, myRequests, teamTasks, teamRequests, coverage: unavailable, activity: unavailable,
+    };
+    if (has("roster:read") || has("roster:read-own")) {
+      const shifts = rostering.listShifts({ sessionId, from: currentTime.toISOString(), to: currentTime.toISOString(), limit: 100, offset: 0 }, directoryActor(req)).data.filter(row => ["Published", "Confirmed"].includes(row.status) && new Date(row.endAt) > currentTime);
+      workspace.coverage = available({ total: shifts.length, limit: 6, scope: "Current permitted staffing period", items: shifts.slice(0, 6).map(row => ({ id: row.id, title: row.title, functionName: row.functionName, person: row.assignedMember?.displayName ?? null, group: row.group?.name ?? null, location: row.location, startAt: row.startAt, endAt: row.endAt, state: !row.assignedMemberProfileId ? "Unfilled duty" : row.status === "Confirmed" ? "Confirmed coverage" : "Awaiting confirmation", href: `/rostering?shiftId=${encodeURIComponent(row.id)}` })) });
+    }
+    if (has("timeline:read")) {
+      const events = timeline.filter(row => row.sessionId === sessionId && !row.entityType).slice(0, 6);
+      workspace.activity = available({ total: events.length, limit: 6, scope: "Recent permitted significant events; up to 6 shown", items: events.map(row => ({ id: row.id, title: operationalActivityText(String(row.title)) ?? "Operational update", summary: operationalActivityText(row.body ? String(row.body) : null), occurredAt: String(row.occurredAt), actor: "System", href: `/timeline?eventId=${encodeURIComponent(row.id)}`, actionLabel: "Read timeline entry" })) });
+    }
+    res.json({ ...result, workspace });
+  }));
 
   if (!foundationMemberDirectoryService) {
   router.get("/member-profiles", requirePermission("member:read"), directoryRoute((req) => memberDirectory.listMembers(req.query, directoryActor(req))));

@@ -9,6 +9,7 @@ import { listQuery, timelineSchema } from "../validation.js";
 import type { IncidentPermissionGate } from "../modules/incident-access/incident-permission-gate.js";
 
 import type { FoundationDocumentRepository } from "../modules/documents/document-repository.js";
+import { readIncidentWorkspace } from "../modules/workspace/incident-workspace-reader.js";
 import { dashboardAttention } from "../modules/dashboard/dashboard-attention.js";
 
 type DashboardPassenger = {
@@ -244,6 +245,7 @@ export function createProductionSharedRouter(db: PrismaClient, requireIncidentPe
         const compliance = member ? await documents.evaluateMemberCompliance(member.id, { ...req.user!, permissions: [...permissions] }, new Date()) : null;
         attentionSources.push({ label: "My document acknowledgements", items: (compliance?.items ?? []).filter(item => item.acknowledgementRequired && item.status !== "Acknowledged").slice(0, 5).map(item => ({ key: `document:${item.documentVersionId}`, title: item.title, detail: item.status === "Overdue" ? "Your document acknowledgement is overdue" : "Your document acknowledgement is required", href: "/documents", actionLabel: "Open documents" })) });
       }
+      const workspace = await readIncidentWorkspace(db, sessionId, req.user!.id, new Date());
       const operationalStatus: DashboardOperationalStatus = {
         loadedAt: new Date().toISOString(),
         specialist: aggregates ? { status: "available", value: aggregates } : { status: "unavailable" },
@@ -257,6 +259,7 @@ export function createProductionSharedRouter(db: PrismaClient, requireIncidentPe
       if (openRequests !== undefined) kpis.openRequests = openRequests;
       res.json(redactForUser(req, {
         operationalStatus,
+        workspace,
         session,
         sessionLabel: `${session.mode} ${session.operationalId}`,
         kpis,

@@ -22,7 +22,7 @@ export type DashboardOperationalStatus = {
   specialist: DashboardAvailability<DashboardSpecialist>;
   attention: DashboardAvailability<{ items: DashboardAttentionItem[]; checkedSources: string[]; limitPerSource: number }>;
 };
-export type DashboardDto = { operationalStatus: DashboardOperationalStatus };
+export type DashboardDto = { operationalStatus: DashboardOperationalStatus; workspace?: import("./incident-workspace.js").IncidentWorkspace };
 
 /** Reject incomplete/malformed responses at this touched boundary, never invent zero. */
 export function assertDashboardDto(input: unknown): asserts input is DashboardDto {

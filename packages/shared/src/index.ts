@@ -808,3 +808,4 @@ export type DictionaryKey = keyof typeof dictionaries;
 
 export * from "./dashboard-contracts.js";
 export * from "./operational-freshness.js";
+export * from "./incident-workspace.js";
