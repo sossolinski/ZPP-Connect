@@ -519,7 +519,7 @@ test.describe("ZPP Connect portal", () => {
     await expect(drawer.getByText("Stage 2E forced save failure")).toBeVisible();
   });
 
-  test("labels imports and unsupported report formats without technical storage copy", async ({ page }) => {
+  test("labels operational exports and removes the unsupported summary placeholder", async ({ page }) => {
     await login(page, "admin@lot.pl");
 
     await page.goto("/files-import");
@@ -529,9 +529,10 @@ test.describe("ZPP Connect portal", () => {
 
     await page.goto("/reports");
     const main = page.getByRole("main");
-    await expect(main.getByText("CSV export for authorized operational use").first()).toBeVisible();
-    await expect(main.getByText("This report format is not available right now").first()).toBeVisible();
-    await expect(main.getByRole("button", { name: "Unavailable" }).first()).toBeDisabled();
+    await expect(main.getByRole("heading", {name:"Data exports"})).toBeVisible();
+    await expect(main.getByText(/CSV snapshots for authorized handover/)).toBeVisible();
+    await expect(main.getByText("PDF session summary", {exact:true})).toHaveCount(0);
+    await expect(main.getByRole("button", { name: "Export Passenger/Crew register", exact:true })).toBeEnabled();
     await expectNoTechnicalStorageCopy(page);
   });
 
@@ -698,7 +699,7 @@ test.describe("ZPP Connect portal", () => {
     await page.goto("/documents");
 
     await expect(page.getByRole("heading", { name: "Documents", exact: true })).toBeVisible();
-    await expect(page.getByRole("heading", { name: "My documents" })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Required for me and operational reference" })).toBeVisible();
     await expect(page.getByText("Adam Dabrowski · ZPP-221")).toBeVisible();
 
     await page.getByLabel("Search my documents").fill("ERP Role Cards");

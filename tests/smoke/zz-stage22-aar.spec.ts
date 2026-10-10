@@ -17,10 +17,10 @@ async function incident(suffix: string, status = "Closed") {
 async function open(page: Page, session: { id: string; operationalId: string }) {
   await login(page, "coordinator@lot.pl");
   await page.goto("/reports");
-  await page.getByRole("link", { name: "Open After Action Reports" }).click();
-  await page.getByLabel("Search report Sessions").fill(session.operationalId);
-  await expect(page.getByLabel("Report Session", { exact: true }).locator("option", { hasText: session.operationalId })).toHaveCount(1);
-  await page.getByLabel("Report Session", { exact: true }).selectOption(session.id);
+  await page.getByRole("link", { name: "Open Post-Incident Reports" }).click();
+  await page.getByLabel("Search report incidents").fill(session.operationalId);
+  await expect(page.getByLabel("Report incident", { exact: true }).locator("option", { hasText: session.operationalId })).toHaveCount(1);
+  await page.getByLabel("Report incident", { exact: true }).selectOption(session.id);
   await expect(page.getByTestId("aar-workspace")).toBeVisible();
 }
 async function confirm(page: Page, label: string) {
@@ -57,7 +57,7 @@ test("authors, approves, downloads exact PDF and revises a Closed Session AAR", 
   await expect(page.getByRole("button", { name: "Save draft" })).toHaveCount(0);
   await confirm(page, "Generate PDF");
   const downloadEvent = page.waitForEvent("download");
-  await page.getByRole("button", { name: "Download PDF", exact: true }).click();
+  await page.getByRole("button", { name: /^Download PDF / }).click();
   const download = await downloadEvent;
   expect(download.suggestedFilename()).toMatch(/^AAR-.*\.pdf$/);
   const bytes = await readFile((await download.path())!);
@@ -69,9 +69,10 @@ test("authors, approves, downloads exact PDF and revises a Closed Session AAR", 
   await expect(page.getByLabel("Executive Summary")).toBeEnabled();
   await expect(page.getByLabel("Executive Summary")).toHaveValue("Browser executive summary");
   await page.getByRole("button", { name: "View revision 1", exact: true }).click();
-  await expect(page.getByLabel("Executive Summary")).toBeDisabled();
+  await expect(page.getByTestId("approved-report")).toContainText("Browser executive summary");
+  await expect(page.getByLabel("Executive Summary")).toHaveCount(0);
   await expect(page.getByRole("button", { name: "Download PDF" })).toBeVisible();
-  await expect(page.getByLabel("Report Session", { exact: true })).toHaveValue(s.id);
+  await expect(page.getByLabel("Report incident", { exact: true })).toHaveValue(s.id);
 });
 
 test("preserves unsaved input on navigation, stale, validation and server errors", async ({ page }) => {
@@ -85,7 +86,7 @@ test("preserves unsaved input on navigation, stale, validation and server errors
   await page.getByRole("menuitem", { name: "Account / Settings" }).click();
   await expect(page.getByRole("dialog")).toContainText("Leave unsaved report?");
   await page.getByRole("dialog").getByRole("button", { name: "Cancel" }).click();
-  await expect(page).toHaveURL(/\/reports\/after-action$/);
+  await expect(page).toHaveURL(/\/reports\/after-action(?:\?.*)?$/);
   await expect(page.getByLabel("Executive Summary")).toHaveValue("Do not lose this text");
   for (const status of [409, 400, 500]) {
     await page.route("**/api/after-action-report-versions/*", async route => {
@@ -95,7 +96,7 @@ test("preserves unsaved input on navigation, stale, validation and server errors
     await page.getByRole("button", { name: "Save draft" }).click();
     await expect(page.getByText(status === 409 ? /Your input is preserved/ : "Controlled save failure", { exact: false }).first()).toBeVisible();
     await expect(page.getByLabel("Executive Summary")).toHaveValue("Do not lose this text");
-    await expect(page.getByLabel("Report Session", { exact: true })).toBeDisabled();
+    await expect(page.getByLabel("Report incident", { exact: true })).toBeDisabled();
     await page.unroute("**/api/after-action-report-versions/*");
   }
   await confirm(page, "Reload report");
@@ -117,13 +118,13 @@ test("pages historical Sessions independently, excludes Active and reads Archive
     await expect.poll(() => page.evaluate(() => localStorage.getItem("zpp:activeSessionId"))).toBe(active.id);
     await page.goto("/reports/after-action");
     const globalBefore = await page.evaluate(() => localStorage.getItem("zpp:activeSessionId"));
-    await page.getByLabel("Search report Sessions").fill(marker + "-PAGING");
-    const selector = page.getByLabel("Report Session", { exact: true });
+    await page.getByLabel("Search report incidents").fill(marker + "-PAGING");
+    const selector = page.getByLabel("Report incident", { exact: true });
     await expect(selector.locator("option")).toHaveCount(21);
     await expect(selector.locator("option", { hasText: active.operationalId })).toHaveCount(0);
-    await page.getByRole("button", { name: "Next Sessions" }).click();
+    await page.getByRole("button", { name: "Next incidents" }).click();
     await expect(selector.locator("option")).toHaveCount(3);
-    await page.getByLabel("Report Session status").selectOption("Archived");
+    await page.getByLabel("Report incident status").selectOption("Archived");
     await expect(selector.locator("option")).toHaveCount(2);
     await selector.selectOption(archived.id);
     await expect(page.getByLabel("Report title")).toHaveValue("Historical Draft");
@@ -150,9 +151,9 @@ test("does not turn a failed report read into a false empty state", async ({ pag
   await page.route("**/api/after-action-reports?**", route => route.fulfill({ status: 500, contentType: "application/json", body: JSON.stringify({ error: "Report read unavailable" }) }));
   await open(page, s);
   await expect(page.getByText("Report read unavailable")).toBeVisible();
-  await expect(page.getByText("No report is available for this Session.")).toHaveCount(0);
+  await expect(page.getByText("No report is available for this incident.")).toHaveCount(0);
   await expect(page.getByRole("button", { name: "Create report", exact: true })).toHaveCount(0);
   await page.unroute("**/api/after-action-reports?**");
   await confirm(page, "Reload report");
-  await expect(page.getByText("No report is available for this Session.")).toBeVisible();
+  await expect(page.getByText("No report is available for this incident.")).toBeVisible();
 });

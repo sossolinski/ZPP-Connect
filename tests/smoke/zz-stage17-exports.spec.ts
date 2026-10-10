@@ -25,11 +25,11 @@ async function openReports(page: Page, session: Record<string, string>) {
   await login(page, "coordinator@lot.pl");
   await useSession(page, session);
   await page.goto("/reports");
-  await expect(page.getByRole("heading", { name: "Reports" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Reports", level: 1 })).toBeVisible();
 }
 
 function exportButton(page: Page, label: string) {
-  return page.getByText(label, { exact: true }).locator("..").getByRole("button", { name: "Export" });
+  return page.getByText(label, { exact: true }).locator("..").getByRole("button", { name: /^Export / });
 }
 
 test.afterEach(async ({ page }) => {
@@ -69,14 +69,14 @@ test("downloads a session-package CSV and separates retained AAR from unsupporte
   expect(requestRecord.method()).toBe("POST");
   expect(requestRecord.postDataJSON()).toMatchObject({ sessionId: session.id, operationId: expect.stringMatching(/^[0-9a-f-]{36}$/) });
   expect(download.suggestedFilename()).toMatch(/^zpp-.*-session-package\.csv$/);
-  await expect(page.getByText("PDF session summary", { exact: true }).locator("..").getByRole("button", { name: "Unavailable" })).toBeDisabled();
+  await expect(page.getByText("PDF session summary", { exact: true })).toHaveCount(0);
   await expect(page.getByText("Exercise/AAR draft", { exact: true })).toHaveCount(0);
-  const aar = page.getByRole("link", { name: "Open After Action Reports" });
+  const aar = page.getByRole("link", { name: "Open Post-Incident Reports" });
   await expect(aar).toHaveAttribute("href", "/reports/after-action");
   const legacy = await page.request.post(`${apiUrl}/exports/aar-draft`, { headers, data: { sessionId: session.id } });
   expect(legacy.status()).toBe(501);
   await aar.click();
-  await expect(page.getByLabel("Report Session", { exact: true })).toBeVisible();
+  await expect(page.getByLabel("Report incident", { exact: true })).toBeVisible();
 });
 
 test("surfaces controlled POST errors and blocks the export module for a denied actor", async ({ page }) => {
