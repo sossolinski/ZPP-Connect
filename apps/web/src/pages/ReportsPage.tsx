@@ -24,27 +24,30 @@ export function ReportsPage() {
   const { incident, loading, error: contextError } = useRecordIncident();
   const [params] = useSearchParams();
   const generationId = params.get("generationId");
+  const scopeKey = JSON.stringify([incident?.id, generationId]);
+  const currentScope = useRef(scopeKey); currentScope.current = scopeKey;
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
   const [history, setHistory] = useState<{data: AnyRecord[]; total: number; limit: number; offset: number}>();
   const [selected, setSelected] = useState<AnyRecord>();
   const seq = useRef(0);
   async function load(offset = 0) {
+    if (currentScope.current !== scopeKey) return;
     const current = ++seq.current;
     if (!incident || !can("export:create")) return;
     try {
       const [list, exact] = await Promise.all([api.exportGenerations(incident.id, offset), generationId !== null ? api.exportGeneration(generationId) : Promise.resolve(undefined)]);
-      if (current !== seq.current) return;
+      if (current !== seq.current || currentScope.current !== scopeKey) return;
       if (exact && exact.incidentId !== incident.id) throw new Error("The selected export does not belong to this incident.");
       setHistory(list); setSelected(exact); setError("");
-    } catch(e) { if (current === seq.current) { setHistory(undefined); setSelected(undefined); setError(e instanceof Error ? e.message : "Export history unavailable"); } }
+    } catch(e) { if (current === seq.current && currentScope.current === scopeKey) { setHistory(undefined); setSelected(undefined); setError(e instanceof Error ? e.message : "Export history unavailable"); } }
   }
   useEffect(() => { setHistory(undefined); setSelected(undefined); setError(""); void load(); return () => { seq.current++; }; }, [incident?.id, generationId]);
   async function download(type: string) {
     if (!incident || busy) return;
     setError(""); setBusy(true);
     try { await api.downloadExport(type, incident.id); await load(); }
-    catch (err) { setError(err instanceof Error ? err.message : "Unable to create export."); }
+    catch (err) { if (currentScope.current === scopeKey) setError(err instanceof Error ? err.message : "Unable to create export."); }
     finally { setBusy(false); }
   }
   const generation = (row: AnyRecord) => <article key={row.id} data-testid="export-generation" className="grid min-w-0 gap-2 rounded border p-3">

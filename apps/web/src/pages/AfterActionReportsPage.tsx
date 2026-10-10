@@ -160,7 +160,11 @@ function AfterActionWorkspace({ sessionId, revisionId, artifactId, onDirtyChange
       setDecision(undefined);
     } catch (e) { failure(e); } finally { setBusy(false); }
   }
-  const safe = (work: () => Promise<unknown>) => { setError(""); void work().catch(failure); };
+  const safe = (work: () => Promise<unknown>) => {
+    if (busy) return;
+    setError(""); setBusy(true);
+    void work().catch(failure).finally(() => setBusy(false));
+  };
   const pagination = (page: { offset: number; total: number; limit: number }, changePage: (offset: number) => Promise<unknown>) => <div className="flex items-center gap-3">
     <Button disabled={busy || page.offset === 0} onClick={() => safe(() => changePage(Math.max(0, page.offset - page.limit)))}>Previous</Button>
     <span>{page.total} total · {page.offset + 1}–{Math.min(page.offset + page.limit, page.total)}</span>

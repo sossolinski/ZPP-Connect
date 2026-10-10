@@ -16,9 +16,11 @@ export function EvidencePage() {
   const { incident, error: contextError, loading: contextLoading } = useRecordIncident();
   const [params] = useSearchParams();
   const exactId = params.get("evidenceId");
+  const [showWithdrawn, setShowWithdrawn] = useState(false);
+  const scopeKey = JSON.stringify([incident?.id, exactId, showWithdrawn]);
+  const currentScope = useRef(scopeKey); currentScope.current = scopeKey;
   const [page, setPage] = useState<EvidencePageResult>();
   const [selected, setSelected] = useState<EvidenceRecord>();
-  const [showWithdrawn, setShowWithdrawn] = useState(false);
   const [file, setFile] = useState<File>();
   const [category, setCategory] = useState(categories[0]!);
   const [description, setDescription] = useState("");
@@ -31,13 +33,14 @@ export function EvidencePage() {
   const writable = !!incident && isSessionWritable(incident);
 
   async function load(offset = 0) {
+    if (currentScope.current !== scopeKey) return;
     const seq = ++sequence.current;
     if (!incident) { setPage(undefined); return; }
     try {
       const [list, item] = await Promise.all([api.evidenceList(incident.id, offset, showWithdrawn), exactId !== null ? api.evidenceRecord(incident.id, exactId) : Promise.resolve(undefined)]);
-      if (sequence.current !== seq) return;
+      if (sequence.current !== seq || currentScope.current !== scopeKey) return;
       setPage(list); setSelected(item); setError("");
-    } catch (e) { if (sequence.current === seq) { setPage(undefined); setSelected(undefined); setError(e instanceof Error ? e.message : "Evidence unavailable"); } }
+    } catch (e) { if (sequence.current === seq && currentScope.current === scopeKey) { setPage(undefined); setSelected(undefined); setError(e instanceof Error ? e.message : "Evidence unavailable"); } }
   }
   useEffect(() => {
     setPage(undefined); setSelected(undefined); setError(""); setVerified([]); setWithdraw(undefined); setFile(undefined); setDescription("");
@@ -50,11 +53,12 @@ export function EvidencePage() {
     setBusy(true); setError("");
     try {
       await api.evidenceUpload(incident.id, file, category, description, crypto.randomUUID());
+      if (currentScope.current !== scopeKey) return;
       setFile(undefined); setDescription("");
       const input = document.getElementById("evidence-file") as HTMLInputElement | null;
       if (input) input.value = "";
       await load();
-    } catch (e) { setError(e instanceof Error ? e.message : "Unable to upload evidence"); }
+    } catch (e) { if (currentScope.current === scopeKey) setError(e instanceof Error ? e.message : "Unable to upload evidence"); }
     finally { setBusy(false); }
   }
 
@@ -63,15 +67,16 @@ export function EvidencePage() {
     setBusy(true); setError("");
     try {
       await api.evidenceWithdraw(incident.id, withdraw.id, withdraw.version, reason, crypto.randomUUID());
+      if (currentScope.current !== scopeKey) return;
       setWithdraw(undefined); setReason(""); await load(page?.offset ?? 0);
-    } catch (e) { setError(e instanceof Error ? e.message : "Unable to withdraw evidence"); }
+    } catch (e) { if (currentScope.current === scopeKey) setError(e instanceof Error ? e.message : "Unable to withdraw evidence"); }
     finally { setBusy(false); }
   }
   async function download(record: EvidenceRecord) {
     if (!incident) return;
     setBusy(true); setError("");
-    try { await api.evidenceDownload(incident.id, record); setVerified(ids => [...ids, record.id]); }
-    catch (e) { setVerified(ids => ids.filter(id => id !== record.id)); setError((e instanceof Error ? e.message : "Download unavailable") + ". Contact the incident or system administrator if integrity verification fails."); }
+    try { await api.evidenceDownload(incident.id, record); if (currentScope.current !== scopeKey) return; setVerified(ids => [...ids, record.id]); }
+    catch (e) { if (currentScope.current !== scopeKey) return; setVerified(ids => ids.filter(id => id !== record.id)); setError((e instanceof Error ? e.message : "Download unavailable") + ". Contact the incident or system administrator if integrity verification fails."); }
     finally { setBusy(false); }
   }
 
