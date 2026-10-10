@@ -166,9 +166,9 @@ the comprehensive multi-role command journey has a specific 90-second budget.
 | --- | --- |
 | npm ci / Prisma generation | Passed |
 | lint/typecheck / build | Passed |
-| Full unit command | 138 passed; 373 established integration/dormant cases environment-skipped |
-| Fresh full PostgreSQL suite | 321 passed / 26 files, zero skipped |
-| Fresh dedicated PI3 PostgreSQL + contract/navigation | 18 PostgreSQL + 4 policy cases passed (22 total) |
+| Full unit command | 138 passed; 374 established integration/dormant cases environment-skipped |
+| Fresh full PostgreSQL suite | 322 passed / 26 files, zero skipped |
+| Fresh dedicated PI3 PostgreSQL + contract/navigation | 19 PostgreSQL + 4 policy cases passed (23 total) |
 | Dedicated PI3 PostgreSQL browser | 19 passed |
 | General Playwright | 62 passed |
 | PI1/PI2/PI3 + retained PostgreSQL browser workflows | 65 passed: 15 PI1 + 15 PI2 + 19 PI3 + 16 retained |
@@ -192,6 +192,12 @@ the comprehensive multi-role command journey has a specific 90-second budget.
   close and hid the saved context while an editor is open.
 - Historical release traversal missed a replacement current claim after correction;
   added current-claim discovery and a PostgreSQL history/resolving-link regression.
+- Automated Codex review found that a selected older release could fall outside
+  the six-row context. The root now reserves the first slot, with five recent
+  siblings, so its blockers, linked requests and activity source remain included.
+  A real-command PostgreSQL regression creates eight releases and verifies the
+  older prepared root, independent checks and linked follow-up. Final gates were
+  rerun after this correction.
 - A bounded release slice could falsely imply no existing action; existence is now
   checked independently of display limits.
 - Compact matching context now explicitly reports stale suggestion inputs; runtime

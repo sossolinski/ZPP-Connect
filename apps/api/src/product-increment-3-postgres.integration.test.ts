@@ -78,6 +78,17 @@ pg('PI3 production PostgreSQL continuous support journey',()=>{
   await post(`/passenger-records/${value.passenger.id}/correct-source`,{version:value.passenger.version,lastName:'Corrected source surname',reason:'Manifest correction independently reviewed'});
   const data=await journey('release',release.id);expect(JSON.stringify(data.matches)).toContain('STALE');expect(JSON.stringify(data.releases)).toContain('REQUIRES_REVIEW');expect(data.steps.some((row:any)=>row.href===`/matching?claimId=${family.currentClaim.id}`)).toBe(true);expect((await db!.matchDecision.findUniqueOrThrow({where:{id:match.currentDecision.id}})).decision).toBe('CONFIRMED');
  });
+ it('keeps an older selected release, its blockers and linked follow-up inside bounded history',async()=>{
+  const value=await fixture('bounded-root'),family=await verified(value),match=await confirmed(value,family.currentClaim);
+  const selected=await post('/releases/prepare',{matchDecisionId:match.currentDecision.id,actionType:'REUNIFICATION',operationId:randomUUID()});
+  const followUp=await post('/requests',{category:'Transport',details:'Follow up the explicitly selected older release',relatedReleaseActionId:selected.id,operationId:randomUUID()});
+  for(let index=0;index<7;index++){
+   const newer=await post('/releases/prepare',{matchDecisionId:match.currentDecision.id,actionType:'RELEASE',operationId:randomUUID()});
+   await post(`/releases/${newer.id}/cancel`,{expectedVersion:newer.version,reason:'Human cancelled unrelated preparation',operationId:randomUUID()});
+  }
+  const data=await journey('release',selected.id);expect(data.releases.value.items).toHaveLength(6);expect(data.releases.value.total).toBe(8);expect(data.releases.value.items[0].id).toBe(selected.id);
+  expect(data.steps.some((row:any)=>row.key===`${selected.id}-identity`)).toBe(true);expect(data.steps.some((row:any)=>row.key===`${selected.id}-holdReview`)).toBe(true);expect(data.followUp.value.items.some((row:any)=>row.id===followUp.id)).toBe(true);
+ });
  it('historical release resolves a replacement current claim after reported-claim correction',async()=>{
   const value=await fixture('release-claim-correction'),family=await verified(value),match=await confirmed(value,family.currentClaim),release=await post('/releases/prepare',{matchDecisionId:match.currentDecision.id,actionType:'RELEASE',operationId:randomUUID()});
   const corrected=await post(`/family-records/${family.id}/correct-claim`,{version:family.version,claimVersion:family.currentClaim.version,passengerLastName:'New reported facts',reason:'Human corrected reported facts'});

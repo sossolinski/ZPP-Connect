@@ -68,7 +68,13 @@ export async function readSupportJourney(db: PrismaClient, context: IncidentCont
     ...(kind === "release" ? [{ id }] : []), { relationshipClaimId: { in: [...claimIds] } },
     ...(kind === "passenger" ? [{ passengerRecordId: id }] : []),
   ] };
-  const releaseRows = has("release:read") ? await db.releaseAction.findMany({ where: releaseWhere, select: { id: true }, orderBy: [{ updatedAt: "desc" }, { id: "asc" }], take: limit }) : [];
+  // Reserve a display slot for the exact selected release, even outside recent history.
+  const releaseRows = has("release:read") ? await db.releaseAction.findMany({
+    where: { ...releaseWhere, ...(kind === "release" ? { id: { not: id } } : {}) },
+    select: { id: true }, orderBy: [{ updatedAt: "desc" }, { id: "asc" }],
+    take: kind === "release" ? limit - 1 : limit,
+  }) : [];
+  if (kind === "release" && has("release:read")) releaseRows.unshift({ id });
   const releaseContexts = (await Promise.all(releaseRows.map(row => releasing.getContext(context, row.id)))).filter(row => row !== null);
   // A bounded display slice cannot establish that no existing release is recorded.
   const activeReleaseClaims = has("release:read") ? new Set((await db.releaseAction.findMany({
