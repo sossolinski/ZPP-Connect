@@ -16,7 +16,7 @@ async function get(page: Page, path: string, query: Row) {
 }
 async function useSession(page: Page, session: Row) {
   await page.goto("/sessions"); const row = page.getByRole("row").filter({ hasText: session.operationalId }); await expect(row).toBeVisible();
-  const button = row.getByRole("button", { name: "Use this session" }); if (await button.count()) await button.click();
+  const button = row.getByRole("button", { name: "Use this incident" }); if (await button.count()) await button.click();
 }
 
 test.afterEach(async ({ page }) => {

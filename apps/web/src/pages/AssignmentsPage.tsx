@@ -367,11 +367,24 @@ export function AssignmentsPage() {
       return;
     }
     const task = tasks.find((item) => [item.id, item.operationalId].filter(Boolean).some((value) => String(value).toLowerCase() === focus));
-    if (!task || handledFocusRef.current === `${task.id}:${focus}`) return;
-    if (memberSelfView && ownerUserId(task) !== assignmentUserId) return;
-    handledFocusRef.current = `${task.id}:${focus}`;
-    openTask(task);
-  }, [assignmentUserId, focusAssignmentId, loading, tasks, memberSelfView]);
+    if (task) {
+      if (handledFocusRef.current === `${task.id}:${focus}`) return;
+      if (memberSelfView && ownerUserId(task) !== assignmentUserId) return;
+      handledFocusRef.current = `${task.id}:${focus}`;
+      openTask(task);
+      return;
+    }
+    // A workspace link may target an authorized task outside the first queue page.
+    if (!activeSession || !/^[0-9a-f-]{36}$/i.test(focus) || handledFocusRef.current === `${focus}:${focus}`) return;
+    let cancelled = false;
+    api.assignment<AssignmentTask>(focus, activeSession.id).then(record => {
+      if (cancelled) return;
+      if (memberSelfView && ownerUserId(record) !== assignmentUserId) return;
+      handledFocusRef.current = `${focus}:${focus}`;
+      openTask(record);
+    }).catch((cause: Error) => { if (!cancelled) setError(cause.message); });
+    return () => { cancelled = true; };
+  }, [activeSession?.id, assignmentUserId, focusAssignmentId, loading, tasks, memberSelfView]);
 
   const ownerOptions = useMemo<OwnerOption[]>(() => {
     const options = new Map<string, string>();
@@ -822,7 +835,7 @@ export function AssignmentsPage() {
 
   return (
     <>
-      <PageIntro eyebrow="Operational task board" title="Assignments" description="Next: open Assigned to me, claim one safe task if needed, then move it to In Progress or Complete." />
+      <PageIntro eyebrow="Operational task board" title="Tasks" description="Next: open Assigned to me, claim one safe task if needed, then move it to In Progress or Complete." />
 
       <div className="grid gap-4">
         {feedback ? <AlertBox tone="success" dismissible={false}>{feedback}</AlertBox> : null}

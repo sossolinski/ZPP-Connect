@@ -32,15 +32,15 @@ async function useSession(page: Page, session: Row) {
   await page.goto("/sessions");
   const row = page.getByRole("row").filter({ hasText: session.operationalId });
   await expect(row).toBeVisible();
-  const button = row.getByRole("button", { name: "Use this session" });
+  const button = row.getByRole("button", { name: "Use this incident" });
   if (await button.count()) await button.click();
-  await expect(page.locator(`[aria-label*="Current session REAL ${session.operationalId}"]:visible`)).toHaveCount(1);
+  await expect(page.locator(`[aria-label*="Current incident REAL ${session.operationalId}"]:visible`)).toHaveCount(1);
 }
 
 async function setSessionForRestrictedPersona(page: Page, session: Row) {
   await page.evaluate((sessionId) => localStorage.setItem("zpp:activeSessionId", sessionId), session.id);
   await page.reload();
-  await expect(page.locator(`[aria-label*="Current session REAL ${session.operationalId}"]:visible`)).toHaveCount(1);
+  await expect(page.locator(`[aria-label*="Current incident REAL ${session.operationalId}"]:visible`)).toHaveCount(1);
 }
 
 async function openAssignmentsAfterPersonaSwitch(page: Page, sessionId: string) {

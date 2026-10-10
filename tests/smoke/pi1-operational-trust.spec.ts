@@ -46,7 +46,7 @@ for (const email of ["coordinator@lot.pl", "tec@lot.pl", "zpp@lot.pl", "voluntee
     await page.goto("/dashboard");
     await expect(page.getByTestId("dashboard-freshness")).toContainText("Data loaded successfully");
     const full = ["coordinator@lot.pl", "admin@lot.pl"].includes(email);
-    if (full) await expect(page.getByText("Manifest coverage", { exact: true })).toBeVisible();
+    if (full) { await page.getByTestId("dashboard-metrics").locator("summary").click(); await expect(page.getByText("Manifest coverage", { exact: true })).toBeVisible(); }
     else {
       await expect(page.getByTestId("dashboard-metrics")).toContainText("Not available for your role");
       await expect(page.getByText("Manifest coverage", { exact: true })).toHaveCount(0);
@@ -72,6 +72,7 @@ test("authorized measured zero remains available", async ({ page }) => {
   await loginReady(page, "coordinator@lot.pl");
   await page.evaluate(id => localStorage.setItem("zpp:activeSessionId", id), emptyId);
   await page.goto("/dashboard");
+  await page.getByTestId("dashboard-metrics").locator("summary").click();
   await expect(page.getByTestId("dashboard-metrics")).toContainText("0 records loaded");
   await expect(page.getByText("Manifest coverage", { exact: true })).toBeVisible();
   await expect(page.getByTestId("dashboard-metrics")).not.toContainText("Not available for your role");
@@ -154,9 +155,9 @@ test("late refresh from the previous incident cannot replace the selected incide
   });
   await page.getByRole("button", { name: "Refresh dashboard" }).click();
   await expect.poll(() => Boolean(release)).toBe(true);
-  await page.getByRole("link", { name: /Current session .* Open Sessions/ }).click();
-  await page.getByRole("row").filter({ hasText: `${marker}-EMPTY` }).getByRole("button", { name: "Use this session" }).click();
-  await page.getByRole("link", { name: "Dashboard", exact: true }).click();
+  await page.getByRole("link", { name: /Current incident .* Open Incidents/ }).click();
+  await page.getByRole("row").filter({ hasText: `${marker}-EMPTY` }).getByRole("button", { name: "Use this incident" }).click();
+  await page.getByRole("link", { name: "Incident Workspace", exact: true }).click();
   await expect(page.getByTestId("dashboard-metrics")).toContainText("0 records loaded");
   release!();
   await expect(page.getByTestId("dashboard-metrics")).toContainText("0 records loaded");
@@ -174,7 +175,7 @@ test("initial load failure and absent incident never become zero or clear", asyn
   await expect(page.getByTestId("dashboard-freshness")).toContainText("Data loaded successfully");
   await page.route("**/api/sessions?*", route => route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ total: 0, data: [] }) }));
   await page.goto("/dashboard");
-  await expect(page.getByText("No active session", { exact: true })).toBeVisible();
+  await expect(page.getByText("No active incident", { exact: true })).toBeVisible();
   await expect(page.getByTestId("dashboard-metrics")).toHaveCount(0);
 });
 

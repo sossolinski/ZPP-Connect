@@ -78,7 +78,7 @@ function SessionDependentPage({ children }: { children: ReactNode }) {
       ) : !isSessionWritable(activeSession) ? (
         <div className="mb-4">
           <AlertBox>
-            Session {activeSession.operationalId} is closed and read-only. Select another open session to continue operational work.
+            Incident {activeSession.operationalId} is closed and read-only. Select another open incident to continue operational work.
           </AlertBox>
         </div>
       ) : null}
@@ -270,7 +270,7 @@ export function App() {
         path="/dashboard"
         element={protect(
           "dashboard",
-          <WorkflowPage eyebrow="Operational overview" title="Dashboard" description="Next: follow the Start here steps in order, then review any attention items.">
+          <WorkflowPage eyebrow="Operational overview" title="Incident Workspace" description="Situation, priorities, responsibility and handover for your current incident.">
             {user ? <DashboardPage portalUser={user} canAccessRoute={hasRouteCapability} /> : null}
           </WorkflowPage>
         )}
@@ -280,7 +280,7 @@ export function App() {
         path="/sessions"
         element={protect(
           "sessions",
-          <WorkflowPage eyebrow="Session control" title="Sessions" description="Next: confirm the active real event before creating or editing records.">
+          <WorkflowPage eyebrow="Incident control" title="Incidents" description="Next: confirm the active real event before creating or editing records.">
             <SessionsPage />
           </WorkflowPage>
         )}
@@ -335,7 +335,7 @@ export function App() {
         path="/requests"
         element={protect(
           "requests",
-          <WorkflowPage eyebrow="Welfare requests" title="Requests" description="Next: open urgent requests first, assign an owner, then update the status.">
+          <WorkflowPage eyebrow="Welfare requests" title="Support Requests" description="Next: open urgent requests first, assign an owner, then update the status.">
             <SessionDependentPage><RequestsPage /></SessionDependentPage>
           </WorkflowPage>
         )}

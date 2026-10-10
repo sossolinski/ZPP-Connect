@@ -196,10 +196,10 @@ export function SessionsPage() {
       sortable: false,
       render: (row: AnyRecord) =>
         row.id === activeSession?.id ? (
-          <Badge tone="success" className="whitespace-nowrap">Current session</Badge>
+          <Badge tone="success" className="whitespace-nowrap">Current incident</Badge>
         ) : canSelectSession && isSessionWritable(row as SessionRecord) ? (
           <Button icon={CheckCircle2} size="sm" variant="secondary" onClick={() => selectSession(row as SessionRecord)}>
-            Use this session
+            Use this incident
           </Button>
         ) : row.status === "Closed" || row.status === "Archived" ? (
           <Badge tone="neutral">Read-only</Badge>

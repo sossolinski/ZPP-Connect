@@ -61,7 +61,7 @@ async function nextOperationalId(tx: Prisma.TransactionClient) {
   const [row] = await tx.$queryRaw<Array<{ value: bigint }>>`SELECT nextval('"AssignmentTask_operational_seq"') AS value`;
   return `ASN-${new Date().getFullYear()}-${String(row!.value).padStart(6, "0")}`;
 }
-async function eligibleUserIds(db: PrismaClient | Prisma.TransactionClient, incidentId: string, userIds?: string[]) {
+export async function eligibleUserIds(db: PrismaClient | Prisma.TransactionClient, incidentId: string, userIds?: string[]) {
   const rows = await db.incidentAssignment.findMany({
     where: {
       incidentId,

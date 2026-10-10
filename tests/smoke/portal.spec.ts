@@ -31,9 +31,9 @@ async function useSession(page: Page, session: TestSession) {
   await page.goto("/sessions");
   const row = page.getByRole("row").filter({ hasText: session.operationalId });
   await expect(row).toBeVisible();
-  const action = row.getByRole("button", { name: "Use this session" });
+  const action = row.getByRole("button", { name: "Use this incident" });
   if (await action.count()) await action.click();
-  await expect(page.locator(`[aria-label*="Current session REAL ${session.operationalId}"]:visible`)).toHaveCount(1);
+  await expect(page.locator(`[aria-label*="Current incident REAL ${session.operationalId}"]:visible`)).toHaveCount(1);
 }
 
 async function expectNoTechnicalStorageCopy(page: Page) {
@@ -120,7 +120,7 @@ test.describe("ZPP Connect portal", () => {
   test("logs in as ZPP Group Leader and shows only scoped operational navigation", async ({ page }) => {
     await login(page, "zpp@lot.pl");
 
-    await expect(page.getByRole("heading", { name: "Dashboard" })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Incident Workspace" })).toBeVisible();
     await expect(page.getByRole("button", { name: /Case Work/ })).toHaveCount(0);
     await expect(page.getByRole("link", { name: /TEC Intake/ })).toHaveCount(0);
     await expect(page.getByRole("link", { name: /Passenger \/ SRC/ })).toHaveCount(0);
@@ -135,13 +135,13 @@ test.describe("ZPP Connect portal", () => {
     await login(page, "zpp@lot.pl");
 
     await expect(page.locator('[aria-label^="Data source:"]:visible')).toHaveCount(0);
-    await expect(page.locator('[aria-label^="Current session REAL"]:visible')).toHaveCount(1);
+    await expect(page.locator('[aria-label^="Current incident REAL"]:visible')).toHaveCount(1);
     await expectNoTechnicalStorageCopy(page);
 
     await page.setViewportSize({ width: 390, height: 844 });
     await page.reload();
     await expect(page.locator('[aria-label^="Data source:"]:visible')).toHaveCount(0);
-    await expect(page.locator('[aria-label^="Current session REAL"]:visible')).toHaveCount(1);
+    await expect(page.locator('[aria-label^="Current incident REAL"]:visible')).toHaveCount(1);
     await expectNoTechnicalStorageCopy(page);
   });
 
@@ -208,7 +208,7 @@ test.describe("ZPP Connect portal", () => {
     await expect(page.getByRole("button", { name: /Case Work/ })).toBeVisible();
     await page.getByRole("button", { name: /Case Work/ }).click();
     await page.getByRole("button", { name: /People/ }).click();
-    await page.getByRole("link", { name: "Assignments", exact: true }).click();
+    await page.getByRole("link", { name: "Tasks", exact: true }).click();
     await expect(page).toHaveURL(/\/assignments/);
   });
 
@@ -216,19 +216,19 @@ test.describe("ZPP Connect portal", () => {
     await login(page, "admin@lot.pl");
 
     const routes = [
-      ["/dashboard", "Dashboard"],
-      ["/active-event", "Active Event"],
-      ["/sessions", "Sessions"],
+      ["/dashboard", "Incident Workspace"],
+      ["/active-event", "Operational Briefing"],
+      ["/sessions", "Incidents"],
       ["/tec-intake", "TEC Intake"],
       ["/family-nok", "Family / NOK"],
       ["/passenger-src", "Passenger / SRC"],
       ["/matching", "Matching"],
       ["/release-control", "Release Control"],
-      ["/requests", "Requests"],
+      ["/requests", "Support Requests"],
       ["/timeline", "Timeline"],
       ["/members", "Members"],
       ["/rostering", "Rostering"],
-      ["/assignments", "Assignments"],
+      ["/assignments", "Tasks"],
       ["/documents", "Documents"],
       ["/files-import", "Files / Import"],
       ["/reports", "Reports"],
@@ -451,7 +451,7 @@ test.describe("ZPP Connect portal", () => {
     await login(page, "admin@lot.pl");
     await page.goto("/active-event");
 
-    await expect(page.getByText("No active session selected")).toBeVisible();
+    await expect(page.getByText("No active incident selected")).toBeVisible();
     await expect(page.getByText("Select an open session before using Active Event information for operational work.")).toBeVisible();
     await expect(page.getByText("ERP-2026-001")).toHaveCount(0);
     await expectNoTechnicalStorageCopy(page);
@@ -637,7 +637,7 @@ test.describe("ZPP Connect portal", () => {
     await login(page, "zpp@lot.pl");
     await page.goto("/assignments");
 
-    await expect(page.getByRole("heading", { name: "Assignments", exact: true })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Tasks", exact: true })).toBeVisible();
     await expect(page.getByText("Prepare welfare room briefing note")).toBeVisible();
 
     const title = `Smoke assignment ${Date.now()}`;
